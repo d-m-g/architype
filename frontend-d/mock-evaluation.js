@@ -1,0 +1,14 @@
+// Synthetic outcome pairs for UI replay only. Never load dataset reference answers here.
+export const runs = [
+ {id:'D01',source:'Raster',task:'Count',scenario:'windows',label:'Windows / ground floor',confidence:.92,base:{correct:true,answered:true,cost:.001,tier:'Detector'},fallback:{correct:true,answered:true,cost:.012,tier:'Model'}},
+ {id:'D02',source:'Raster',task:'Count',scenario:'doors',label:'Doors / uncertain symbol',confidence:.55,base:{correct:false,answered:true,cost:.001,tier:'Detector'},fallback:{correct:true,answered:true,cost:.014,tier:'Model'}},
+ {id:'D03',source:'PDF',task:'Area',scenario:'area',label:'Combined room quantities',confidence:.96,base:{correct:true,answered:true,cost:.0002,tier:'Parser'},fallback:{correct:true,answered:true,cost:.01,tier:'Model'}},
+ {id:'D04',source:'PDF',task:'Count',scenario:'missing',label:'Whole-building scope unavailable',confidence:.35,base:{correct:false,answered:false,cost:.0002,tier:'Parser'},fallback:{correct:false,answered:false,cost:.011,tier:'Model'}},
+ {id:'D05',source:'BIM',task:'Area',scenario:'area',label:'Room quantity conflict',confidence:.65,base:{correct:false,answered:true,cost:.0004,tier:'Parser'},fallback:{correct:true,answered:true,cost:.016,tier:'Model'}},
+ {id:'D06',source:'BIM',task:'Count',scenario:'windows',label:'Element count example',confidence:.98,base:{correct:true,answered:true,cost:.0004,tier:'Parser'},fallback:{correct:true,answered:true,cost:.012,tier:'Model'}},
+ {id:'D07',source:'Raster',task:'Count',scenario:'doors',label:'Overlapping door candidates',confidence:.78,base:{correct:false,answered:true,cost:.001,tier:'Detector'},fallback:{correct:false,answered:true,cost:.013,tier:'Model'}},
+ {id:'D08',source:'PDF',task:'Area',scenario:'area',label:'Printed room area example',confidence:.87,base:{correct:true,answered:true,cost:.0002,tier:'Parser'},fallback:{correct:true,answered:true,cost:.01,tier:'Model'}}
+];
+export function replay(records,threshold){return records.map(r=>{const escalated=r.confidence<threshold;return {...r,...(escalated?r.fallback:r.base),cost:r.base.cost+(escalated?r.fallback.cost:0),escalated};});}
+export function summarize(rows){const n=rows.length,answered=rows.filter(r=>r.answered).length,correct=rows.filter(r=>r.answered&&r.correct).length;return {n,answered,correct,accuracy:answered?correct/answered:null,coverage:n?answered/n:null,cost:n?rows.reduce((a,r)=>a+r.cost,0)/n:null,escalations:rows.filter(r=>r.escalated).length};}
+export function reliability(records){return [[0,.5],[.5,.8],[.8,1.01]].map(([lo,hi])=>{const group=records.filter(r=>r.base.answered&&r.confidence>=lo&&r.confidence<hi);return {label:`${Math.round(lo*100)}–${Math.min(100,Math.round(hi*100))}%`,n:group.length,confidence:group.length?group.reduce((a,r)=>a+r.confidence,0)/group.length:null,accuracy:group.length?group.filter(r=>r.base.correct).length/group.length:null};});}

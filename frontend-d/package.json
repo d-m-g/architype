@@ -1,0 +1,2 @@
+{"name":"stoa-viewer-d","private":true,"type":"module","scripts":{"test":"node --test viewer.test.js dashboard.test.js contracts.test.js workspace.test.js"}}
+
