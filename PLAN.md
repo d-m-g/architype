@@ -9,13 +9,14 @@ Junction 2026, Stoa challenge, 4 people, 48 hours. Status: proposal, not yet agr
 
 ## The idea
 
-Build a cascade: parse the drawing when the format is structured, run a small detector trained on Modal when it is a raster, and call Gemini only when confidence is low.
+Build a cascade: parse the drawing when the format is structured, run a small detector trained on Modal when it is a raster, and call a large model (Gemini or Nemotron) only when confidence is low.
 
-In the preview, parsing alone covers about 43% of questions and a detector another 53%. Gemini then runs on a small share of requests, which is what the cost criterion rewards. It also fits what Stoa asks for: a hybrid of geometry, computer vision and small trained models that a better frontier model improves instead of replacing.
+In the preview, parsing alone covers about 43% of questions and a detector another 53%. The large models then run on a small share of requests, which is what the cost criterion rewards. It also fits what Stoa asks for: a hybrid of geometry, computer vision and small trained models that a better frontier model improves instead of replacing.
 
 ## Do first
 
 - **Gemini credits:** fill in the form on the [Best Use of Gemini API](https://hackjunction.app/participate/45/tech-challenges/48) page. It is capped at 400 teams.
+- **NVIDIA key:** each of us creates our own API key on NVIDIA Build for the [Best Use of Nemotron](https://hackjunction.app/participate/45/tech-challenges/46) challenge. The free tier allows about 40 requests per minute per key.
 - **Modal credits:** follow the [Modal at Junction page](https://modal-com.notion.site/Modal-at-Junction-2026-use-cases-for-every-challenge-4161e7f16949816e9540de36da40a90a).
   - Sign up off the venue Wi-Fi; many sign-ups from one network trip Modal's fraud checks.
   - Each of us redeems the $100 in our own workspace, because a Starter workspace has 3 seats.
@@ -32,9 +33,9 @@ There are 7,990 questions over 320 drawings; 76% are counts and 20% are areas. S
 | cubicasa5k (PNG rasters) | 53% | counts of windows, doors, fixtures, room types (EN, FI) | detector trained on Modal |
 | swiss_dwellings (PDF + DXF + PNG) | 30% | counts, room and apartment areas (EN/DE/FR/IT) | DXF parsing; it has DOOR, WINDOW, FIXTURE, ROOM_OUTLINE, UNIT_OUTLINE layers |
 | ifc_models (IFC + rendered PDF) | 13% | room areas, counts, wall length, slab volume per storey | IfcOpenShell |
-| ifc_bench (IFC) | 3% | free-form reports | Gemini with IfcOpenShell tools |
-| opening_design (PDF sheets) | 1% | door and finish schedules | PDF table extraction, then Gemini on the text |
-| scans (habs, finna, europeana, wikimedia), DWG | 0% | no questions | Gemini fallback only |
+| ifc_bench (IFC) | 3% | free-form reports | Nemotron agent with IfcOpenShell tools |
+| opening_design (PDF sheets) | 1% | door and finish schedules | PDF table extraction, then Nemotron on the text |
+| scans (habs, finna, europeana, wikimedia), DWG | 0% | no questions | large-model fallback only |
 
 The hard part is exact window and door counts on rasters:
 
@@ -47,7 +48,9 @@ The hard part is exact window and door counts on rasters:
 1. **Question to query plan.** Gemini Flash-Lite with structured output turns a question in any language into `{op, entity, filters, level, unit}`. Cache by template so repeats cost nothing.
 2. **Drawing to scene, once per drawing, cached.** Parsers and the detector emit the same JSON: entities with type, label, level, polygon in page coordinates, quantities, confidence and a source reference.
 3. **Execute the plan on the scene.** Filter, then count or sum. The matched entity ids are the evidence.
-4. **Escalate if confidence is below a threshold.** Gemini gets the image and returns bounding boxes; reconcile and log both answers.
+4. **Escalate if confidence is below a threshold, or if the question does not fit one query plan.** Nemotron 3.5 Super VL gets the question, the page image and tools (scene queries, IfcOpenShell code in a Modal Sandbox) and answers with the entities it used. Reconcile and log both answers.
+
+For visual re-counts on rasters, the fallback has to point at items the detector missed. Gemini has documented bounding-box output and Nemotron's is untested, so run both on the 300-question sample and keep whichever scores better.
 
 Every response is `{answer, unit, confidence, evidence[], formula, trace[], cost_usd}`.
 
@@ -66,13 +69,14 @@ Agree on this and the scene schema in the first hour so the four of us can work 
 
 - Each step logs tokens or GPU seconds against a price table into one SQLite table.
 - Report the first question on a drawing (includes the scene build) separately from later ones.
-- Run plain Gemini Flash and Pro on the same 300-question sample as baselines.
+- Run plain Gemini Flash, Gemini Pro and Nemotron on the same 300-question sample as baselines.
+- Price Nemotron at a paid rate (a listed per-token price, or Modal GPU seconds if self-hosted), not at the free tier's $0.
 
 **Confidence**
 
 - **Parsed answers:** high, lowered when the label match is fuzzy or two sources disagree (printed area against polygon area, DXF against PDF).
 - **Detector counts:** treat each detection score as a probability and compute the distribution over the count. The answer is the most likely count and the confidence is its probability.
-- **Gemini:** agreement across 2–3 samples, or with the detector.
+- **Large-model answers:** agreement across 2–3 samples, or with the detector.
 - **Calibration:** isotonic regression on held-out questions, so 0.8 means 80% correct.
 
 **Dashboard**
@@ -89,15 +93,25 @@ Agree on this and the scene schema in the first hour so the four of us can work 
 |---|---|---|
 | A | parsers, executor, eval harness | Swiss DXF to scene; `eval.py` using the README scoring rules |
 | B | detector on Modal | CubiCasa5K SVG labels to YOLO format; first training run |
-| C | API, Gemini, cascade, cost and confidence logging | `/ask` endpoint, query-plan parser, baseline numbers |
-| D | viewer, dashboard, 3D, demo | overlay viewer against a mocked scene |
+| C | API, Gemini, Nemotron agent, cascade, cost and confidence logging | `/ask` endpoint, query-plan parser, baseline numbers |
+| D | viewer, dashboard, 3D, voice add-on, demo | overlay viewer against a mocked scene |
 
-## Credits
+## Models and credits
 
-**Gemini**
+All large models go through one client: the `openai` SDK with a base URL and model name per provider (Gemini's OpenAI-compatible endpoint, NVIDIA at `https://integrate.api.nvidia.com/v1`, Modal endpoints). Swapping a model is a config change, and token usage is logged the same way for each.
 
-- At request time: the query plan, the low-confidence fallback, schedules and scans, and the IFC free-form agent.
+**Gemini: the fast path**
+
+- At request time: the query plan for every question, typed or spoken.
 - Offline: as a teacher that pseudo-labels non-CubiCasa rasters for the detector.
+
+**Nemotron 3.5 Super VL: the escalation agent**
+
+- At request time: low-confidence answers, questions that need several steps, free-form IFC questions, and schedules. It works through tools, so its evidence is the entities it queried.
+- It is open-weight, so the fallback can run on our own GPUs with no closed API. That supports the cost story for Stoa.
+- The challenge requires this exact model in the working solution, with its contribution visible in the demo: show its tool-call trace in the answer card.
+- The submission needs a text on what the model does and how we improved its outputs. Report Nemotron on the raw image against Nemotron with scene tools, from the eval.
+- Rate limit: about 40 requests per minute per key on the free tier. Use retries with backoff and keep it to the 300-question sample, not the full eval.
 
 **Modal**
 
@@ -109,9 +123,18 @@ Agree on this and the scene schema in the first hour so the four of us can work 
 
 Together this also makes a [Best Use of Modal](https://hackjunction.app/participate/45/tech-challenges/40) entry.
 
-**Gemma (optional)**
+**Gemma (lowest priority)**
 
-If C has time, fine-tune a small Gemma on question-to-plan pairs to replace the Flash-Lite call. That adds [Best Use of Gemma](https://hackjunction.app/participate/45/tech-challenges/47) as a third tech challenge.
+Stoa, Gemini, Modal and Nemotron are already four submissions. Only if C is ahead at hour 22: fine-tune a small Gemma on question-to-plan pairs to replace the Flash-Lite call, which adds [Best Use of Gemma](https://hackjunction.app/participate/45/tech-challenges/47).
+
+## Voice add-on
+
+Voice only changes how the question arrives and how the answer leaves. `/ask` stays text in, JSON out, so nothing in the backend has to change now. D owns it, after the viewer and dashboard work.
+
+- **Input, first version:** the browser's Web Speech API fills the question box. About 20 lines, no backend, no inference cost. It needs Chrome and a language picker, because it does not detect the language.
+- **Output, first version:** the browser's `speechSynthesis` reads a templated sentence: the answer, the unit, the confidence, and how many highlights are uncertain.
+- **Upgrade if recognition is poor** on room names, Finnish or venue noise: record the audio and send it to the Gemini query-plan call in place of the text. One call then transcribes and plans, detects the language, and can take the drawing's room labels as hints. Return the transcript so the UI shows what was heard.
+- **Check before the upgrade:** Chrome records WebM/Opus; convert it server-side with ffmpeg if Gemini rejects that format.
 
 ## Timeline (hours from start)
 
@@ -120,9 +143,9 @@ If C has time, fine-tune a small Gemma on question-to-plan pairs to replace the 
 | 0–2, together | credits, download the full set and rerun the stats, agree on the schemas, fix a train/test split by drawing, ask Stoa the questions below | schemas agreed |
 | 2–10 | one vertical slice on Swiss | a question shows an overlay in the UI; the eval prints accuracy and cost |
 | 10–22 | IFC parser, detector v1 integrated, cascade and cost log, dashboard v1 | the three main sources go through one API |
-| 22–34 | accuracy push, calibration, Gemini fallback, schedules, IFC agent, 3D view, baselines | feature freeze at 34 |
+| 22–34 | accuracy push, calibration, Nemotron escalation agent, schedules, 3D view, baselines, voice first version if on schedule | feature freeze at 34 |
 | 34–42 | full eval on Modal, fix the largest failure buckets, deploy, polish | public URL works |
-| 42–48 | demo script, backup video, submissions to Stoa, Modal and Gemini | submitted |
+| 42–48 | demo script, backup video, submissions to Stoa, Modal, Gemini and NVIDIA | submitted |
 
 ## Skipping
 
@@ -130,6 +153,7 @@ If C has time, fine-tune a small Gemma on question-to-plan pairs to replace the 
 - **DWG:** no questions use it.
 - **VLM fine-tuning:** slower to iterate and costlier per request than a detector.
 - **An OCR engine:** add it only if room-label counts on rasters need it.
+- **ElevenLabs or a hosted speech model:** the browser's built-in speech APIs cover the voice add-on.
 - **Agent frameworks, auth, anything beyond SQLite.**
 
 ## Ask Stoa
@@ -142,4 +166,5 @@ If C has time, fine-tune a small Gemma on question-to-plan pairs to replace the 
 
 - **IFC areas:** three IFC models lack `NetFloorArea` quantities, so compute areas from geometry and check against the gold answers early; the tolerance is 2%.
 - **Large IFCs:** the 64–74 MB files parse slowly, so cache the scenes.
+- **Nemotron:** its bounding-box output is untested and the free tier is rate-limited, so try both in the first 10 hours before relying on it.
 - **Exact counts on rasters:** this is where most of the accuracy score is decided; tune per-class detection thresholds against the question answers.
