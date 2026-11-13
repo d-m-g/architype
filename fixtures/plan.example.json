@@ -1,0 +1,6 @@
+{
+  "queries": {
+    "area": {"op": "sum", "type": "room", "apartment": "A", "outdoor": false, "qty": "m2"}
+  },
+  "unit": "m2"
+}

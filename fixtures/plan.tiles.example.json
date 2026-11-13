@@ -1,0 +1,9 @@
+{
+  "queries": {
+    "area": {"op": "sum", "type": "room", "label": "Bagno", "qty": "m2"}
+  },
+  "formula": "ceil(area * (1 + waste) / tile_m2)",
+  "unit": "count",
+  "interpretation": "Floor tiles for the rooms labelled Bagno; wall tiles are not included.",
+  "assumptions": {"tile": "40 x 40 cm", "tile_m2": 0.16, "waste": 0.1}
+}

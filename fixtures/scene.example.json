@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "path": "data/swiss_dwellings/site1101_bldg2241_floor10275.pdf",
+  "builder": "hand-made mock",
+  "tier": "parse",
+  "covers": ["room", "apartment", "fixture:toilet", "fixture:sink", "fixture:bathtub"],
+  "pages": [
+    {"image": "data/swiss_dwellings/site1101_bldg2241_floor10275.png", "width": 2480, "height": 1753}
+  ],
+  "entities": [
+    {"id": "apt-A", "type": "apartment", "label": "A",
+     "geom": [[0.355, 0.293], [0.645, 0.293], [0.645, 0.562], [0.355, 0.562]]},
+
+    {"id": "room-5.01", "type": "room", "subtype": "storage", "label": "Ripostiglio", "number": "5.01", "apartment": "A",
+     "qty": {"m2": 5.08}, "geom": [[0.355, 0.315], [0.400, 0.315], [0.400, 0.392], [0.355, 0.392]]},
+    {"id": "room-5.02", "type": "room", "subtype": "corridor", "label": "Corridoio", "number": "5.02", "apartment": "A",
+     "qty": {"m2": 4.06}, "geom": [[0.4475, 0.397], [0.550, 0.397], [0.550, 0.424], [0.4475, 0.424]]},
+    {"id": "room-5.03", "type": "room", "subtype": "living", "label": "Soggiorno/pranzo", "number": "5.03", "apartment": "A",
+     "qty": {"m2": 34.13}, "geom": [[0.5175, 0.396], [0.585, 0.396], [0.585, 0.293], [0.645, 0.293], [0.645, 0.562], [0.5175, 0.562]]},
+    {"id": "room-5.04", "type": "room", "label": "Stanza", "number": "5.04", "apartment": "A",
+     "qty": {"m2": 18.91}, "geom": [[0.355, 0.395], [0.4475, 0.395], [0.4475, 0.559], [0.355, 0.559]]},
+    {"id": "room-5.05", "type": "room", "subtype": "kitchen", "label": "Cucina", "number": "5.05", "apartment": "A",
+     "qty": {"m2": 5.34}, "geom": [[0.450, 0.424], [0.5175, 0.424], [0.5175, 0.495], [0.450, 0.495]]},
+    {"id": "room-5.06", "type": "room", "subtype": "bathroom", "label": "Bagno", "number": "5.06", "apartment": "A",
+     "qty": {"m2": 4.49}, "geom": [[0.4525, 0.4986], [0.5175, 0.4986], [0.5175, 0.562], [0.4525, 0.562]]},
+    {"id": "room-5.07", "type": "room", "subtype": "storage", "label": "Ripostiglio", "number": "5.07",
+     "qty": {"m2": 3.49}, "geom": [[0.510, 0.304], [0.580, 0.304], [0.580, 0.344], [0.510, 0.344]]},
+    {"id": "room-5.08", "type": "room", "subtype": "corridor", "label": "Corridoio", "number": "5.08",
+     "qty": {"m2": 10.62}, "geom": [[0.505, 0.3465], [0.5825, 0.3465], [0.5825, 0.396], [0.505, 0.396]]},
+
+    {"id": "fix-toilet-1", "type": "fixture", "subtype": "toilet", "ref": "dxf:mock",
+     "geom": [[0.4575, 0.539], [0.466, 0.539], [0.466, 0.554], [0.4575, 0.554]]},
+    {"id": "fix-sink-1", "type": "fixture", "subtype": "sink", "ref": "dxf:mock",
+     "geom": [[0.480, 0.5035], [0.504, 0.5035], [0.504, 0.515], [0.480, 0.515]]},
+    {"id": "fix-bathtub-1", "type": "fixture", "subtype": "bathtub", "ref": "dxf:mock", "conf": 0.9,
+     "geom": [[0.4725, 0.5425], [0.510, 0.5425], [0.510, 0.561], [0.4725, 0.561]]}
+  ]
+}

@@ -97,7 +97,7 @@ Limits:
 
 **Cost**
 
-- Each step logs tokens or GPU seconds against a price table into one SQLite table.
+- Each step logs tokens or GPU seconds against a price table into the answer's trace, and `eval.py` writes one JSONL row per question.
 - Report the first question on a drawing (includes the scene build) separately from later ones.
 - Run plain Gemini Flash, Gemini Pro and Nemotron on the same 300-question sample as baselines.
 - Add the free baseline too: always answer the most common count for that question template.
@@ -187,7 +187,7 @@ Voice only changes how the question arrives and how the answer leaves. `/ask` st
 - **VLM fine-tuning:** slower to iterate and costlier per request than a detector.
 - **An OCR engine:** add it only if room-label counts on rasters need it.
 - **ElevenLabs or a hosted speech model:** the browser's built-in speech APIs cover the voice add-on.
-- **Agent frameworks, auth, anything beyond SQLite.**
+- **Agent frameworks, auth, a database.** Run logs are JSONL files.
 
 ## Ask Stoa
 
