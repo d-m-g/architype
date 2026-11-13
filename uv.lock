@@ -860,6 +860,7 @@ dependencies = [
 brain = [
     { name = "fastapi" },
     { name = "openai" },
+    { name = "pymupdf" },
     { name = "uvicorn" },
 ]
 detector = [
@@ -880,6 +881,7 @@ requires-dist = [
     { name = "modal", marker = "extra == 'detector'" },
     { name = "openai", marker = "extra == 'brain'" },
     { name = "pydantic", specifier = ">=2" },
+    { name = "pymupdf", marker = "extra == 'brain'" },
     { name = "pymupdf", marker = "extra == 'parsers'" },
     { name = "shapely", marker = "extra == 'parsers'" },
     { name = "uvicorn", marker = "extra == 'brain'" },

@@ -80,4 +80,4 @@ uv run python eval.py --limit 500
 uv run python test_contract.py
 ```
 
-The rules in `plan.py` turn 48% of all dataset questions into a plan: every English cubicasa and Swiss one. The rest are the same templates in Finnish, German, French and Italian, plus IFC and schedules. Keys go in environment variables; `.env` is git-ignored.
+Every plan comes from Gemini (`gemini-3.8-flash`), whatever the language or wording. Quoted names are masked first, so one call serves every question of the same shape. `plans.json` (committed) holds Gemini's plans for the dataset's 1,261 question shapes, so eval runs without a key; new shapes are cached in `.cache/plans/`. Check and re-seed with `uv run --env-file .env --extra brain python -m blueprints.brain.plan [--seed]`: it grades the cached plans against hand-written readings of the English templates and requires every non-English question to plan like its English twin. Keys go in environment variables; `.env` is git-ignored.
