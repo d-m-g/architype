@@ -40,13 +40,15 @@ def page_png(file: Path, long_side: int = 2048) -> bytes:
     return page.get_pixmap(matrix=pymupdf.Matrix(scale, scale)).tobytes("png")
 
 
-def ask(model: str, path: str, question: str) -> Answer:
+def ask(model: str, path: str, question: str, think: bool = True) -> Answer:
     import openai
     url, key_name = PROVIDERS[model.split("-")[0]]
     client = openai.OpenAI(api_key=os.environ[key_name], base_url=url, max_retries=4, timeout=180)
     image = base64.b64encode(page_png(pipeline.dataset_file(path))).decode()
+    # Nemotron's switch; it otherwise thinks for up to thousands of tokens and can run out before answering.
+    extra = {} if think else {"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}}
     t0 = time.perf_counter()
-    reply = client.chat.completions.create(model=model, max_tokens=8192, messages=[{"role": "user", "content": [
+    reply = client.chat.completions.create(model=model, max_tokens=8192, **extra, messages=[{"role": "user", "content": [
         {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image}"}},
         {"type": "text", "text": PROMPT.format(question=question)}]}])
     step = llm_step("baseline", model, reply.usage.prompt_tokens, reply.usage.completion_tokens, (time.perf_counter() - t0) * 1000)
@@ -67,6 +69,7 @@ def main() -> None:
     p.add_argument("--model", required=True, help="gemini-3.8-flash, gemini-3.1-pro-preview, nemotron-3.5-super-vl, ...")
     p.add_argument("--limit", type=int, default=300)
     p.add_argument("--workers", type=int, default=8)
+    p.add_argument("--no-think", action="store_true", help="turn Nemotron's reasoning off")
     args = p.parse_args()
 
     everything = [json.loads(line) for line in (pipeline.DATA_ROOT / "questions.jsonl").open(encoding="utf-8")]
@@ -75,16 +78,20 @@ def main() -> None:
 
     def one(q):
         try:
-            return (q["path"], q["question"]), ask(args.model, q["path"], q["question"])
+            return (q["path"], q["question"]), ask(args.model, q["path"], q["question"], think=not args.no_think)
         except Exception as e:  # one bad call must not stop the run; it shows in the error list
             return (q["path"], q["question"]), Answer(error=f"{type(e).__name__}: {e}"[:300])
 
+    answers = {}
     with ThreadPoolExecutor(args.workers) as pool:
-        answers = dict(pool.map(one, questions))
+        for key, answer in pool.map(one, questions):
+            answers[key] = answer
+            if len(answers) % 25 == 0:
+                print(f"  {len(answers)}/{len(questions)}", flush=True)
     rows = harness.run(questions, lambda path, question: answers[path, question])
     for row in rows:  # harness.run timed the dict lookup; report the model call's time instead
         row.ms = sum(s.ms for s in answers[row.path, row.question].trace)
-    out = Path("runs") / f"{time.strftime('%Y%m%d-%H%M%S')}-plain-{args.model}.jsonl"
+    out = Path("runs") / f"{time.strftime('%Y%m%d-%H%M%S')}-plain-{args.model}{'-nothink' if args.no_think else ''}.jsonl"
     out.parent.mkdir(exist_ok=True)
     out.write_text("".join(r.model_dump_json() + "\n" for r in rows), encoding="utf-8")
     harness.summarise(rows)
