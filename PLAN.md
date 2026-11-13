@@ -11,7 +11,7 @@ Junction 2026, Stoa challenge, 4 people, 48 hours. Status: proposal, not yet agr
 
 Build a cascade: parse the drawing when the format is structured, run a small detector trained on Modal when it is a raster, and call a large model (Gemini or Nemotron) only when confidence is low.
 
-In the preview, parsing alone covers about 43% of questions and a detector another 53%. The large models then run on a small share of requests, which is what the cost criterion rewards. It also fits what Stoa asks for: a hybrid of geometry, computer vision and small trained models that a better frontier model improves instead of replacing.
+In the full dataset, parsing alone covers about 32% of questions and a detector another 67%. The large models then run on a small share of requests, which is what the cost criterion rewards. It also fits what Stoa asks for: a hybrid of geometry, computer vision and small trained models that a better frontier model improves instead of replacing.
 
 ## Do first
 
@@ -24,24 +24,36 @@ In the preview, parsing alone covers about 43% of questions and a detector anoth
   - Set the spend limit to $0 so the card is never charged.
   - Before sleeping, run `modal app list` and `modal app stop <app>`.
 
-## What the preview data says
+## What the data says
 
-There are 7,990 questions over 320 drawings; 76% are counts and 20% are areas. Scoring: counts must be exact, areas, lengths and volumes within 2%, text answers are free-form.
+Numbers are from the full dataset: 127,044 questions over 5,939 drawings, a median of 20 per drawing; 88% are counts and 11% are areas. Scoring: counts must be exact, areas, lengths and volumes within 2%, text answers are free-form.
 
 | Source | Share | Asked | Answer with |
 |---|---|---|---|
-| cubicasa5k (PNG rasters) | 53% | counts of windows, doors, fixtures, room types (EN, FI) | detector trained on Modal |
-| swiss_dwellings (PDF + DXF + PNG) | 30% | counts, room and apartment areas (EN/DE/FR/IT) | DXF parsing; it has DOOR, WINDOW, FIXTURE, ROOM_OUTLINE, UNIT_OUTLINE layers |
-| ifc_models (IFC + rendered PDF) | 13% | room areas, counts, wall length, slab volume per storey | IfcOpenShell |
-| ifc_bench (IFC) | 3% | free-form reports | Nemotron agent with IfcOpenShell tools |
-| opening_design (PDF sheets) | 1% | door and finish schedules | PDF table extraction, then Nemotron on the text |
-| scans (habs, finna, europeana, wikimedia), DWG | 0% | no questions | large-model fallback only |
+| cubicasa5k (4,787 PNG rasters) | 67.3% | counts of windows, doors, fixtures, room types (EN, FI) | detector trained on Modal |
+| swiss_dwellings (1,040 plans as PDF + DXF + PNG) | 29.6% | counts, room and apartment areas (EN/DE/FR/IT) | DXF parsing; it has DOOR, WINDOW, FIXTURE, ROOM_OUTLINE, UNIT_OUTLINE layers |
+| ifc_models (IFC + rendered PDF) | 2.4% | room areas, counts, wall length, slab volume | IfcOpenShell on the model the PDF was rendered from |
+| ifc_bench (IFC) | 0.6% | free-form reports | Nemotron agent with IfcOpenShell tools |
+| opening_design (3 PDF sheets) | 0.1% | door and finish schedules | PDF table extraction, then Nemotron on the text |
+| scans (habs, finna, europeana, wikimedia), DWG, SVG | 0% | no questions | large-model fallback only |
 
-The hard part is exact window and door counts on rasters:
+### Where the accuracy points are
 
-- Always guessing the most common answer scores 14% on both.
-- 37% of the rasters are under 800 px on the long side.
+| Question group | Share of all questions |
+|---|---|
+| Swiss counts and areas (parsing) | 29.6% |
+| Raster room types: bedrooms, kitchens, bathrooms, WC rooms, saunas, balconies | 24.7% |
+| Raster fixtures: toilets, sinks, showers and bathtubs | 22.0% |
+| Raster windows and doors | 13.1% |
+| Raster floors shown in the image | 7.5% |
+| IFC and schedules | 3.1% |
+
+- Always answering the most common count scores about 55% on cubicasa overall, at no cost. That is the floor any model has to beat.
+- Windows and doors are the hard group: the same guess scores 14% on windows and 12% on doors.
+- 42% of the rasters are under 800 px on the long side, and 7% are over 2,000 px.
 - At least one raster is rotated 180°.
+- cubicasa uses only 12 question templates, each in English and Finnish, so the template cache covers the query-plan step for most questions with no model call.
+- 88% of the ifc_models questions sit on a plan PDF, and some of those ask about the whole model, so always resolve the PDF to its IFC by filename.
 
 ## How a question gets answered
 
@@ -60,8 +72,11 @@ Agree on this and the scene schema in the first hour so the four of us can work 
 
 - **Viewer:** the server renders every format to a page image and the frontend draws an SVG overlay on it, so all formats share one code path.
 - **Evidence:** counted items get numbered highlights, with low-confidence ones in amber so the checker looks there first. Areas show the formula, for example `5.08 + 18.91 + … = 83.52 m²`.
-- **Buildings:** extrude room polygons per floor in three.js and stack them by level. IFC models have 3–10 storeys and link to their plan PDFs by filename; Finna sheets group by the set id in the filename.
-- **Check first:** every Swiss building in the preview has one floor, so confirm the full set has multi-floor buildings before promising Swiss stacks.
+- **Buildings:** extrude room polygons per floor in three.js and stack them by level. What can be combined:
+  - IFC models: 52 of the 54 with questions have two or more storeys (median 4, max 19), and their plan PDFs link to the model by filename.
+  - cubicasa: 963 images show 2–4 floors of one home side by side; split them and stack.
+  - Finna: 12 sets have two or more sheets, grouped by the set id in the filename.
+- **Not Swiss:** all 1,040 Swiss plans are single floors of different buildings, so they cannot be stacked.
 
 ## Cost and confidence scoring
 
@@ -70,6 +85,7 @@ Agree on this and the scene schema in the first hour so the four of us can work 
 - Each step logs tokens or GPU seconds against a price table into one SQLite table.
 - Report the first question on a drawing (includes the scene build) separately from later ones.
 - Run plain Gemini Flash, Gemini Pro and Nemotron on the same 300-question sample as baselines.
+- Add the free baseline too: always answer the most common count for that question template.
 - Price Nemotron at a paid rate (a listed per-token price, or Modal GPU seconds if self-hosted), not at the free tier's $0.
 
 **Confidence**
@@ -91,10 +107,12 @@ Agree on this and the scene schema in the first hour so the four of us can work 
 
 | Person | Owns | First deliverable |
 |---|---|---|
-| A | parsers, executor, eval harness | Swiss DXF to scene; `eval.py` using the README scoring rules |
-| B | detector on Modal | CubiCasa5K SVG labels to YOLO format; first training run |
+| A | Swiss parser, executor, eval harness; then raster room-type and floor counts; IFC last | Swiss DXF to scene; `eval.py` using the README scoring rules |
+| B | detector on Modal: fixtures, windows, doors | CubiCasa5K SVG labels to YOLO format; first training run |
 | C | API, Gemini, Nemotron agent, cascade, cost and confidence logging | `/ask` endpoint, query-plan parser, baseline numbers |
 | D | viewer, dashboard, 3D, voice add-on, demo | overlay viewer against a mocked scene |
+
+Rasters carry 67% of the questions, so A moves to raster room types and floors as soon as Swiss parsing passes the eval. IFC is 3% of the questions and comes after.
 
 ## Models and credits
 
@@ -117,7 +135,7 @@ All large models go through one client: the `openai` SDK with a base URL and mod
 
 - Train the detector; estimated $2–4 per run on an L40S.
 - Serve the detector.
-- `.map()` over all 14k drawings to prebuild scenes and run the 120k-question eval.
+- `.map()` over the 5,939 drawings that have questions to prebuild scenes and run the 127k-question eval.
 - A Sandbox for the IFC agent's code.
 - Deploy the app at a public URL.
 
@@ -140,17 +158,17 @@ Voice only changes how the question arrives and how the answer leaves. `/ask` st
 
 | Hours | Work | Gate |
 |---|---|---|
-| 0–2, together | credits, download the full set and rerun the stats, agree on the schemas, fix a train/test split by drawing, ask Stoa the questions below | schemas agreed |
+| 0–2, together | credits, agree on the schemas, fix a train/test split by drawing, ask Stoa the questions below | schemas agreed |
 | 2–10 | one vertical slice on Swiss | a question shows an overlay in the UI; the eval prints accuracy and cost |
-| 10–22 | IFC parser, detector v1 integrated, cascade and cost log, dashboard v1 | the three main sources go through one API |
-| 22–34 | accuracy push, calibration, Nemotron escalation agent, schedules, 3D view, baselines, voice first version if on schedule | feature freeze at 34 |
+| 10–22 | detector v1 integrated, raster room types and floors, cascade and cost log, dashboard v1 | Swiss and every raster question type go through one API (97% of questions) |
+| 22–34 | accuracy push on rasters, calibration, IFC parser, Nemotron escalation agent, schedules, 3D view, baselines, voice first version if on schedule | feature freeze at 34 |
 | 34–42 | full eval on Modal, fix the largest failure buckets, deploy, polish | public URL works |
 | 42–48 | demo script, backup video, submissions to Stoa, Modal, Gemini and NVIDIA | submitted |
 
 ## Skipping
 
 - **Retrieval, RAG and vector DBs** (Modal's suggested ColQwen example): every question names its file.
-- **DWG:** no questions use it.
+- **DWG, SVG and the scans:** no question in the full set uses them. Scans stay as demo material for the fallback.
 - **VLM fine-tuning:** slower to iterate and costlier per request than a detector.
 - **An OCR engine:** add it only if room-label counts on rasters need it.
 - **ElevenLabs or a hosted speech model:** the browser's built-in speech APIs cover the voice add-on.
@@ -158,13 +176,13 @@ Voice only changes how the question arrives and how the answer leaves. `/ask` st
 
 ## Ask Stoa
 
-1. Is accuracy measured on a hidden question set or from our own report?
-2. May we train on the original CubiCasa5K SVG annotations? The rasters come from that public dataset. If not, fall back to Gemini pseudo-labels plus the count answers for threshold tuning. Either way, never look answers up by filename, and hold out plans for honest numbers.
+1. Is accuracy measured on a hidden question set or from our own report? If hidden, does it follow the mix in `questions.jsonl` (67% raster counts)?
+2. May we train on the original CubiCasa5K SVG annotations? The rasters come from that public dataset, and all 4,787 of them have questions, so there is no unseen CubiCasa data: we hold out 20% of the plans ourselves. If not allowed, fall back to Gemini pseudo-labels plus the count answers for threshold tuning. Either way, never look answers up by filename.
 3. How is inference cost measured?
 
 ## Risks
 
-- **IFC areas:** three IFC models lack `NetFloorArea` quantities, so compute areas from geometry and check against the gold answers early; the tolerance is 2%.
-- **Large IFCs:** the 64–74 MB files parse slowly, so cache the scenes.
+- **IFC areas:** 45% of the IFC area questions are on models with `NetFloorArea`, 39% on models with other area quantities only, and 16% on models with none, which need geometry. Check each path against the gold answers early; the tolerance is 2%.
+- **Large IFCs:** 9 of the 54 models with questions are over 50 MB and the largest is 343 MB, so cache the scenes.
 - **Nemotron:** its bounding-box output is untested and the free tier is rate-limited, so try both in the first 10 hours before relying on it.
 - **Exact counts on rasters:** this is where most of the accuracy score is decided; tune per-class detection thresholds against the question answers.
