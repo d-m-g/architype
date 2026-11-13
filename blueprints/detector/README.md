@@ -44,7 +44,9 @@ Emit only detections above your threshold: the executor counts every entity in t
 
 ## Training and the split
 
-- Train and tune only on drawings where `scoring.split_of(path) == "train"`. The other 20% is the shared test set.
+- Stoa confirmed on 13 November that the public CubiCasa5K SVG annotations may be used for training, not to answer questions. At question time, use only the image.
+- Develop, tune and calibrate only on drawings where `scoring.split_of(path) == "train"`. The other 20% is the shared test set, and the accuracy we report comes from it.
+- A final model retrained on all plans is fine for the demo, since Stoa judges only on the given dataset. Keep it separate from the model the reported numbers come from.
 - Dataset names look like the public CubiCasa5K folders: `data/cubicasa5k/high_quality_architectural-1234.png` should be `high_quality_architectural/1234/`. Check a few by eye before relying on it.
 - 42% of the rasters are under 800 px on the long side and some are rotated, so upscale small ones and train with rotation.
 

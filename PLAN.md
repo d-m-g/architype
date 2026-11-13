@@ -136,7 +136,7 @@ All large models go through one client: the `openai` SDK with a base URL and mod
 **Gemini: the fast path**
 
 - At request time: the query plan for every question, typed or spoken.
-- Offline: nothing for now. Pseudo-labelling the hand-drawn scans for the detector is cut unless Stoa says scans are in the test set.
+- Offline: nothing for now. Pseudo-labelling the hand-drawn scans for the detector is cut: Stoa tests on the same dataset, and no scan has a question.
 
 **Nemotron 3.5 Super VL: the escalation agent**
 
@@ -173,7 +173,7 @@ Voice only changes how the question arrives and how the answer leaves. `/ask` st
 
 | Hours | Work | Gate |
 |---|---|---|
-| 0–2, together | credits, agree on the schemas, fix a train/test split by drawing, ask Stoa the questions below | schemas agreed |
+| 0–2, together | credits, agree on the schemas, read Stoa's answers below | schemas agreed |
 | 2–10 | one vertical slice on Swiss | a question shows an overlay in the UI; the eval prints accuracy and cost |
 | 10–22 | detector v1 integrated, raster room types and floors, cascade and cost log, dashboard v1 | Swiss and every raster question type go through one API (97% of questions) |
 | 22–34 | accuracy push on rasters, calibration, IFC parser, Nemotron escalation agent, derived questions, schedules, 3D view, baselines, voice first version if on schedule | feature freeze at 34 |
@@ -189,11 +189,18 @@ Voice only changes how the question arrives and how the answer leaves. `/ask` st
 - **ElevenLabs or a hosted speech model:** the browser's built-in speech APIs cover the voice add-on.
 - **Agent frameworks, auth, a database.** Run logs are JSONL files.
 
-## Ask Stoa
+## Stoa's answers (13 November)
 
-1. Is accuracy measured on a hidden question set or from our own report? If hidden, does it follow the mix in `questions.jsonl` (67% raster counts)?
-2. May we train on the original CubiCasa5K SVG annotations? The rasters come from that public dataset, and all 4,787 of them have questions, so there is no unseen CubiCasa data: we hold out 20% of the plans ourselves. If not allowed, fall back to Gemini pseudo-labels plus the count answers for threshold tuning. Either way, never look answers up by filename.
-3. How is inference cost measured?
+1. **Accuracy is judged only on the given dataset.** There are no new drawings, so the scans and anything else without questions are demo material only.
+2. **The CubiCasa5K SVG annotations may be used for training, not to answer.** Lane B trains the detector on them. At question time the system sees only the image, and never looks anything up by filename.
+3. **Sibling files may be used.** A Swiss PDF question can be answered from the same-name DXF, and an ifc_models plan PDF from the IFC model it was rendered from.
+4. **Inference cost is self-reported.** We report it ourselves, so it has to be credible: list prices for every model, and the first question on a drawing shown separately from later ones.
+
+How we apply answers 1 and 2:
+
+- Every plan Stoa judges on is one we may train on, and `questions.jsonl` already holds every answer. A full-dataset score therefore proves little on its own.
+- We develop, tune and calibrate on the 80% train split, and report accuracy on the 20% that `eval.py` holds out as the headline number.
+- For the final demo, lane B may retrain the same recipe on all plans. If we quote a full-dataset score for that model, we label it as including training plans.
 
 ## Risks
 
