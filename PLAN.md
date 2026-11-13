@@ -54,6 +54,7 @@ Numbers are from the full dataset: 127,044 questions over 5,939 drawings, a medi
 - At least one raster is rotated 180°.
 - cubicasa uses only 12 question templates, each in English and Finnish, so the template cache covers the query-plan step for most questions with no model call.
 - 88% of the ifc_models questions sit on a plan PDF, and some of those ask about the whole model, so always resolve the PDF to its IFC by filename.
+- Hand-drawn scans are about 30–45% of the drawings and 0% of the questions. HABS, Finna and Europeana (4,391 scans) are all hand-drawn in a 12-per-source sample; Wikimedia (2,175 scans) is mixed. Most of the hand-drawn sheets are sections, elevations or details, not floor plans.
 
 ## How a question gets answered
 
@@ -67,6 +68,20 @@ For visual re-counts on rasters, the fallback has to point at items the detector
 Every response is `{answer, unit, confidence, evidence[], formula, trace[], cost_usd}`.
 
 Agree on this and the scene schema in the first hour so the four of us can work in parallel.
+
+## Derived questions
+
+Questions such as "how many 4x4 tiles do I need for the toilets?" are not in the dataset, but they are the quantity take-off Stoa cares about and they make the demo. They need three additions, all after the hour-22 gate:
+
+- **Room types across languages (C):** one cached model call per drawing maps its room labels (`TUALETTRUUM`, `WC`, `Bagno`) to a short category list, so "toilet rooms" matches in any language.
+- **Formula in the query plan (C):** the plan may carry sub-queries and an arithmetic expression over them, evaluated in code, for example `ceil(area * 1.1 / tile_area)`. The model never does the arithmetic. The Nemotron agent takes what a formula cannot express.
+- **Assumptions on the answer card (D):** the reading of the question (toilet bowls or toilet rooms), tile size and unit, waste allowance, floor only or walls too. Show them as editable fields that recalculate.
+
+Limits:
+
+- Areas are exact on Swiss plans and IFC models only. The cubicasa rasters have no scale, so an area there is an estimate at best and must show low confidence.
+- Wall tiling needs room height, which only IFC models carry.
+- Hand-drawn scans go to the fallback model, and its answers there are unverified.
 
 ## Viewer and buildings
 
@@ -121,7 +136,7 @@ All large models go through one client: the `openai` SDK with a base URL and mod
 **Gemini: the fast path**
 
 - At request time: the query plan for every question, typed or spoken.
-- Offline: as a teacher that pseudo-labels non-CubiCasa rasters for the detector.
+- Offline: nothing for now. Pseudo-labelling the hand-drawn scans for the detector is cut unless Stoa says scans are in the test set.
 
 **Nemotron 3.5 Super VL: the escalation agent**
 
@@ -161,14 +176,14 @@ Voice only changes how the question arrives and how the answer leaves. `/ask` st
 | 0–2, together | credits, agree on the schemas, fix a train/test split by drawing, ask Stoa the questions below | schemas agreed |
 | 2–10 | one vertical slice on Swiss | a question shows an overlay in the UI; the eval prints accuracy and cost |
 | 10–22 | detector v1 integrated, raster room types and floors, cascade and cost log, dashboard v1 | Swiss and every raster question type go through one API (97% of questions) |
-| 22–34 | accuracy push on rasters, calibration, IFC parser, Nemotron escalation agent, schedules, 3D view, baselines, voice first version if on schedule | feature freeze at 34 |
+| 22–34 | accuracy push on rasters, calibration, IFC parser, Nemotron escalation agent, derived questions, schedules, 3D view, baselines, voice first version if on schedule | feature freeze at 34 |
 | 34–42 | full eval on Modal, fix the largest failure buckets, deploy, polish | public URL works |
 | 42–48 | demo script, backup video, submissions to Stoa, Modal, Gemini and NVIDIA | submitted |
 
 ## Skipping
 
 - **Retrieval, RAG and vector DBs** (Modal's suggested ColQwen example): every question names its file.
-- **DWG, SVG and the scans:** no question in the full set uses them. Scans stay as demo material for the fallback.
+- **DWG, SVG and the scans:** no question in the full set uses them. The working set is the 5,939 drawings named in `questions.jsonl`; nothing else is processed, uploaded to Modal or trained on. Keep about 20 scans that are floor plans as demo material for the fallback.
 - **VLM fine-tuning:** slower to iterate and costlier per request than a detector.
 - **An OCR engine:** add it only if room-label counts on rasters need it.
 - **ElevenLabs or a hosted speech model:** the browser's built-in speech APIs cover the voice add-on.
