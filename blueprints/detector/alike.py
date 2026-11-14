@@ -15,28 +15,48 @@ SIZE_RATIO = 3  # a candidate this many times larger or smaller is another symbo
 Box = tuple[float, float, float, float]  # x0, y0, x1, y1, each 0..1 of the page
 
 
+def gray(file):
+    """A page image as a PIL "L" image."""
+    from PIL import Image
+    Image.MAX_IMAGE_PIXELS = 300_000_000  # as the detector: an A1 scan at 600 dpi is ~250 MP
+    return Image.open(file).convert("L")
+
+
+def _crop(image, box: Box):
+    W, H = image.size
+    return image.crop((round(box[0] * W), round(box[1] * H), round(box[2] * W), round(box[3] * H)))
+
+
 def look_alikes(image, box: Box, others: dict[str, Box]) -> list[str]:
     """Keys of `others` that show the same symbol as `box`, most alike first. image: the page as a PIL "L" image."""
+    return match(image, _crop(image, box), others)
+
+
+def match(image, symbol, others: dict[str, Box]) -> list[str]:
+    """Keys of `others` that show `symbol`, most alike first. symbol: a PIL "L" crop at the page's pixel scale,
+    cut from this page or from another sheet drawn at the same scale."""
     import numpy as np
     from numpy.lib.stride_tricks import sliding_window_view
     from PIL import Image
 
     W, H = image.size
-    x0, y0, x1, y1 = box[0] * W, box[1] * H, box[2] * W, box[3] * H
-    side = max(x1 - x0, y1 - y0)
-    if min(x1 - x0, y1 - y0) < 2:
+    side = max(symbol.size)
+    if min(symbol.size) < 2:
         return []
     shrink = max(side / SIDE, 1.0)
 
+    def shrunk(im):
+        size = (max(round(im.width / shrink), 2), max(round(im.height / shrink), 2))
+        return np.asarray(im.resize(size, Image.BOX), dtype=float)
+
     def patch(x0, y0, x1, y1):
-        size = (max(round((x1 - x0) / shrink), 2), max(round((y1 - y0) / shrink), 2))
-        return np.asarray(image.crop((round(x0), round(y0), round(x1), round(y1))).resize(size, Image.BOX), dtype=float)
+        return shrunk(image.crop((round(x0), round(y0), round(x1), round(y1))))
 
     def unit(a, axes):  # zero mean, unit length: the dot product of two of these is their correlation
         a = a - a.mean(axis=axes, keepdims=True)
         return a / np.maximum(np.sqrt((a * a).sum(axis=axes, keepdims=True)), 1e-6)
 
-    template = patch(x0, y0, x1, y1)
+    template = shrunk(symbol)
     views = [unit(np.rot90(m, k), (0, 1)) for m in (template, template.T) for k in range(4)]
     scores = {}
     for key, (a0, b0, a1, b1) in others.items():
@@ -50,6 +70,68 @@ def look_alikes(image, box: Box, others: dict[str, Box]) -> list[str]:
         if best >= ALIKE:
             scores[key] = best
     return sorted(scores, key=scores.get, reverse=True)
+
+
+# ---- memory: symbols the user rejected, left out of what the detector finds on later uploads ----
+# One gray crop per rejected symbol in <cache>/rejected/<kind>/<id>.png, kind as "door" or "fixture-toilet".
+# ponytail: one memory for the whole server, and a crop only matches sheets drawn at the same pixels per metre (the
+# other floors of a set). Store the drawing scale with the crop and resize it when sheets at other scales matter.
+MAX_REMEMBERED = 40  # per kind; each one costs about a second of matching per upload
+
+
+def _folder(kind: str):
+    from .. import pipeline
+    return pipeline.CACHE / "rejected" / kind.replace(":", "-")
+
+
+def remember(image, box: Box, kind: str) -> str | None:
+    """Keep the symbol in `box` as "not a <kind>". Returns its id for forget(), or None when a remembered symbol
+    already matches it or the memory for this kind is full."""
+    import hashlib
+    import io
+
+    from PIL import Image
+
+    symbol, folder = _crop(image, box), _folder(kind)
+    known = sorted(folder.glob("*.png")) if folder.is_dir() else []
+    if min(symbol.size) < 2 or len(known) >= MAX_REMEMBERED or any(match(image, Image.open(f), {"it": box}) for f in known):
+        return None
+    data = io.BytesIO()
+    symbol.save(data, "PNG")
+    name = hashlib.sha256(data.getvalue()).hexdigest()[:16]
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / f"{name}.png").write_bytes(data.getvalue())
+    return name
+
+
+def forget(kind: str, name: str) -> None:
+    (_folder(kind) / f"{name}.png").unlink(missing_ok=True)
+
+
+def leave_out_rejected(scene, file) -> int:
+    """Set aside the detections on a new drawing that show a remembered symbol. They stay in the scene, retyped to
+    "other" with the reason as their label, so nothing counts them and the viewer still shows what was left out."""
+    from PIL import Image
+
+    from .. import pipeline
+    root, page, left_out = pipeline.CACHE / "rejected", None, 0
+    for folder in sorted(root.iterdir()) if root.is_dir() else []:
+        kind, _, subtype = folder.name.partition("-")
+        found = {e.id: e for e in scene.entities if e.type == kind and (e.subtype or "") == subtype and len(e.geom) >= 3}
+        boxes = {i: (min(p[0] for p in e.geom), min(p[1] for p in e.geom), max(p[0] for p in e.geom), max(p[1] for p in e.geom))
+                 for i, e in found.items()}
+        for symbol in sorted(folder.glob("*.png")):
+            if not boxes:
+                break
+            page = page or gray(file)
+            for i in match(page, Image.open(symbol), boxes):
+                e = found[i]
+                e.label = f"not a {subtype or kind}: it shows a symbol rejected on another drawing"
+                e.attrs["rejected_as"] = folder.name
+                e.type, e.subtype = "other", None
+                del boxes[i]
+                left_out += 1
+    return left_out
 
 
 if __name__ == "__main__":
@@ -85,4 +167,29 @@ if __name__ == "__main__":
     # a rejected real door finds the other door and no chairs; a box on blank paper finds nothing
     assert look_alikes(page, others["door-1"], {k: v for k, v in others.items() if k != "door-1"}) == ["door-2"]
     assert look_alikes(page, others["blank"], others) == [] and look_alikes(page, (0.5, 0.5, 0.5, 0.5), others) == []
+
+    # memory: a chair rejected as a door is set aside on the next drawing; its doors stay; forgetting restores it
+    import tempfile
+    from pathlib import Path
+
+    from .. import pipeline
+    from ..schemas import Entity, Page, Scene
+    with tempfile.TemporaryDirectory() as tmp:
+        pipeline.CACHE = Path(tmp)
+        page.save(Path(tmp) / "next.png")
+        corners = lambda b: [(b[0], b[1]), (b[2], b[1]), (b[2], b[3]), (b[0], b[3])]
+
+        def detected():  # the detector called every chair and door a door
+            return Scene(path="uploads/next.png", builder="t", tier="detect", covers=["door"], pages=[Page(image="uploads/next.png", width=1200, height=800)],
+                         entities=[Entity(id=k, type="door", geom=corners(b)) for k, b in others.items() if k not in ("huge", "blank")])
+
+        name = remember(page, rejected, "door")
+        assert name and remember(page, others["turned"], "door") is None  # the same symbol is kept once
+        scene = detected()
+        assert leave_out_rejected(scene, Path(tmp) / "next.png") == 3
+        assert sorted(e.id for e in scene.entities if e.type == "door") == ["door-1", "door-2"]
+        assert all(e.label.startswith("not a door") for e in scene.entities if e.type == "other")
+        Scene.model_validate(scene.model_dump())
+        forget("door", name)
+        assert leave_out_rejected(detected(), Path(tmp) / "next.png") == 0
     print("ok")

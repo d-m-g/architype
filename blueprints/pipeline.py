@@ -40,8 +40,10 @@ def build_scene(path: str) -> Scene:
             from .parsers import swiss
             return swiss.build_scene(path, drawing_file(path))
         if path.lower().endswith((".png", ".jpg", ".jpeg")):
-            from .detector import raster
-            return raster.build_scene(path, drawing_file(path), upload=True)
+            from .detector import alike, raster
+            scene = raster.build_scene(path, drawing_file(path), upload=True)
+            alike.leave_out_rejected(scene, drawing_file(path))  # symbols users rejected on earlier drawings
+            return scene
         if path.lower().endswith(".pdf"):  # raises NotImplementedError when the PDF is not a plan it can read
             from .parsers import pdf
             return pdf.build_scene(path, drawing_file(path))

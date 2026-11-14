@@ -334,6 +334,7 @@ function renderAnswer(){
  $('explanation').hidden=!$('explanation').textContent;
  $('formula').hidden=!raw.formula;$('formula').textContent=raw.formula??'';
  $('edit-note').hidden=!state.corrected;$('edit-note').textContent=state.corrected??'';
+ renderReading();
  $('retry-request').hidden=!failed;
 
  const confidence=Math.round(raw.confidence*100),level=raw.confidence>=.8?'high':raw.confidence>=.5?'medium':'low';
@@ -541,10 +542,46 @@ function abortAsk(){if(askAbort){askAbort.abort();askAbort=null;}if(asking)setAs
 $('cancel-request').onclick=()=>{abortAsk();renderAnswer();$('question').value=state.lastAsked??'';autosize();$('question').focus();};
 $('retry-request').onclick=()=>ask(state.question);
 const plans=new Map();
-/** Answer on the scene as it is in this browser (after corrections): the question's plan, run by the server's executor. */
-export async function answerFromScene(question,signal){
+async function planFor(question,signal){
  if(!plans.has(question))plans.set(question,await requestJSON('/api/plan?'+new URLSearchParams({question}),{signal}));
- return requestJSON('/api/recompute',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scene:state.raw,plan:plans.get(question)}),signal});
+ return plans.get(question);
+}
+const runPlan=(plan,signal)=>requestJSON('/api/recompute',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scene:state.raw,plan}),signal});
+/** Answer on the scene as it is in this browser (after corrections): the question's plan, run by the server's executor. */
+export async function answerFromScene(question,signal){return runPlan(await planFor(question,signal),signal);}
+
+// ───────── one word, two readings: "toilets" are bowls or rooms ─────────
+// The planner picks one silently. The card says which was counted and offers the other, run by the same executor
+// with no model call. The reading comes from the plan itself, so it is there for cached plans too.
+const READINGS=[
+ {type:'fixture',subtype:'toilet',counted:'toilet bowls',other:'toilet rooms',to:{type:'room',subtype:'wc_room'}},
+ {type:'room',subtype:'wc_room',counted:'toilet rooms',other:'toilet bowls',to:{type:'fixture',subtype:'toilet'}}];
+const READING_SUFFIX=/ \((toilet bowls|toilet rooms)\)$/;
+let readingToken=0;
+async function renderReading(){
+ const box=$('other-reading'),raw=state.rawAnswer,question=state.question,token=++readingToken;
+ box.hidden=true;
+ // An agent's answer did not come from the plan, and a drawing with no scene has nothing to recount.
+ if(!state.raw||!raw||!question||!['parse','detect'].includes(raw.tier))return;
+ let plan;try{plan=await planFor(question);}catch{return;}
+ if(token!==readingToken)return;
+ const names=Object.keys(plan.queries),query=plan.queries[names[0]];
+ const reading=names.length===1&&query.op==='count'?READINGS.find(r=>r.type===query.type&&r.subtype===query.subtype):null;
+ if(!reading)return;
+ const covered=state.raw.covers.includes(`${reading.to.type}:${reading.to.subtype}`);
+ box.replaceChildren(`Read as ${reading.counted}, not ${reading.other}. `,covered?el('button',{class:'btn',type:'button',onclick:async()=>{
+  // The other reading is its own question, so history, corrections and a reload all keep the two apart.
+  const asked=`${question.replace(READING_SUFFIX,'')} (${reading.other})`,started=performance.now();
+  plans.set(asked,{...plan,queries:{[names[0]]:{...query,...reading.to}},interpretation:null});
+  try{
+   const answer=await track(runPlan(plans.get(asked)));
+   if(state.question!==question)return;
+   state.corrected=null;
+   shownHistory=historyStore.add('drawing:'+state.path,state.name,{question:asked,payload:{rawAnswer:answer,ms:performance.now()-started}});
+   showAnswer(answer,asked,performance.now()-started);frameEvidence();
+  }catch(error){box.textContent=recoveryMessage(error);}
+ }},`Count ${reading.other} instead`):`This drawing's reader does not find ${reading.other}.`);
+ box.hidden=false;
 }
 export async function ask(text){
  const question=text.trim(),path=state.path;

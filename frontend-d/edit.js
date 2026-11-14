@@ -73,9 +73,36 @@ async function commit(entities,done,keep=null){
   hint(`${done}, but the answer could not be recalculated: ${/\b501\b/.test(error.message)?'this question needs the agent, which reads the original drawing':recoveryMessage(error)}`);
  }
 }
-function change(entities,done,keep=null){
- undo.push({entities:state.raw.entities,answer:state.rawAnswer,corrected:state.corrected,ms:state.ms,edited:state.edited});
+const post=(url,body)=>requestJSON(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+/** What a correction says about each item it touched, as labels for training the detector: drawn boxes, resized
+ * ones and confirmed ones are right, removed ones are what the detector got wrong. */
+function labelsOf(before,after){
+ const was=new Map(before.map(e=>[e.id,e])),now=new Set(after.map(e=>e.id)),labels=[];
+ const label=(action,e,more={})=>{if(e.geom?.length>=3)labels.push({action,image:state.raw.pages[e.page??0].image,entity:e.id,type:e.type,
+  ...(e.subtype?{subtype:e.subtype}:{}),box:bounds(e.geom),conf:e.conf??null,...more});};
+ for(const e of before)if(!now.has(e.id))label('removed',e);
+ for(const e of after){
+  const old=was.get(e.id);
+  if(!old)label('added',e);
+  else if(JSON.stringify(old.geom)!==JSON.stringify(e.geom))label('resized',e,{was:bounds(old.geom),conf:old.conf??null});
+  else if(old.conf!==e.conf)label('confirmed',e,{conf:old.conf??null});
+ }
+ return labels;
+}
+/** forget: what Undo also has to take back on the server (a remembered symbol). */
+function change(entities,done,keep=null,forget=null){
+ // Saved in the background: a correction must work even when its label cannot be stored.
+ const labels=labelsOf(state.raw.entities,entities),correction=labels.length?crypto.randomUUID():null;
+ if(correction)post('/api/labels',{correction,labels}).catch(()=>{});
+ undo.push({entities:state.raw.entities,answer:state.rawAnswer,corrected:state.corrected,ms:state.ms,edited:state.edited,forget,correction});
  return commit(entities,done,keep);
+}
+/** Tell the server this symbol is not what the detector took it for, so it is set aside on drawings uploaded from
+ * now on. Returns the function that makes the server forget it again. */
+function remember(entity){
+ const me=state.raw.entities.find(e=>e.id===entity.id),kind={type:me.type,...(me.subtype?{subtype:me.subtype}:{})};
+ const stored=post('/api/reject',{image:state.raw.pages[me.page??0].image,box:bounds(me.geom),...kind}).then(reply=>reply.id,()=>null);
+ return ()=>stored.then(id=>id&&requestJSON('/api/reject?'+new URLSearchParams({...kind,id}),{method:'DELETE'})).catch(()=>{});
 }
 /** The other items of the same kind on the page that show the same symbol as this one, by the server's pixel comparison. */
 async function lookAlikes(entity){
@@ -89,7 +116,9 @@ $('edit-undo').onclick=()=>{
  select(null);setScene({...state.raw,entities:last.entities},{keepView:true});
  state.edited=last.edited;state.corrected=last.corrected;$('edit-undo').disabled=!undo.length;
  if(last.answer)showAnswer(last.answer,state.question,last.ms);
- paint();hint('Undone.');
+ last.forget?.();
+ if(last.correction)post('/api/labels',{correction:last.correction,undo:true}).catch(()=>{});
+ paint();hint(last.forget?'Undone, and the symbol is forgotten.':'Undone.');
 };
 onInspect((entity,box)=>{
  if(!state.editing||!state.raw.entities.some(e=>e.id===entity.id))return;
@@ -103,8 +132,8 @@ onInspect((entity,box)=>{
   if(!ids.length||!actions.isConnected)return;  // nothing alike, or the selection moved on
   for(const id of ids)markOf(id)?.classList.add('alike');
   const gone=new Set([entity.id,...ids]);
-  actions.append(el('button',{class:'btn',type:'button',title:'The outlined items show the same symbol on the drawing',
-   onclick:()=>change(state.raw.entities.filter(e=>!gone.has(e.id)),`Removed ${entity.label} and ${ids.length} that look like it`)},`Remove this and ${ids.length} like it`));
+  actions.append(el('button',{class:'btn',type:'button',title:'The outlined items show the same symbol on the drawing. It is remembered and set aside on drawings you upload from now on.',
+   onclick:()=>change(state.raw.entities.filter(e=>!gone.has(e.id)),`Removed ${entity.label} and ${ids.length} that look like it; the symbol is remembered for later drawings`,null,remember(entity))},`Remove this and ${ids.length} like it`));
  }).catch(()=>{});  // no look-alikes offered (a PDF page, the server unreachable); Remove still works
 });
 
