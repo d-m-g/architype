@@ -229,7 +229,7 @@ function markSelection(){
 const inspectors=[];
 /** Other modules add controls to the inspector: fn(entity, node). */
 export function onInspect(fn){inspectors.push(fn);}
-export function select(id,{zoomTo=false,focusEvidence=false}={}){
+export function select(id,{zoomTo=false,focusEvidence=false,scrollEvidence=true}={}){
  const entity=id?entityById(id):null;
  state.selected=entity?.id??null;
  if(entity&&entity.page!==state.page){setPage(entity.page);renderDrawingSide();drawMarks();}
@@ -246,7 +246,7 @@ export function select(id,{zoomTo=false,focusEvidence=false}={}){
    Number.isFinite(entity.conf)?`Model score ${Math.round(entity.conf*100)}/100 (uncalibrated)`:'Model score unavailable',entity.ref?`source ${entity.ref}`:null].filter(Boolean).join(' · ')));
  for(const fn of inspectors)fn(entity,box);
  const row=[...$('evidence-list').children].find(node=>node.dataset.entity===entity.id);
- row?.scrollIntoView({block:'nearest',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
+ if(scrollEvidence)row?.scrollIntoView({block:'nearest',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
  if(focusEvidence)row?.focus({preventScroll:true});
  if(zoomTo&&entity.polygon.length){
   const xs=entity.polygon.map(p=>p[0]),ys=entity.polygon.map(p=>p[1]),{w,h}=pageSize();
@@ -267,6 +267,7 @@ export function nextEvidenceId(ids,selected,key){
 function browseEvidence(event){
  if(event.defaultPrevented||event.isComposing||event.altKey||event.ctrlKey||event.metaKey||event.shiftKey||asking||state.editing||!state.result||$('workspace').hidden||$('panel-ask').hidden)return;
  const target=event.target;
+ if(target.closest('#object-browser'))return;
  if(target.isContentEditable||target.closest('input,textarea,select,[contenteditable]:not([contenteditable="false"]),[role="textbox"],[role="slider"],[role="spinbutton"]'))return;
  if(target!==document.body&&!target.closest('#workspace'))return;
  const ids=evidenceIds().filter(id=>entityById(id)),next=nextEvidenceId(ids,state.selected,event.key);if(next===null)return;
@@ -307,7 +308,48 @@ function counts(){
  for(const entity of state.scene.entities)if(entity.page===state.page)tally.set(kindOf(entity),(tally.get(kindOf(entity))??0)+1);
  return [...tally].sort((a,b)=>Object.keys(KINDS).indexOf(a[0])-Object.keys(KINDS).indexOf(b[0]));
 }
+let objectListEntities=null,objectListPath=null;
+/** Keep open groups and row focus when changing pages; build large groups only when expanded. */
+function renderObjectBrowser(){
+ const browser=$('object-browser'),container=$('object-groups');
+ browser.hidden=!state.generalView||!state.scene||state.editing;
+ if(browser.hidden)return;
+ const entities=state.scene.entities;
+ $('object-total').textContent=String(entities.length);
+ if(objectListEntities===entities&&objectListPath===state.path)return;
+ const sameDrawing=objectListPath===state.path;
+ const expanded=new Set(sameDrawing?[...container.querySelectorAll('details[open]')].map(node=>node.dataset.kind):[]);
+ objectListEntities=entities;objectListPath=state.path;
+ const groups=new Map();
+ for(const entity of entities){const kind=kindOf(entity);if(!groups.has(kind))groups.set(kind,[]);groups.get(kind).push(entity);}
+ const order=Object.keys(KINDS),rank=kind=>order.includes(kind)?order.indexOf(kind):order.length;
+ container.replaceChildren(...[...groups].sort(([a],[b])=>rank(a)-rank(b)||a.localeCompare(b)).map(([kind,items])=>{
+  items.sort((a,b)=>a.page-b.page||String(a.label??a.id).localeCompare(String(b.label??b.id),undefined,{numeric:true}));
+  const rows=el('div',{class:'object-rows'}),group=el('details',{class:'object-group','data-kind':kind,open:expanded.has(kind)},
+   el('summary',{},el('i',{class:'type-key',style:`--type:${typeColour({type:kind})}`,'aria-hidden':'true'}),
+    el('span',{},KINDS[kind]?.[1]??kind),el('span',{class:'count'},String(items.length))),rows);
+  let built=false;
+  const build=()=>{
+   if(!group.open||built)return;built=true;
+   rows.replaceChildren(...items.map(entity=>{
+    const located=entity.polygon.length>=3;
+    return el('button',{type:'button',class:'object-row'+(entity.id===state.selected?' selected':''),'data-entity':entity.id,'aria-pressed':String(entity.id===state.selected),
+     disabled:!located,title:located?'Highlight and zoom to this object':'This object has no located geometry',
+     onclick:()=>{
+      state.layers.add(kind);renderDrawingSide();drawMarks();
+      select(entity.id,{zoomTo:true,scrollEvidence:false});
+     },onmouseenter:()=>hover(entity.id,true),onmouseleave:()=>hover(entity.id,false)},
+     el('span',{class:'object-name'},entity.label??entity.id),
+     el('small',{},[`Page ${entity.page+1}`,entity.quantityText,entity.context,
+      Number.isFinite(entity.conf)?`Score ${Math.round(entity.conf*100)}/100`:null,located?null:'No located geometry'].filter(Boolean).join(' · ')));
+   }));
+  };
+  group.addEventListener('toggle',build);build();return group;
+ }));
+ if(!entities.length)container.append(el('p',{class:'muted small'},'No objects were detected in this drawing.'));
+}
 function renderDrawingSide(){
+ renderObjectBrowser();
  $('counted-legend').hidden=state.generalView;$('other-legend').textContent=state.generalView?'Detected area':'Found, not counted';
  if($('viewport-3d').hidden)$('view-status').textContent=state.generalView?'General view: all detected areas. Drag to pan, scroll to zoom':'Answer view: cited areas. Drag to pan, scroll to zoom';
  const overview=$('general-view');overview.hidden=!state.result||!state.scene;overview.disabled=state.editing;overview.textContent=state.generalView?'Answer view':'General view';overview.title=state.generalView?'Return to the answer highlights':'Fit the full drawing and show all detected areas';

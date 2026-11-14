@@ -2,6 +2,34 @@ import test from 'node:test';import assert from 'node:assert/strict';import {rea
 import {runInNewContext} from 'node:vm';
 import {createHistoryStore} from './history-state.js';
 
+test('General view groups all pages, loads collapsed groups on demand, and reveals hidden object layers on selection',()=>{
+ const source=readFileSync(new URL('./main.js',import.meta.url),'utf8');
+ const code=source.slice(source.indexOf('let objectListEntities='),source.indexOf('function renderDrawingSide()'));
+ const node=(tag,attrs={},...children)=>({tag,attrs,children,open:!!attrs.open,dataset:{kind:attrs['data-kind']},events:{},
+  append(...added){this.children.push(...added);},replaceChildren(...added){this.children=added;},addEventListener(name,fn){this.events[name]=fn;},
+  querySelectorAll(selector){return this.children.filter(n=>n&&typeof n==='object').flatMap(n=>[...(selector==='details[open]'&&n.tag==='details'&&n.open?[n]:[]),...n.querySelectorAll(selector)]);}});
+ const nodes={'object-browser':node('details',{open:true}),'object-groups':node('div'),'object-total':node('span')};
+ const entities=[{id:'d2',type:'door',label:'Door 2',page:1,conf:.9,polygon:[[0,0],[1,0],[1,1]]},
+  {id:'r2',type:'room',label:'Bedroom',page:1,polygon:[]},{id:'r1',type:'room',label:'Living room',page:0,polygon:[]}];
+ const state={generalView:true,editing:false,path:'uploads/plan.pdf',scene:{entities},layers:new Set()},calls=[];
+ const context={state,$:id=>nodes[id],el:node,kindOf:e=>e.type,KINDS:{room:['Room','Rooms'],door:['Door','Doors']},typeColour:()=> 'var(--door)',hover(){},
+  select:(id,options)=>calls.push({id,options}),drawMarks:()=>calls.push('draw'),renderDrawingSide:()=>context.renderObjectBrowser()};
+ runInNewContext(code,context);context.renderObjectBrowser();
+ assert.equal(nodes['object-browser'].hidden,false);assert.equal(nodes['object-total'].textContent,'3');
+ const [rooms,doors]=nodes['object-groups'].children;
+ assert.equal(rooms.dataset.kind,'room');assert.equal(doors.dataset.kind,'door');assert.equal(doors.children[1].children.length,0);
+ rooms.open=true;rooms.events.toggle();
+ assert.equal(rooms.children[1].children[0].attrs['data-entity'],'r1');assert.equal(rooms.children[1].children[0].attrs.disabled,true);
+ doors.open=true;doors.events.toggle();
+ const door=doors.children[1].children[0];assert.match(door.children[1].children[0],/Page 2.*Score 90\/100/);
+ door.attrs.onclick();assert.equal(state.layers.has('door'),true);assert.equal(calls[1].id,'d2');assert.equal(calls[1].options.zoomTo,true);assert.equal(calls[1].options.scrollEvidence,false);
+ state.page=1;context.renderObjectBrowser();assert.equal(nodes['object-groups'].children[1],doors);assert.equal(doors.open,true);
+ nodes['object-browser'].open=false;state.scene.entities=entities.slice(0,1);context.renderObjectBrowser();
+ assert.equal(nodes['object-groups'].children[0].open,true);assert.equal(nodes['object-browser'].open,false);
+ state.generalView=false;context.renderObjectBrowser();assert.equal(nodes['object-browser'].hidden,true);
+ state.generalView=true;state.editing=true;context.renderObjectBrowser();assert.equal(nodes['object-browser'].hidden,true);
+});
+
 test('confidence rings hide at fit, appear when zoomed in, and hide again without rebuilding marks',()=>{
  const code=readFileSync(new URL('./main.js',import.meta.url),'utf8');
  const visibility=code.slice(code.indexOf('export function confidenceRingVisible'),code.indexOf('function confidenceRing(entity)')).replace('export ','');
@@ -187,4 +215,5 @@ test('selecting evidence on another page redraws its overlays and focuses the ma
  const entity={id:'page-two',label:'Kitchen',type:'room',page:1,polygon:[],conf:1},state={page:0,selected:null},calls={draw:0,render:0,focus:0,scroll:0},row={dataset:{entity:entity.id},scrollIntoView(){calls.scroll++;},focus(){calls.focus++;}},nodes={'inspector':{replaceChildren(){},append(){}},'evidence-list':{children:[row]},'evidence-navigation':{}};
  const context={state,entityById:()=>entity,setPage:p=>state.page=p,renderDrawingSide:()=>calls.render++,drawMarks:()=>calls.draw++,markSelection(){},$:id=>nodes[id],evidenceIds:()=>['first',entity.id],el:()=>({}),KINDS:{room:['Room']},inspectors:[],matchMedia:()=>({matches:true}),publish(){}};
  runInNewContext(code,context);context.select(entity.id,{focusEvidence:true});assert.equal(state.page,1);assert.equal(calls.draw,1);assert.equal(calls.render,1);assert.equal(calls.focus,1);assert.equal(calls.scroll,1);assert.match(nodes['evidence-navigation'].textContent,/2 of 2/);
+ context.select(entity.id,{scrollEvidence:false});assert.equal(calls.scroll,1);assert.equal(calls.focus,1);
 });

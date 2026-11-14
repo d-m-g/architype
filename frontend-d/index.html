@@ -179,6 +179,11 @@
         <div id="layers" class="chips" role="group" aria-label="Show on the drawing"></div>
       </header>
       <div id="thread" class="thread">
+        <details id="object-browser" class="object-browser" hidden open>
+          <summary>All objects <span id="object-total" class="count"></span></summary>
+          <p class="muted small object-browser-hint">All pages. Expand a type, then select an object to find it on the drawing.</p>
+          <div id="object-groups"></div>
+        </details>
         <section id="suggestions" class="suggestions" hidden>
           <h2>Try asking</h2>
           <div id="suggestion-list"></div>
