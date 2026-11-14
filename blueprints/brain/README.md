@@ -2,12 +2,41 @@
 
 You turn a question into a `QueryPlan`, handle what the cheap path cannot, and own the price tables and the HTTP API.
 
-| File | What to do |
+| File | What it does |
 |---|---|
-| `plan.py` | `make_plan(question, scene)`. Has rules for the English cubicasa and Swiss templates; add the Gemini parser and a template cache. |
-| `escalate.py` | `escalate(question, path, scene, draft)`: the Nemotron agent for low-confidence, multi-step and free-form questions. |
-| `../costs.py` | Fill in `TOKEN_PRICES` and `GPU_PRICES`. Every lane builds its `TraceStep`s with `llm_step` and `gpu_step`. |
-| `../api.py` | `/api/ask`, `/api/scene`, `/api/image`. Works today; extend it as the viewer needs. |
+| `plan.py` | `make_plan(question, scene)` and `plan_with_trace`: Gemini turns any question, any language, into a `QueryPlan`; cached in `plans.json` and `.cache/plans/`. |
+| `vision.py` | `read_scene(path)`: Gemini reads a floor plan once and returns a `Scene` (rooms with label, number, apartment, printed area; floors; apartments; doors; windows; fixtures; each with a box). Refuses drawings that are not floor plans. |
+| `escalate.py` | `escalate(...)`: drawings with no scene are answered on the vision scene; anything still unanswered or low-confidence goes to the Nemotron agent with scene tools. |
+| `baseline.py`, `baselines.html` | Plain-model baselines and their report. |
+| `HANDDRAWN.md` | The hand-drawn plan: annotation set and self-checks. |
+| `../costs.py` | `TOKEN_PRICES`, `GPU_PRICES`. Every lane builds its `TraceStep`s with `llm_step` and `gpu_step`. |
+| `../api.py` | The HTTP API and the sign-in. |
+
+## What lane C provides to the other lanes
+
+**HTTP API** (`blueprints/api.py`; the demo serves it with the UI on one origin):
+
+| Endpoint | Use |
+|---|---|
+| `POST /api/ask {path, question}` | The answer. `path` is a dataset path or an `uploads/...` id. |
+| `POST /api/upload?filename=x.pdf` | Store a drawing (raw body; pdf, png, jpg; 50 MB max). Returns `{path, reader}`. |
+| `GET /api/scene?path=` | The scene: from a builder for dataset drawings, from the vision reader for uploads. |
+| `GET /api/image?path=` | The page image (`data/...`, `uploads/...` or a rendered `pages/...`). |
+| `GET /api/plan?question=` | The plan alone, for re-running on an edited scene. |
+| `POST /api/recompute {scene, plan}` | Run a plan on a corrected scene; no model call. |
+| `POST /api/login {password}`, `POST /api/logout` | Only when `BLUEPRINTS_PASSWORD_HASH` is set; then every other route needs the session cookie. |
+
+**Reading an `Answer` for the card (lane D):**
+- `evidence` are scene ids; for drawings without a builder scene (uploads, vision fallback) the same entities also arrive in full in `extra_entities`, with `geom`, so the viewer never needs a second lookup.
+- `trace` lists every step with its model, tokens, cost and time. Step names: `plan` (Gemini; `cached: true` when free), `scene` (the vision read, only on the first question of a drawing), `execute`, `escalate` (one per Nemotron turn), `tool:list_entities`, `tool:run_plan`, `tool:look` (the agent's tool calls, in order), `look` (the Gemini call behind a `tool:look`). Show the `tool:` steps as Nemotron's tool trace.
+- `interpretation` carries the agent's one-sentence explanation; `error` says why when `answer` is null (including "not a floor plan").
+- `tier="llm"` marks vision and agent answers; confidence is fixed at 0.7 (vision) and 0.6 (agent) until calibration.
+
+**For lanes A and B:** call `vision.read_scene(path)` from a builder if you want its rooms or floors, and add its `scene.trace` to your scene's trace so the cost is counted. Never import `openai` yourselves.
+
+**Settings** (environment): `GEMINI_API_KEY`, `VERDA_INFERENCE_KEY` (Nemotron); `BLUEPRINTS_VISION_MODEL` (default `gemini-3.8-flash`; `gemini-4-carbon` reads better at ~3x the cost); `NEMOTRON_URL`, `NEMOTRON_MODEL`, `NEMOTRON_KEY_VAR` to switch Nemotron provider; `BLUEPRINTS_PASSWORD_HASH` from `python -m blueprints.api hash`.
+
+**Measured** on eval.py's 300 test questions: plain Gemini 4 Carbon 78.3%, plain Flash 72.7%, vision path 68% (Flash reader) / 71% (Carbon reader) with evidence on every answer. Nemotron answers multi-step questions (largest room, rooms over 12 m²) in 3–6 tool turns for about $0.002, and declines when the drawing lacks the data.
 
 All models are in [`../schemas.py`](../schemas.py).
 
@@ -65,7 +94,7 @@ Example: [`fixtures/answer.example.json`](../../fixtures/answer.example.json).
 
 ## escalate
 
-It is called when the cheap path gave no answer or one below `pipeline.ESCALATE_BELOW`. `scene` is `None` for drawings with no builder, such as the scans. Return a new `Answer` with `tier="llm"`, keep `draft.trace` and add your own steps. Raising `NotImplementedError` keeps the draft.
+It is called when the cheap path gave no answer or one below `pipeline.ESCALATE_BELOW`. `scene` is `None` for drawings with no builder, such as the scans: those are read by `vision.read_scene` and answered with the normal executor. If that gives no answer, or a builder's answer is low-confidence, the Nemotron agent reasons over the scene with `list_entities`, `run_plan` (the exact executor; it never does arithmetic itself) and `look` (Gemini on a crop), and finishes with `answer`. It returns a new `Answer` with `tier="llm"` and keeps `draft.trace`; raising `NotImplementedError` (no key, endpoint down, no answer in 8 turns) keeps the draft.
 
 ## Cost
 

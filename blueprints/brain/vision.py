@@ -46,6 +46,8 @@ class _Fixture(_Item):
 
 class _Reply(BaseModel):
     """The structured output the model must return; JSON mode alone let Flash emit broken JSON on ~18% of drawings."""
+    is_floor_plan: bool
+    drawing_kind: str  # "floor plan", or what it is instead: "section", "elevation", "site plan", "photo", ...
     floors: list[_Item]
     apartments: list[_Named]
     rooms: list[_Room]
@@ -54,8 +56,9 @@ class _Reply(BaseModel):
     fixtures: list[_Fixture]
 
 
-PROMPT = f"""This image is a floor plan. List everything below that is drawn, as JSON only:
-{{"floors": [{{"box_2d": [ymin, xmin, ymax, xmax]}}],
+PROMPT = f"""Look at this drawing. If it is a floor plan, list everything below that is drawn, as JSON only:
+{{"is_floor_plan": true or false, "drawing_kind": "floor plan", or what it is instead (section, elevation, detail, site plan, photo, schedule, text),
+ "floors": [{{"box_2d": [ymin, xmin, ymax, xmax]}}],
  "apartments": [{{"label": "the apartment's name as written, e.g. A", "box_2d": [...]}}],
  "rooms": [{{"label": "the room's name only", "number": "the room's number, e.g. 3.01, or null",
             "apartment": "the apartment it belongs to, e.g. A, or null", "printed_area_m2": number or null,
@@ -74,7 +77,8 @@ box_2d is [ymin, xmin, ymax, xmax] scaled 0-1000 to the image.
 - rooms: every room. Read labels in any language and abbreviation (for example MH bedroom, KH/PH/KPH bathroom,
   WC toilet room, K/KK/KEITTIÖ kitchen, S/SAUNA sauna, PARV balcony). bathroom excludes separate toilet rooms,
   which are wc_room; kitchen includes kitchenettes; balcony includes glazed balconies.
-List each item once. Leave out anything you cannot see."""
+List each item once. Leave out anything you cannot see.
+If the drawing is not a floor plan, set is_floor_plan false, name what it is in drawing_kind, and leave every list empty."""
 
 
 UPLOADS = pipeline.CACHE / "uploads"
@@ -113,7 +117,12 @@ def _geom(box) -> list[tuple[float, float]]:
 
 
 def to_scene(path: str, page: Page, found: dict) -> Scene:
-    """Turn the model's list into a Scene. Items with a bad box or an unknown type are skipped, not guessed."""
+    """Turn the model's list into a Scene. Items with a bad box or an unknown type are skipped, not guessed.
+    A drawing the model says is not a floor plan gets an empty scene that covers nothing, marked in the builder name,
+    so every question on it is refused rather than answered with a confident zero."""
+    if found.get("is_floor_plan") is False:
+        kind = str(found.get("drawing_kind") or "not a floor plan")[:40].replace(":", " ")
+        return Scene(path=path, builder=f"{BUILDER}{NOT_A_PLAN}{kind}", tier="detect", covers=[], pages=[page])
     entities: list[Entity] = []
 
     def add(kind: str, subtype: str | None, item: dict, label: str | None = None, **more):
@@ -143,7 +152,13 @@ def to_scene(path: str, page: Page, found: dict) -> Scene:
     return Scene(path=path, builder=BUILDER, tier="detect", covers=covers, pages=[page], entities=entities)
 
 
-BUILDER = f"vision:{VISION_MODEL}@2"  # bump the version when the prompt or the conversion changes; it keys the cache
+BUILDER = f"vision:{VISION_MODEL}@3"  # bump the version when the prompt or the conversion changes; it keys the cache
+NOT_A_PLAN = ":not-a-floor-plan:"  # builder suffix for drawings the reader refused, followed by what they are
+
+
+def not_a_floor_plan(scene: Scene) -> str | None:
+    """What the drawing is instead, if the vision reader said it is not a floor plan."""
+    return scene.builder.split(NOT_A_PLAN, 1)[1] if NOT_A_PLAN in scene.builder else None
 
 
 def read_scene(path: str) -> tuple[Scene, bool]:
@@ -199,5 +214,8 @@ if __name__ == "__main__":  # self-check of the conversion, no model call
     bedroom = next(e for e in s.entities if e.subtype == "bedroom")
     assert (bedroom.number, bedroom.apartment, bedroom.qty) == ("3.01", "A", {"m2": 12.5})
     assert next(e for e in s.entities if e.subtype == "balcony").outdoor
+    section = to_scene("data/x.png", page, {"is_floor_plan": False, "drawing_kind": "section", "doors": [{"box_2d": [1, 1, 2, 2]}]})
+    assert not section.entities and not section.covers and not_a_floor_plan(section) == "section"
+    assert not_a_floor_plan(s) is None
     assert all(0 <= v <= 1 for e in s.entities for p in e.geom for v in p)
     print("ok: vision scene conversion")
