@@ -176,3 +176,12 @@ Connection checks read GET /openapi.json and verify the actual ask, scene and im
 The current Swiss reader has been exercised through the real API, drawing image and browser overlays. The live-smoke.js check validates the current UI, API methods, answer evidence IDs and page images without loading evaluation answers or seeding caches. The question is sent only as {path, question}.
 
 Vision/agent answers can carry full extra_entities even when no separate Scene is available. D retains these source references, quantities and evidence IDs, but does not invent page dimensions or overlay coordinates. The answer remains marked source unavailable until the backend provides a matching page. Trace tool steps, interpretation and formula are shown as reported. Recompute still requires the exact plan associated with the original answer; GET /api/plan alone does not establish that association.
+
+
+## Appearance
+
+Use the Dark mode button in the header or Settings → Appearance to choose Light, Dark or Follow device setting. The choice is stored on this browser origin, applied before the initial paint, and synchronized across open tabs. Follow device responds to system appearance changes. If browser storage is blocked, the current tab still switches and explains that the choice is temporary.
+
+Navigation, evidence cards, forms, evaluation tables, notices and 3D surroundings share the theme. Source drawing images and their evidence colour conventions are preserved; no inversion filter is applied. Switching appearance keeps the current question, answer and evidence in place. The dashboard redirect returns to the same themed workspace.
+
+Swiss verification results for all 65 floor plans and 2,358 question records in the supplied preview are recorded in SWISS-VERIFICATION.md, including the 150 duplicate-policy reference disagreements. No parser code was modified.

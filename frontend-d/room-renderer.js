@@ -10,6 +10,7 @@ export class RoomRenderer {
   this.renderer.domElement.setAttribute('aria-label','Interactive illustrative 3D scene. Use buttons to rotate and zoom, and the object selector to inspect evidence.');this.renderer.domElement.tabIndex=0;
   this.world=new THREE.Scene();this.camera=new THREE.PerspectiveCamera(40,1,.1,150);this.controls=new OrbitControls(this.camera,this.renderer.domElement);this.controls.enableDamping=false;this.controls.minDistance=3;this.controls.maxDistance=35;this.controls.maxPolarAngle=Math.PI*.49;this.controls.addEventListener('change',()=>this.draw());
   this.world.add(new THREE.HemisphereLight(0xffffff,0x627568,2.3));const light=new THREE.DirectionalLight(0xffffff,2.4);light.position.set(-5,12,7);this.world.add(light);this.grid=new THREE.GridHelper(16,16,0xaebdad,0xd0dacf);this.grid.position.y=-.02;this.world.add(this.grid);
+  this.onTheme=()=>this.applyTheme();window.addEventListener('stoa:theme-change',this.onTheme);this.applyTheme();
   this.group=new THREE.Group();this.world.add(this.group);this.raycaster=new THREE.Raycaster();this.pointer=new THREE.Vector2();
   const canvas=this.renderer.domElement;canvas.addEventListener('pointerdown',e=>{this.down={x:e.clientX,y:e.clientY};});canvas.addEventListener('pointerup',e=>{if(!this.down||Math.hypot(e.clientX-this.down.x,e.clientY-this.down.y)>5)return;const rect=canvas.getBoundingClientRect();this.pointer.set((e.clientX-rect.left)/rect.width*2-1,-(e.clientY-rect.top)/rect.height*2+1);this.raycaster.setFromCamera(this.pointer,this.camera);const hit=this.raycaster.intersectObjects(this.meshes)[0];if(hit)this.selectEntity(hit.object.userData.id);});canvas.addEventListener('pointercancel',()=>this.down=null);
   canvas.addEventListener('webglcontextlost',e=>{e.preventDefault();this.lost=true;this.status.textContent='3D graphics context lost. Return to 2D; reload to restore 3D.';});
@@ -17,6 +18,7 @@ export class RoomRenderer {
   canvas.addEventListener('keydown',e=>{const actions={ArrowLeft:'left',ArrowRight:'right','+':'in','=':'in','-':'out',Home:'reset'};if(actions[e.key]){e.preventDefault();this.action(actions[e.key]);}});
   this.observer=new ResizeObserver(()=>this.resize());this.observer.observe(this.host);this.reset();
  }
+ applyTheme(){const dark=document.documentElement.dataset.theme==='dark';this.renderer.setClearColor(dark?0x101c14:0xedf2ed);this.grid.material.color.setHex(dark?0x526f60:0xffffff);this.draw();}
  reset(){this.camera.position.set(10,11,13);this.controls.target.set(0,0,0);this.controls.update();this.draw();}
  action(action){if(action==='reset'){this.reset();return;}if(action==='top'){this.camera.position.set(0,18,.01);this.controls.target.set(0,0,0);}else{const offset=this.camera.position.clone().sub(this.controls.target);if(action==='left'||action==='right')offset.applyAxisAngle(new THREE.Vector3(0,1,0),action==='left'?.25:-.25);else offset.multiplyScalar(action==='in'?.8:1.25).clampLength(3,35);this.camera.position.copy(this.controls.target).add(offset);}this.controls.update();this.draw();}
  clearMeshes(){for(const mesh of this.meshes){mesh.geometry.dispose();mesh.material.dispose();for(const edge of mesh.children){edge.geometry.dispose();edge.material.dispose();}}this.group.clear();this.meshes=[];}
@@ -27,5 +29,5 @@ export class RoomRenderer {
  resize(){if(!this.renderer)return;const w=this.host.clientWidth,h=this.host.clientHeight;if(!w||!h)return;this.renderer.setSize(w,h,false);this.camera.aspect=w/h;this.camera.updateProjectionMatrix();this.draw();}
  draw(){if(this.visible&&!this.lost&&this.renderer)this.renderer.render(this.world,this.camera);}
  setVisible(visible){this.visible=visible;this.controls.enabled=visible;if(visible)this.resize();}
- dispose(){this.observer?.disconnect();this.controls?.dispose();if(this.group)this.clearMeshes();this.grid?.geometry.dispose();this.grid?.material.dispose();this.renderer?.dispose();this.container?.replaceChildren();}
+ dispose(){window.removeEventListener('stoa:theme-change',this.onTheme);this.observer?.disconnect();this.controls?.dispose();if(this.group)this.clearMeshes();this.grid?.geometry.dispose();this.grid?.material.dispose();this.renderer?.dispose();this.container?.replaceChildren();}
 }

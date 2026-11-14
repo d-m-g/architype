@@ -202,3 +202,71 @@ html{scroll-padding-top:88px}
  .figma-workspace #panel-editor #drawing{height:clamp(240px,calc(100dvh - 360px),620px)}
 }
 .figma-workspace.compact-evidence .evidence-row{min-height:44px;margin-top:2px;padding:6px 9px}
+
+/* Appearance is explicit and persistent; source drawings retain their original pixels. */
+.theme-toggle{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:44px;padding:8px 10px;font-size:11px;white-space:nowrap;background:var(--accent-soft);border-color:var(--line);color:var(--accent)}
+.theme-toggle svg{flex-shrink:0}.theme-toggle[aria-pressed=true]{border-color:var(--accent)}
+.appearance-settings select{min-width:200px;max-width:100%}.appearance-settings>label{display:block;margin:12px 0 8px;font-weight:500}
+:root[data-theme=dark]{color-scheme:dark;background:#101915;color:#e2ece6}
+:root[data-theme=dark] .figma-workspace{
+ --ink:#e2ece6;--muted:#a6b8ae;--paper:#19271f;--bg:#101915;--line:#35493e;
+ --accent:#9ad9ba;--accent-soft:#253f31;--amber:#f4c77e;--amber-soft:#3b301e;--focus:#99c4ff;
+ color:var(--ink);background:var(--bg)
+}
+:root[data-theme=dark] .figma-workspace :is(.topbar,.sidebar,.drawing-panel,.answer-panel,.view-switch,.panel-heading,.viewer-toolbar,.legend,.result-section,.ask-section,.assistant-header,.card,.metric,.integration,.three-controls,.stack-controls){background:var(--paper);color:var(--ink);border-color:var(--line)}
+:root[data-theme=dark] .figma-workspace :is(button,select,input:not([type=checkbox]):not([type=range]):not([type=file]),textarea){background:var(--paper);color:var(--ink);border-color:#50695a}
+:root[data-theme=dark] .figma-workspace :is(button:hover,button:active){background:#2b4435}
+:root[data-theme=dark] .figma-workspace :is(input,select,textarea)::placeholder{color:#9aafa2;opacity:1}
+:root[data-theme=dark] .figma-workspace input::file-selector-button{background:#253f31;color:var(--ink);border:1px solid #50695a;border-radius:5px;padding:9px 12px;margin-right:10px;cursor:pointer}
+:root[data-theme=dark] .figma-workspace :is(a,.header-sources){color:var(--accent)}
+:root[data-theme=dark] .figma-workspace :is(.brand,.assistant-header h2,.project-context strong,.sheet-thumb strong){color:var(--ink)}
+:root[data-theme=dark] .figma-workspace :is(.brand-product,.assistant-header p,.evidence-text small,#explanation,.row-arrow,.project-context>div>span){color:var(--muted)}
+:root[data-theme=dark] .figma-workspace :is(.project-context,.rail-monogram,.sidebar nav a[aria-current],.sheet-thumb[aria-pressed=true],.evidence-row.selected,.samples button.active){background:var(--accent-soft);border-color:#658d74;color:var(--ink)}
+:root[data-theme=dark] .figma-workspace .project-icon{background:var(--accent);color:#12261a}
+:root[data-theme=dark] .figma-workspace .brand-mark span{background:var(--accent)}
+:root[data-theme=dark] .figma-workspace .mock-badge{background:var(--amber-soft);color:var(--amber);border-color:#705a36}
+:root[data-theme=dark] .figma-workspace .sidebar nav a{color:var(--muted)}
+:root[data-theme=dark] .figma-workspace .sidebar nav a[aria-current]{color:var(--accent)}
+:root[data-theme=dark] .figma-workspace :is(.sheet-strip,.selection,.viewer-controls){background:#142019;border-color:var(--line);color:var(--muted)}
+:root[data-theme=dark] .figma-workspace .sheet-thumb{background:transparent;border-color:transparent}
+:root[data-theme=dark] .figma-workspace .sheet-thumb[aria-pressed=true]{background:#253f31;border-color:#80ab91}
+:root[data-theme=dark] .figma-workspace .sheet-thumb img{background:white;border-color:#607367}
+:root[data-theme=dark] .figma-workspace .sheet-thumb.image-unavailable:before{background:#25382c;color:var(--muted)}
+:root[data-theme=dark] .figma-workspace :is(.drawing-stage,.canvas-wrap){background-color:#0e1711;background-image:radial-gradient(#3d5547 .7px,transparent .7px)}
+:root[data-theme=dark] .figma-workspace .canvas-label{background:#142019ed;color:#ccded2}
+:root[data-theme=dark] .figma-workspace .canvas-label span{color:#ccded2}
+:root[data-theme=dark] .figma-workspace :is(.view-switch>button,.viewer-controls button,.demo-entry button){background:transparent;color:var(--muted);border-color:transparent}
+:root[data-theme=dark] .figma-workspace .view-switch>button[aria-pressed=true]{color:var(--accent);background:transparent}
+:root[data-theme=dark] .figma-workspace .view-switch>button span{background:#304537;color:#c1d1c7}
+:root[data-theme=dark] .figma-workspace :is(.ai-symbol,.status.warning,.notice,.three-notice,.stack-heading){background:var(--amber-soft);color:var(--amber);border-color:#705a36}
+:root[data-theme=dark] .figma-workspace .ai-symbol{color:var(--amber)}
+:root[data-theme=dark] .figma-workspace .status{background:#284735;color:#bce9cf}
+:root[data-theme=dark] .figma-workspace .status.warning{background:var(--amber-soft);color:var(--amber)}
+:root[data-theme=dark] .figma-workspace .evidence-row{background:var(--paper);border-color:#405b49;color:var(--ink)}
+:root[data-theme=dark] .figma-workspace .evidence-row:hover{background:#263d2f;border-color:#83ad93;box-shadow:0 3px 10px #0002}
+:root[data-theme=dark] .figma-workspace .evidence-row.selected{background:#2c4938;border-color:var(--accent)}
+:root[data-theme=dark] .figma-workspace .evidence-number{background:#294836;color:#c1ecd3;border-color:#4f745c}
+:root[data-theme=dark] .figma-workspace .evidence-row.uncertain .evidence-number{background:var(--amber-soft);color:var(--amber);border-color:#705a36}
+:root[data-theme=dark] .figma-workspace :is(.formula,#ask-form){background:#122018;border-color:#4b6855;color:var(--ink)}
+:root[data-theme=dark] .figma-workspace #question{background:transparent;color:var(--ink)}
+:root[data-theme=dark] .figma-workspace :is(.primary,#ask-submit){background:#9ad9ba;border-color:#9ad9ba;color:#112b1b}
+:root[data-theme=dark] .figma-workspace :is(.primary:hover,#ask-submit:hover){background:#81cba6;color:#112b1b}
+:root[data-theme=dark] .figma-workspace :is(.assistant-header,.ask-section,.answer-meta,.trace,.answer-history,.examples-panel,.voice-controls,.correction-panel,fieldset){border-color:var(--line)}
+:root[data-theme=dark] .figma-workspace .correction-notice{background:#1c3045;color:#d4e7ff;border-color:#91bcff}
+:root[data-theme=dark] .figma-workspace :is(.demo-guide,#three-placeholder){background:#1c3024;color:var(--ink);border-color:#4c7259}
+:root[data-theme=dark] .figma-workspace :is(.viewport-3d,.three-ui,.floor-stack){background-color:#101c14;color:var(--ink)}
+:root[data-theme=dark] .figma-workspace .viewport-3d{background-image:linear-gradient(#2b3d31 1px,transparent 1px),linear-gradient(90deg,#2b3d31 1px,transparent 1px)}
+:root[data-theme=dark] .figma-workspace .bar-track,:root[data-theme=dark] .figma-workspace .bin .bar-track{background:#304739}
+:root[data-theme=dark] .figma-workspace .bin .confidence{background:#b0c6e1}
+:root[data-theme=dark] .figma-workspace .theme-toggle{background:#253f31;color:var(--accent);border-color:#60856c}
+/* The white drawing sheet is intentional: do not invert source imagery or evidence colours. */
+:root[data-theme=dark] #drawing{background:white}
+:root[data-theme=dark] #drawing .entity polygon{stroke:#17694e;fill:#21794e20}
+:root[data-theme=dark] #drawing .entity circle{fill:#17694e}
+:root[data-theme=dark] #drawing .entity.uncertain polygon{stroke:#925613;fill:#d6932826}
+:root[data-theme=dark] #drawing .entity.uncertain circle{fill:#925613}
+:root[data-theme=dark] #drawing .entity.selected polygon{fill:#21794e40}
+:root[data-theme=dark] #drawing .entity:focus-visible polygon{stroke:#175ad0}
+@media(max-width:650px){.theme-toggle{width:44px;padding:8px;min-width:44px}.theme-label{display:none}.figma-workspace .top-actions{gap:7px}.figma-workspace .mock-badge{max-width:155px}}
+@media(forced-colors:active){.theme-toggle[aria-pressed=true]{outline:2px solid Highlight}.figma-workspace button{forced-color-adjust:auto}}
+@media(max-width:650px){.figma-workspace .mock-badge{max-width:min(155px,calc(100vw - 190px))}}

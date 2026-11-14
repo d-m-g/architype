@@ -1,6 +1,18 @@
 import {subscribeEditor,selectEditorEntity} from './editor-bridge.js';
 import {imageURL} from './contracts.js';
 const $=id=>document.getElementById(id);
+function syncThemeControls(){
+ const dark=document.documentElement.dataset.theme==='dark';
+ $('setting-theme').value=window.stoaTheme.getPreference();
+ $('theme-toggle').setAttribute('aria-pressed',String(dark));
+ $('theme-toggle').title=dark?'Switch to light mode':'Switch to dark mode';
+ $('theme-status').textContent=(window.stoaTheme.getPreference()==='system'?'Following your device. ':window.stoaTheme.isPersistent()?'Saved on this device. ':'Browser storage is unavailable; this tab only. ')+(dark?'Dark':'Light')+' appearance is active.';
+}
+$('setting-theme').onchange=event=>window.stoaTheme.setPreference(event.target.value);
+$('theme-toggle').onclick=()=>window.stoaTheme.setPreference(document.documentElement.dataset.theme==='dark'?'light':'dark');
+window.addEventListener('stoa:theme-change',syncThemeControls);
+syncThemeControls();
+
 let loading3D=false;
 async function load3D(){if(renderer||loading3D)return;loading3D=true;try{const {RoomRenderer}=await import('./room-renderer.js');register3DRenderer(new RoomRenderer());}catch(error){$('three-placeholder').hidden=false;$('three-placeholder').querySelector('h3').textContent='3D could not start.';$('three-placeholder').querySelector('p:not(.eyebrow)').textContent='The graphics module or WebGL is unavailable. The 2D editor remains fully usable.';$('view-status').textContent='3D unavailable';}finally{loading3D=false;}}
 let panel='editor',view='2d',renderer=null,unsubscribeRenderer=null;
