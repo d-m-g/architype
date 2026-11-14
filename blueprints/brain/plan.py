@@ -68,6 +68,10 @@ or sums one quantity over them (op "sum" with qty). Filters are exact text match
 - unit of the final answer: count, m2, m, m3 or ft2.
 - Quoted names in the question are replaced by placeholders such as {{label}}. Copy a placeholder verbatim into
   the filter it belongs to.
+- A plan can only count or sum entities chosen by exact filters, then do arithmetic. It cannot pick the largest or
+  smallest, compare sizes, keep entities above or below an area, rank, or answer "which". For those questions reply
+  exactly {{"queries": {{}}, "unit": "count", "interpretation": "UNSUPPORTED: <short reason>"}}. Never approximate
+  them with a sum or a count: a wrong plan gives a confident wrong answer.
 Examples:
 "Quelle est la surface de la pièce 2.14 ({{label}}) ?" ->
 {{"queries": {{"area": {{"op": "sum", "type": "room", "number": "2.14", "qty": "m2"}}}}, "unit": "m2"}}
@@ -104,6 +108,12 @@ def _ask_gemini(template: str) -> tuple[QueryPlan, list[TraceStep]]:
                               usage.completion_tokens if usage else 0, (time.perf_counter() - t0) * 1000))
         text = reply.choices[0].message.content or ""
         try:
+            said = json.loads(text)
+        except json.JSONDecodeError:
+            said = {}
+        if isinstance(said, dict) and str(said.get("interpretation") or "").upper().startswith("UNSUPPORTED"):
+            raise Unsupported(str(said["interpretation"]).split(":", 1)[-1].strip() or "does not fit a plan", steps)
+        try:
             return QueryPlan.model_validate_json(text), steps
         except ValidationError as e:
             error = e
@@ -112,15 +122,30 @@ def _ask_gemini(template: str) -> tuple[QueryPlan, list[TraceStep]]:
     raise NotImplementedError(f"lane C: Gemini's plan failed validation twice: {error}")
 
 
+class Unsupported(NotImplementedError):
+    """The question does not fit a plan (largest, comparisons, thresholds, "which"); the agent answers it instead."""
+
+    def __init__(self, reason: str, steps: list[TraceStep]):
+        super().__init__(f"lane C: no plan fits this question ({reason}); it needs the agent")
+        self.reason, self.steps = reason, steps
+
+
 def plan_with_trace(question: str, scene: Scene | None) -> tuple[QueryPlan, list[TraceStep]]:
-    """The plan and what it cost: a $0 cached step on a cache hit, Gemini's steps otherwise."""
+    """The plan and what it cost: a $0 cached step on a cache hit, Gemini's steps otherwise.
+    Raises Unsupported (a NotImplementedError) for questions no plan can express, so the pipeline escalates them."""
     template, slots = mask(question)
     local = pipeline.CACHE / "plans" / (hashlib.md5(template.encode()).hexdigest() + ".json")
     plan = SEEDED.get(template) or (json.loads(local.read_text(encoding="utf-8")) if local.exists() else None)
     if plan is not None:
+        if "unsupported" in plan:  # cached verdict: repeats skip Gemini too
+            raise Unsupported(plan["unsupported"], [llm_step("plan", GEMINI_MODEL, 0, 0, 0, cached=True)])
         return _fill(plan, slots), [llm_step("plan", GEMINI_MODEL, 0, 0, 0, cached=True)]
-    new, steps = _ask_gemini(template)
     local.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        new, steps = _ask_gemini(template)
+    except Unsupported as e:
+        local.write_text(json.dumps({"unsupported": e.reason}), encoding="utf-8")
+        raise
     local.write_text(new.model_dump_json(exclude_defaults=True), encoding="utf-8")
     return _fill(new.model_dump(exclude_defaults=True), slots), steps
 

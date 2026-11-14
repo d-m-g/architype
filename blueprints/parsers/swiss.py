@@ -130,7 +130,7 @@ def build_scene(path: str, file: Path) -> Scene:
         poly = Polygon(geom).buffer(0)
         return sum(poly.intersection(f).area for f in fills[grey]) > 0.5 * poly.area
 
-    ids = set()
+    ids, placed = set(), []  # placed: (outline in DXF metres, room entity) for locating doors, windows, fixtures
     for label, num, x, y in rooms:
         hits = [(p, h) for p, h in outlines if p.contains(Point(x, y))]
         poly, handle = min(hits, key=lambda ph: ph[0].area) if hits else (None, None)
@@ -141,25 +141,48 @@ def build_scene(path: str, file: Path) -> Scene:
             rid = f"room-{num}-{k}"
         ids.add(rid)
         geom = shape(poly) if poly else []
-        entities.append(Entity(
+        entities.append(room := Entity(
             id=rid, type="room", label=label, number=num,
             apartment=None if filled(geom, SHARED_GREY) else unit_label.get(i),
             outdoor=(label or "").casefold() in OUTDOOR or filled(geom, OUTDOOR_GREY),
             geom=geom, qty={"m2": round(net_area(poly), 2)} if poly else {},
             ref=f"dxf:{handle}" if handle else None))
+        if poly:
+            placed.append((poly, room))
+
+    def located(kind, pts, copies):
+        """apartment and attrs for a door, window or fixture: the room(s) it is in or opens into.
+        A fixture's box centre lies inside its room. A door or window box fills a wall gap and its long sides lie on
+        the outlines of the rooms either side, so it touches its rooms rather than lying in one."""
+        box = Polygon(pts)
+        if kind == "fixture":
+            sides = sorted((pr for pr in placed if pr[0].contains(box.centroid)), key=lambda pr: pr[0].area)[:1]
+        else:  # the rooms sharing most edge with the box: two for a door, one for a window
+            near = box.buffer(0.05)
+            sides = sorted((pr for pr in placed if pr[0].intersects(near)), key=lambda pr: -pr[0].intersection(near).area)
+            if kind == "window":  # a window between a room and its balcony belongs to the room
+                sides = sorted(sides, key=lambda pr: pr[1].outdoor)[:1]
+            # an entrance door belongs to its apartment, not the shared corridor it opens onto
+            sides = sorted(sides[:2], key=lambda pr: pr[1].apartment is None)
+        attrs = {"copies": copies} if copies > 1 else {}
+        for k, (_, r) in zip(("", "2"), sides):
+            attrs[f"room{k}"] = r.number
+            if r.label:
+                attrs[f"room_label{k}"] = r.label
+        return dict(apartment=sides[0][1].apartment if sides else None, attrs=attrs)
+
     found = Counter()
     for kind, pts, ref, copies in openings(msp):
         found[kind] += 1
         entities.append(Entity(id=f"{kind}-{found[kind]}", type=kind, geom=[to_page(x, y) for x, y in pts], ref=ref,
-                               attrs={"copies": copies} if copies > 1 else {}))
+                               **located(kind, pts, copies)))
     for sub, pts, ref, copies in fixtures(msp):
         found[sub] += 1
         entities.append(Entity(id=f"fixture-{sub}-{found[sub]}", type="fixture", subtype=sub,
-                               geom=[to_page(x, y) for x, y in pts], ref=ref,
-                               attrs={"copies": copies} if copies > 1 else {}))
+                               geom=[to_page(x, y) for x, y in pts], ref=ref, **located("fixture", pts, copies)))
     png = file.with_suffix(".png")
     width, height = _png_size(png)
-    return Scene(path=path, builder="swiss_dxf@5", tier="parse",
+    return Scene(path=path, builder="swiss_dxf@6", tier="parse",
                  covers=["room", "apartment", "door", "window",
                          "fixture:toilet", "fixture:sink", "fixture:bathtub", "fixture:shower"],
                  pages=[Page(image=path[:-4] + ".png", width=width, height=height)], entities=entities)
@@ -179,4 +202,24 @@ if __name__ == "__main__":
     room = lambda p, n: next(e for e in pipeline.build_scene(f"data/swiss_dwellings/{p}.pdf").entities if e.number == n)
     assert room("site2155_bldg3005_floor13704", "4.11").qty["m2"] == 14.7  # outline minus the hole outline inside it
     assert room("site2135_bldg2978_floor13581", "2.01").outdoor  # unlabelled balcony, known by its grey fill
+
+    # Doors, windows and fixtures carry their apartment and room, as counted on the PNG, through the executor.
+    from ..executor import execute
+    from ..schemas import Query, QueryPlan
+
+    def count(formula=None, **queries):
+        return execute(QueryPlan(queries={k: Query(op="count", **q) for k, q in queries.items()}, formula=formula,
+                                 unit="count"), s).answer
+    fix = lambda sub, apt, **where: count(n=dict(type="fixture", subtype=sub, apartment=apt, where=where))
+    # A: Bad 7.05 (sink, toilet, shower tray) and Bad 7.07 (tub, toilet, sink); B: Bad 7.17 (toilet, sink), 7.18 (tub, toilet, sink)
+    assert [fix(k, "A") for k in ("toilet", "sink", "bathtub", "shower")] == [2, 2, 1, 1]
+    assert [fix(k, "B") for k in ("toilet", "sink", "bathtub", "shower")] == [2, 2, 1, 0]
+    assert fix("toilet", "A", room_label="Bad") == 2 and fix("toilet", "A", room="7.07") == 1
+    windows = lambda n: count(n=dict(type="window", where={"room": n}))
+    assert (windows("7.08"), windows("7.20"), windows("7.03"), windows("7.22")) == (2, 2, 0, 1)  # 7.03 opens via a balcony door
+    doors = lambda n: count("a + b", a=dict(type="door", where={"room": n}), b=dict(type="door", where={"room2": n}))
+    assert (doors("7.06"), doors("7.05"), doors("7.03")) == (5, 1, 1)  # corridor A: entrance, Bad, 3 bedrooms
+    # the entrance doors onto shared corridor 7.24 belong to their apartments; the lift door to no apartment
+    assert [count(n=dict(type="door", apartment=a)) for a in ("A", "B")] == [9, 8]
+    assert [e.id for e in s.entities if e.type == "door" and e.apartment is None] == ["door-18"]
     print("ok")
