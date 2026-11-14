@@ -20,7 +20,9 @@ You turn a question into a `QueryPlan`, handle what the cheap path cannot, and o
 With `GEMINI_API_KEY` configured on the server, the site's existing Dictate question
 streams microphone audio to Google's Live transcription model. Draft words appear
 in the transcript preview as the user speaks; finalized text goes into the composer
-only after Finish question, for review before Ask. Each recording is limited to 30
+after recording finishes. Pressing Ask finishes recording, waits for the finalized
+transcript, and submits the question. A timed Starting/Connecting indicator stays
+visible until the audio stream is ready; Ask is disabled during setup. Each recording is limited to 30
 seconds. Read aloud sends
 the exact displayed answer summary to `/api/voice/speak`, which returns WAV audio.
 The drawing detector remains responsible for counting. No Google key is sent to

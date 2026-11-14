@@ -7,7 +7,7 @@ PUBLIC = {
     "index.html", "dashboard.html", "styles.css", "dashboard.css", "workspace.css",
     "plan.svg", "app.js", "api-client.js", "contracts.js", "mock-scene.js",
     "dashboard.js", "mock-evaluation.js", "shared-dashboard.js", "workspace.js",
-    "editor-bridge.js", "geometry-3d.js", "room-renderer.js", "voice.js", "voice-live.js", "voice-pcm-worklet.js",
+    "editor-bridge.js", "geometry-3d.js", "room-renderer.js", "voice.js", "voice-input.js", "voice-live.js", "voice-pcm-worklet.js",
     "demo.js", "intake.js", "local-file.js", "corrections.js", "correction-state.js", "history.js", "history-state.js", "calibration.js", "calibration-state.js", "floor-stack.js", "floor-stack-state.js",
     "app.css", "main.js", "start.js", "edit.js", "evaluation.js",  # the current page; the files above it are the previous one's
     "vendor/three/build/three.module.js", "vendor/three/build/three.core.js",

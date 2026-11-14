@@ -5,6 +5,7 @@ import {requestJSON,getDrawingScene,recoveryMessage,LIVE_REQUEST_TIMEOUT_MS} fro
 import {publishEditor,subscribeEditor,selectEditorEntity} from './editor-bridge.js';
 import {zoomAt} from './mock-scene.js';
 import {adaptScene,adaptAnswer,adaptAnswerEvidence,imageURL} from './contracts.js';
+import {finishVoiceInput} from './voice-input.js';
 
 export const $=id=>document.getElementById(id);
 const SVG='http://www.w3.org/2000/svg';
@@ -548,7 +549,11 @@ function autosize(){const box=$('question');box.style.height='auto';box.style.ov
 autosize();
 $('question').addEventListener('input',autosize);
 $('question').addEventListener('keydown',event=>{if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing){event.preventDefault();$('ask-form').requestSubmit();}});
-$('ask-form').addEventListener('submit',event=>{event.preventDefault();if(!asking)ask($('question').value);});
+$('ask-form').addEventListener('submit',async event=>{
+ event.preventDefault();if(asking)return;
+ const finished=await finishVoiceInput();
+ if(finished!==false&&!asking)ask($('question').value);
+});
 
 // ───────── shell: tabs, theme, 3D ─────────
 let panel='ask',mode='2d',renderer=null,loading3D=false;

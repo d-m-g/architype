@@ -278,11 +278,15 @@ main>section{height:100%}
 .composer textarea{display:block;width:100%;resize:none;height:42px;min-height:42px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface);line-height:1.45}
 .composer textarea:focus{outline:2px solid var(--accent);outline-offset:-1px;background:var(--paper)}
 .composer-row{display:flex;align-items:center;gap:6px;margin-top:8px}
-.mic{font-size:0!important;border-color:transparent;background:transparent}
-.mic::before{content:"";width:17px;height:17px;background:currentColor;
+.mic{position:relative;font-size:0!important;border-color:transparent;background:transparent;gap:0;line-height:0}
+.mic::before{content:"";position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:17px;height:17px;background:currentColor;
  -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round'%3E%3Crect x='9' y='3' width='6' height='11' rx='3'/%3E%3Cpath d='M5 11a7 7 0 0 0 14 0M12 18v3'/%3E%3C/svg%3E") center/contain no-repeat;
  mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round'%3E%3Crect x='9' y='3' width='6' height='11' rx='3'/%3E%3Cpath d='M5 11a7 7 0 0 0 14 0M12 18v3'/%3E%3C/svg%3E") center/contain no-repeat}
 .mic[aria-pressed=true]{color:var(--bad);background:color-mix(in srgb,var(--bad) 12%,transparent);animation:pulse 1.2s ease-in-out infinite}
+.mic[data-state=starting]{color:var(--ink-2);animation:none}
+.mic[data-state=starting]::before{opacity:.35}
+.mic[data-state=starting]::after{content:"";position:absolute;left:50%;top:50%;width:23px;height:23px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;transform:translate(-50%,-50%);animation:mic-starting 1s linear infinite}
+@keyframes mic-starting{to{transform:translate(-50%,-50%) rotate(360deg)}}
 @keyframes pulse{50%{opacity:.55}}
 .mic:disabled,.mic:disabled~.lang{display:none}
 .lang{height:28px;padding:0 4px;border-color:transparent;background:transparent;font-size:12px;color:var(--ink-2)}
@@ -352,13 +356,14 @@ td .q{display:block;max-width:60ch} td small{color:var(--ink-3);font:11.5px var(
 .voice-state{flex-shrink:0;font-size:12px;color:var(--ink-2);min-width:38px}
 .voice-state[data-state=listening]{color:var(--bad);font-weight:600}
 .voice-state[data-state=transcribing]{color:var(--warn);font-weight:600}
+.voice-state[data-state=starting]{color:var(--ink-2);font-variant-numeric:tabular-nums}
 .voice-state[data-state=review]{color:var(--good);font-weight:600}
 .voice-preview{padding:10px 12px;margin-top:8px;border:1px solid var(--line);border-radius:8px;background:var(--surface);max-height:160px;overflow:auto}
 .voice-preview>strong{font-size:12px;color:var(--ink-2)}
 .voice-preview #voice-transcript{font-size:14px;line-height:1.5;margin:5px 0;overflow-wrap:anywhere;white-space:pre-wrap}
 .composer>.voice-status{display:block;margin-top:6px;font-size:12px;white-space:normal;overflow:visible;line-height:1.45;color:var(--ink-2)}
 .composer>.voice-status:empty{display:none}
-.composer .mic{width:40px;min-height:40px}
+.composer .mic{width:40px;height:40px;min-height:40px;flex:0 0 40px;padding:0}
 @media(max-width:480px){.voice-state{font-size:11px}.composer-row{gap:4px}.general-view{padding-inline:8px}.zoom{gap:2px}}
 
 .evidence-navigation{margin:4px 0 10px;line-height:1.5;overflow-wrap:anywhere}

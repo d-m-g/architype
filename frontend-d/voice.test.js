@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {spokenAnswer, mountVoice, mountGoogleVoice} from './voice.js';
 import {publishEditor} from './editor-bridge.js';
+import {finishVoiceInput} from './voice-input.js';
 test('speech distinguishes mock results, zero answers, uncertainty and abstention', () => {
  assert.match(spokenAnswer({mode:'mock',answer:{answer:0,evidence:['a']},entities:[{id:'a',uncertain:true}]}), /Mock demonstration. 0.*1 evidence items/);
  assert.match(spokenAnswer({mode:'shared',answer:{answer:null,error:'Parser unavailable'}}), /No verified answer. Parser unavailable/);
@@ -138,7 +139,7 @@ test('changing drawings cancels recording and releases microphone tracks',async(
  }finally{h.stop();publishEditor({wireScene:null,answer:null});}
 });
 
-test('Google streaming renders words live but keeps them out of the composer until Finish',async()=>{
+test('Google streaming waits for readiness and Ask finalizes the transcript without another microphone click',async()=>{
  let socket;
  class Context{
   constructor(){this.sampleRate=16000;this.destination={};this.audioWorklet={addModule:async()=>{}};}
@@ -163,15 +164,43 @@ test('Google streaming renders words live but keeps them out of the composer unt
   await tick();h.get('question').value='My original draft';
   const recording=h.get('voice-dictate').onclick();
   for(let n=0;n<10&&!socket;n++)await tick();
+  assert.match(h.get('voice-state').textContent,/Connecting/);
+  assert.equal(h.get('ask-submit').disabled,true);
+  assert.equal(h.get('voice-preview').hidden,true);
   assert.ok(socket);socket.readyState=1;socket.onopen();socket.receive({setupComplete:{}});await recording;
+  assert.equal(h.get('voice-state').textContent,'Listening');assert.equal(h.get('ask-submit').disabled,false);
   socket.receive({serverContent:{interimInputTranscription:{text:'Kuinka monta'}}});
   assert.equal(h.get('voice-transcript').textContent,'Kuinka monta');
   assert.equal(h.get('voice-preview').hidden,false);assert.equal(h.get('question').value,'My original draft');
   socket.receive({serverContent:{inputTranscription:{text:'Kuinka monta ovea?'}}});
   assert.equal(h.get('question').value,'My original draft');
-  const finished=h.get('voice-dictate').onclick();socket.receive({serverContent:{turnComplete:true}});await finished;
+  const finished=finishVoiceInput();socket.receive({serverContent:{turnComplete:true}});assert.equal(await finished,true);
   assert.equal(h.get('question').value,'Kuinka monta ovea?');assert.equal(h.get('voice-state').textContent,'Review question');
   assert.equal(h.get('voice-preview').hidden,true);assert.equal(h.track.stopped,true);
+ }finally{h.stop();}
+});
+
+test('Ask waits for recorded transcription and cannot submit a stale draft',async()=>{
+ let resolveTranscript;
+ const h=googleHarness(async url=>url.endsWith('config')?configResponse():new Promise(resolve=>{resolveTranscript=resolve;}));
+ try{
+  await tick();h.get('question').value='Old typed question';await h.get('voice-dictate').onclick();
+  let submitted=false;
+  const submission=finishVoiceInput().then(ready=>{if(ready)submitted=h.get('question').value;});
+  await tick();assert.equal(submitted,false);assert.equal(h.get('ask-submit').disabled,true);
+  resolveTranscript(new Response(JSON.stringify({text:'How many doors are there?'})));
+  await submission;assert.equal(submitted,'How many doors are there?');
+ }finally{h.stop();}
+});
+
+test('cancelling transcription while Ask waits prevents submission',async()=>{
+ let resolveTranscript;
+ const h=googleHarness(async url=>url.endsWith('config')?configResponse():new Promise(resolve=>{resolveTranscript=resolve;}));
+ try{
+  await tick();await h.get('voice-dictate').onclick();const submission=finishVoiceInput();
+  await tick();await h.get('voice-dictate').onclick();
+  resolveTranscript(new Response(JSON.stringify({text:'Stale words'})));
+  assert.equal(await submission,false);assert.equal(h.get('question').value,'');
  }finally{h.stop();}
 });
 
