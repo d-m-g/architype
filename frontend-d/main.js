@@ -542,7 +542,8 @@ function setView(next){
  $('viewport-2d').hidden=mode!=='2d';$('viewport-3d').hidden=mode!=='3d';
  $('view-2d').setAttribute('aria-pressed',String(mode==='2d'));$('view-3d').setAttribute('aria-pressed',String(mode==='3d'));
  document.querySelector('.zoom').hidden=mode!=='2d';
- $('view-status').textContent=mode==='2d'?'Drag to pan, scroll to zoom':'Drag to orbit. Heights are illustrative, not measured';
+ document.querySelector('.legend').classList.toggle('in-3d',mode==='3d');  // the confidence keys describe the plan's outlines, not the model
+ $('view-status').textContent=mode==='2d'?'Drag to pan, scroll to zoom':'Illustrative model. Drag to orbit, right-drag to pan, scroll to zoom';
  if(mode==='3d'&&!renderer&&!loading3D){
   loading3D=true;
   track(import('./room-renderer.js')).then(({RoomRenderer})=>{

@@ -1,46 +1,111 @@
 import * as THREE from 'three';
 import {OrbitControls} from './vendor/three/examples/jsm/controls/OrbitControls.js';
-import {displayGeometry,SANDBOX,sandboxDefaults,sandboxExtents} from './geometry-3d.js';
+import {displayGeometry,estimateSpan,SANDBOX,sandboxDefaults,sandboxExtents,sunPosition,wallThickness,roomEdges,roomWalls,placeOpening,placeFixture,FIXTURES} from './geometry-3d.js';
+
+const roundedSquare=(path,half,radius)=>{const a=half-radius;[0,1,2,3].forEach(i=>path.absarc(i%3?-a:a,i<2?a:-a,radius,i*Math.PI/2,(i+1)*Math.PI/2));return path;};
+const upright=geometry=>geometry.rotateX(-Math.PI/2);  // extrusions run along z; the scene's up is y
+const format=(spec,value)=>spec.unit==='h'?`${Math.floor(value)}:${String(Math.round(value%1*60)).padStart(2,'0')}`:`${value.toFixed(2)} m`;
+// Base colour per object, [light theme, dark theme]. Highlights reuse the app's own marks: yellow counted, pink needs review, accent selected.
+const BASE={room:[0xcdd3db,0x5b6676],door:[0xcdbfab,0xb5a892],window:[0x9db7c9,0x7f9bb0],fixture:[0xffffff,0xe6e9ee],counter:[0xc3c8cf,0xaeb4bd],other:[0xbfc6cf,0x4a5463]};
+const EVIDENCE=0xf2c84b,REVIEW=0xf08aa9,SELECTED=[0x1f4fd8,0x82a6ff];
+
 export class RoomRenderer {
  mount(container,{selectEntity}){
-  this.container=container;this.selectEntity=selectEntity;this.visible=false;this.meshes=[];this.walls=[];this.signature='';this.dims=sandboxDefaults();
-  container.innerHTML=`<div class="three-ui"><div class="three-notice"><strong>Illustrative 3D · current page only</strong><span>Heights and scale come from the Dimensions sliders, not from the drawing. No volume or floor alignment is inferred.</span></div><div class="three-canvas"><details class="three-sandbox" open><summary>Dimensions</summary><p>Assumed, not read from the drawing.</p>${SANDBOX.map(s=>`<div><label for="sandbox-${s.key}">${s.label}</label><output for="sandbox-${s.key}"></output><input id="sandbox-${s.key}" name="${s.key}" type="range" min="${s.min}" max="${s.max}" step="${s.step}"></div>`).join('')}<button type="button">Reset dimensions</button></details></div><div class="three-controls"><button data-action="left" aria-label="Rotate left">↶</button><button data-action="right" aria-label="Rotate right">↷</button><button data-action="in" aria-label="Zoom 3D in">+</button><button data-action="out" aria-label="Zoom 3D out">−</button><button data-action="reset">Reset 3D view</button><button data-action="top">Top view</button></div><label class="three-select">Inspect object <select aria-label="Inspect 3D object"><option value="">Choose an object</option></select></label><p class="three-status" role="status"></p></div>`;
+  this.container=container;this.selectEntity=selectEntity;this.visible=false;this.objects=[];this.walls=[];this.signature='';this.dims=sandboxDefaults();
+  container.innerHTML=`<div class="three-ui"><div class="three-canvas"><details class="three-sandbox"><summary>Adjust model</summary><p>Assumed values, not measured from the drawing.</p>${SANDBOX.map(s=>`<div><label for="sandbox-${s.key}">${s.label}</label><output for="sandbox-${s.key}"></output><input id="sandbox-${s.key}" name="${s.key}" type="range" min="${s.min}" max="${s.max}" step="${s.step}"></div>`).join('')}<button type="button">Reset</button></details><div class="three-controls" role="group" aria-label="3D camera"><button data-action="left" aria-label="Rotate left">↶</button><button data-action="right" aria-label="Rotate right">↷</button><button data-action="in" aria-label="Zoom 3D in">+</button><button data-action="out" aria-label="Zoom 3D out">−</button><button data-action="reset" aria-label="Reset 3D view">Reset</button><button data-action="top" aria-label="Top view">Top</button><button data-action="full" aria-label="Full screen">⛶</button></div></div><div class="three-foot"><label class="three-select">Inspect <select aria-label="Inspect 3D object"><option value="">Choose an object</option></select></label><p class="three-status" role="status"></p></div></div>`;
   this.host=container.querySelector('.three-canvas');this.status=container.querySelector('.three-status');this.select=container.querySelector('select');
   this.renderer=new THREE.WebGLRenderer({antialias:true,alpha:false});this.renderer.setPixelRatio(Math.min(devicePixelRatio,2));this.host.prepend(this.renderer.domElement);
-  this.renderer.domElement.setAttribute('aria-label','Interactive illustrative 3D scene. Use buttons to rotate and zoom, and the object selector to inspect evidence.');this.renderer.domElement.tabIndex=0;
-  this.world=new THREE.Scene();this.camera=new THREE.PerspectiveCamera(40,1,.1,150);this.controls=new OrbitControls(this.camera,this.renderer.domElement);this.controls.enableDamping=false;this.controls.minDistance=3;this.controls.maxDistance=35;this.controls.maxPolarAngle=Math.PI*.49;this.controls.addEventListener('change',()=>this.draw());
-  this.world.add(new THREE.HemisphereLight(0xffffff,0x768193,2.3));const light=new THREE.DirectionalLight(0xffffff,2.4);light.position.set(-5,12,7);this.world.add(light);this.grid=new THREE.GridHelper(16,16,0xaab4c1,0xd7dde5);this.grid.position.y=-.02;this.world.add(this.grid);
-  // One unit box and one material serve every wall; a wall is only ever moved and scaled. See-through, so near walls do not hide the rooms or the doors and windows standing in them.
-  this.wallGeometry=new THREE.BoxGeometry(1,1,1).translate(0,.5,0);this.wallMaterial=new THREE.MeshStandardMaterial({roughness:.9,metalness:0,transparent:true,opacity:.7,depthWrite:false});
-  const sandbox=container.querySelector('.three-sandbox');this.inputs=[...sandbox.querySelectorAll('input')];sandbox.oninput=e=>{this.dims[e.target.name]=+e.target.value;this.applyDimensions();};sandbox.querySelector('button').onclick=()=>{this.dims=sandboxDefaults();this.applyDimensions();};
+  this.renderer.toneMapping=THREE.NeutralToneMapping;this.renderer.shadowMap.enabled=true;this.renderer.shadowMap.type=THREE.PCFShadowMap;
+  this.renderer.shadowMap.autoUpdate=false;  // the shadow map is redrawn only when the model or the sun changes, not on every camera move
+  this.renderer.domElement.setAttribute('aria-label','Interactive illustrative 3D model. Drag to orbit, right-drag to pan, scroll to zoom; arrow keys rotate, plus and minus zoom, Home resets. Use the object selector to inspect evidence.');this.renderer.domElement.tabIndex=0;
+  this.world=new THREE.Scene();this.camera=new THREE.PerspectiveCamera(45,1,.05,200);
+  this.controls=new OrbitControls(this.camera,this.renderer.domElement);this.controls.enableDamping=!matchMedia('(prefers-reduced-motion: reduce)').matches;this.controls.dampingFactor=.12;this.controls.zoomToCursor=true;this.controls.minDistance=.4;this.controls.maxDistance=45;this.controls.maxPolarAngle=Math.PI*.495;
+  this.controls.addEventListener('change',()=>this.draw());this.controls.addEventListener('start',()=>{this.dragging=true;this.animate();});this.controls.addEventListener('end',()=>{this.dragging=false;});
+  // Soft sky fill plus one shadow-casting sun. The model always fits a 10-unit square at the origin, so the shadow camera is fixed around it.
+  this.fill=new THREE.HemisphereLight(0xffffff,0xb4bcc8,1.5);this.sun=new THREE.DirectionalLight(0xffffff,2.6);this.sun.castShadow=true;this.sun.shadow.mapSize.set(2048,2048);this.sun.shadow.radius=4;this.sun.shadow.bias=-.0004;this.sun.shadow.normalBias=.03;
+  Object.assign(this.sun.shadow.camera,{left:-8.5,right:8.5,top:8.5,bottom:-8.5,near:1,far:45});
+  this.ground=new THREE.Mesh(upright(new THREE.PlaneGeometry(80,80)),new THREE.ShadowMaterial({opacity:.16}));this.ground.position.y=-.002;this.ground.receiveShadow=true;this.world.add(this.fill,this.sun,this.ground);
+  // Shared by every wall and fixture: a wall or a fixture part is one of these, moved and scaled.
+  const well=roundedSquare(new THREE.Shape(),.5,.12);well.holes.push(roundedSquare(new THREE.Path(),.42,.09));const solid={depth:1,bevelEnabled:false,curveSegments:6};
+  this.parts={box:new THREE.BoxGeometry(1,1,1).translate(0,.5,0),cyl:new THREE.CylinderGeometry(.5,.5,1,24).translate(0,.5,0),pad:upright(new THREE.ExtrudeGeometry(roundedSquare(new THREE.Shape(),.5,.12),solid)),rim:upright(new THREE.ExtrudeGeometry(well,solid)),
+   bowl:new THREE.LatheGeometry([[.26,0],[.32,.1],[.5,.36],[.5,.41],[.42,.41],[.36,.28],[0,.24]].map(([r,y])=>new THREE.Vector2(r,y)),28)};
+  this.materials={wall:new THREE.MeshStandardMaterial({roughness:.95}),cabinet:new THREE.MeshStandardMaterial({roughness:.8}),metal:new THREE.MeshStandardMaterial({color:0xc4c9d0,metalness:.55,roughness:.3}),glass:new THREE.MeshStandardMaterial({color:0x2a3642,roughness:.08,transparent:true,opacity:.3})};
+  const sandbox=container.querySelector('.three-sandbox');this.inputs=[...sandbox.querySelectorAll('input')];sandbox.oninput=e=>{this.dims[e.target.name]=+e.target.value;this.applyDimensions();};sandbox.querySelector('button').onclick=()=>{this.dims={...sandboxDefaults(),span:this.span??this.dims.span};this.applyDimensions();};
   this.group=new THREE.Group();this.world.add(this.group);this.raycaster=new THREE.Raycaster();this.pointer=new THREE.Vector2();
   this.onTheme=()=>this.applyTheme();window.addEventListener('stoa:theme-change',this.onTheme);this.applyTheme();this.applyDimensions();
-  const canvas=this.renderer.domElement;canvas.addEventListener('pointerdown',e=>{this.down={x:e.clientX,y:e.clientY};});canvas.addEventListener('pointerup',e=>{if(!this.down||Math.hypot(e.clientX-this.down.x,e.clientY-this.down.y)>5)return;const rect=canvas.getBoundingClientRect();this.pointer.set((e.clientX-rect.left)/rect.width*2-1,-(e.clientY-rect.top)/rect.height*2+1);this.raycaster.setFromCamera(this.pointer,this.camera);const hit=this.raycaster.intersectObjects([...this.meshes,...this.walls],false)[0];if(hit)this.selectEntity(hit.object.userData.id);});canvas.addEventListener('pointercancel',()=>this.down=null);
-  canvas.addEventListener('webglcontextlost',e=>{e.preventDefault();this.lost=true;this.status.textContent='3D graphics context lost. Return to 2D; reload to restore 3D.';});
-  this.select.onchange=()=>{if(this.select.value)this.selectEntity(this.select.value);};container.querySelectorAll('[data-action]').forEach(b=>b.onclick=()=>this.action(b.dataset.action));
+  const canvas=this.renderer.domElement;canvas.addEventListener('pointerdown',e=>{this.down={x:e.clientX,y:e.clientY};});canvas.addEventListener('pointerup',e=>{if(!this.down||Math.hypot(e.clientX-this.down.x,e.clientY-this.down.y)>5)return;const rect=canvas.getBoundingClientRect();this.pointer.set((e.clientX-rect.left)/rect.width*2-1,-(e.clientY-rect.top)/rect.height*2+1);this.raycaster.setFromCamera(this.pointer,this.camera);let hit=this.raycaster.intersectObjects(this.group.children)[0]?.object;while(hit&&!hit.userData.id)hit=hit.parent;if(hit)this.selectEntity(hit.userData.id);});canvas.addEventListener('pointercancel',()=>this.down=null);
+  canvas.addEventListener('webglcontextlost',e=>{e.preventDefault();this.lost=true;this.status.textContent='3D graphics context lost. Return to the plan; reload to restore 3D.';});
+  this.select.onchange=()=>{if(!this.select.value)return;this.selectEntity(this.select.value);this.focus(this.select.value);};container.querySelectorAll('[data-action]').forEach(b=>b.onclick=()=>this.action(b.dataset.action));
   canvas.addEventListener('keydown',e=>{const actions={ArrowLeft:'left',ArrowRight:'right','+':'in','=':'in','-':'out',Home:'reset'};if(actions[e.key]){e.preventDefault();this.action(actions[e.key]);}});
   this.observer=new ResizeObserver(()=>this.resize());this.observer.observe(this.host);this.reset();
  }
- applyTheme(){this.dark=document.documentElement.dataset.theme==='dark';this.renderer.setClearColor(new THREE.Color(getComputedStyle(document.documentElement).getPropertyValue('--desk').trim()));this.grid.material.color.setHex(this.dark?0x465264:0xffffff);this.wallMaterial.color.setHex(this.dark?0xaab4c1:0xf5f7f9);this.paint();}
- /** Sliders only move and scale what is already in the scene: every mesh has unit height, so nothing is rebuilt or disposed. */
+ applyTheme(){
+  this.dark=document.documentElement.dataset.theme==='dark';
+  this.renderer.setClearColor(new THREE.Color(getComputedStyle(document.documentElement).getPropertyValue('--desk').trim()));
+  this.materials.wall.color.setHex(this.dark?0xbfc6d0:0xf4f5f7);this.materials.cabinet.color.setHex(this.dark?0x8d96a3:0xe3e6ea);this.ground.material.opacity=this.dark?.4:.16;this.paint();
+ }
+ /** Sliders only move, scale and relight what is already in the scene: nothing is rebuilt or disposed. */
  applyDimensions(){
-  const extents=sandboxExtents(this.dims);
-  for(const mesh of this.meshes){const e=extents[mesh.userData.type]??extents.other;mesh.position.y=e.base;mesh.scale.y=e.height;}
-  for(const wall of this.walls)wall.scale.set(wall.userData.length+extents.wallThickness,extents.wallHeight,extents.wallThickness);
-  for(const input of this.inputs){input.value=this.dims[input.name];const text=this.dims[input.name].toFixed(2)+' m';input.previousElementSibling.value=text;input.setAttribute('aria-valuetext',text);}
+  const extents=sandboxExtents(this.dims),[x,y,z]=sunPosition(this.dims.sun);
+  for(const object of this.objects){const e=extents[object.userData.type]??extents.other;object.position.y=e.base;object.scale.y=e.height;}
+  for(const wall of this.walls)wall.scale.y=extents.wallHeight;
+  this.sun.position.set(x*20,y*20,z*20);this.sun.intensity=1+2*y;this.sun.color.setRGB(1,.8+.2*y,.6+.4*y);  // low sun: weaker and warmer
+  SANDBOX.forEach((spec,i)=>{const input=this.inputs[i],text=format(spec,this.dims[spec.key]);input.value=this.dims[spec.key];input.previousElementSibling.value=text;input.setAttribute('aria-valuetext',text);});
+  this.renderer.shadowMap.needsUpdate=true;this.draw();
+ }
+ paint(){
+  const evidence=new Set(this.snapshot?.answer?.evidence??[]),theme=this.dark?1:0;
+  for(const {userData:u} of this.objects){const selected=u.id===this.snapshot.selectedId;u.tint.color.setHex(selected?SELECTED[theme]:u.uncertain?REVIEW:evidence.has(u.id)?EVIDENCE:(BASE[u.kind]??BASE[u.type]??BASE.other)[theme]);u.tint.emissive.setHex(selected?0x16357f:0x000000);}
   this.draw();
  }
- paint(){const evidence=new Set(this.snapshot?.answer?.evidence??[]);for(const mesh of this.meshes){const selected=mesh.userData.id===this.snapshot.selectedId;mesh.material.color.setHex(selected?0xf0b94c:mesh.userData.uncertain?0xc98c3b:evidence.has(mesh.userData.id)?0x41936f:mesh.userData.type==='room'?(this.dark?0x465264:0xaab4c1):({door:0xe8590c,window:0x0c8599}[mesh.userData.type]??(this.dark?0x7d8897:0x9aa5b4)));mesh.material.emissive.setHex(selected?0x392400:0x000000);}this.draw();}
- reset(){this.camera.position.set(6,15,9);this.controls.target.set(0,0,0);this.controls.update();this.draw();}
- action(action){if(action==='reset'){this.reset();return;}if(action==='top'){this.camera.position.set(0,18,.01);this.controls.target.set(0,0,0);}else{const offset=this.camera.position.clone().sub(this.controls.target);if(action==='left'||action==='right')offset.applyAxisAngle(new THREE.Vector3(0,1,0),action==='left'?.25:-.25);else offset.multiplyScalar(action==='in'?.8:1.25).clampLength(3,35);this.camera.position.copy(this.controls.target).add(offset);}this.controls.update();this.draw();}
- clearMeshes(){for(const mesh of this.meshes){mesh.geometry.dispose();mesh.material.dispose();for(const edge of mesh.children){edge.geometry.dispose();edge.material.dispose();}}this.group.clear();this.meshes=[];this.walls=[];}
- update(snapshot){this.snapshot=snapshot;const geometry=displayGeometry(snapshot),signature=JSON.stringify(geometry);if(signature!==this.signature){this.signature=signature;this.clearMeshes();this.select.replaceChildren(new Option('Choose an object',''));for(const entity of geometry){const shape=new THREE.Shape();entity.points.forEach(([x,y],i)=>i?shape.lineTo(x,-y):shape.moveTo(x,-y));shape.closePath();const geo=new THREE.ExtrudeGeometry(shape,{depth:1,bevelEnabled:false,steps:1});geo.rotateX(-Math.PI/2);const material=new THREE.MeshStandardMaterial({roughness:.8,metalness:0});const mesh=new THREE.Mesh(geo,material);mesh.userData={...entity};const edges=new THREE.LineSegments(new THREE.EdgesGeometry(geo),new THREE.LineBasicMaterial({color:0x768193}));mesh.add(edges);this.group.add(mesh);this.meshes.push(mesh);this.select.append(new Option(`${entity.label}${entity.uncertain?' · needs review':''}`,entity.id));
-    // Open roof: a room is its floor plus one wall box per polygon edge, lengthened by the thickness so corners close.
-    if(entity.type==='room')entity.points.forEach(([x,z],i)=>{const [x2,z2]=entity.points[(i+1)%entity.points.length],wall=new THREE.Mesh(this.wallGeometry,this.wallMaterial);wall.position.set((x+x2)/2,0,(z+z2)/2);wall.rotation.y=-Math.atan2(z2-z,x2-x);wall.userData={id:entity.id,type:'wall',length:Math.hypot(x2-x,z2-z)};this.group.add(wall);this.walls.push(wall);});}this.applyDimensions();this.reset();}
-  this.select.value=snapshot.selectedId??'';const selected=this.meshes.find(m=>m.userData.id===snapshot.selectedId);this.status.textContent=geometry.length?`${geometry.length} objects · ${geometry.filter(e=>e.type==='room').length} open-roof rooms · Page ${snapshot.pageIndex+1}${selected?' · Selected: '+selected.userData.label:''}. Green: answer evidence; gold: selection. Drag to orbit; scroll to zoom.`:'No drawable polygons on this page. Load a scene or choose a mock sample in 2D.';this.paint();
+ /** Put the whole model in view from a direction, whatever the canvas shape. */
+ frame(x,y,z){
+  const box=new THREE.Box3().setFromObject(this.group),radius=box.isEmpty()?6:box.getBoundingSphere(new THREE.Sphere()).radius,half=this.camera.fov*Math.PI/360;
+  const distance=radius*.9/Math.sin(Math.atan(Math.tan(half)*Math.min(1,this.camera.aspect)));
+  if(box.isEmpty())this.controls.target.set(0,0,0);else box.getCenter(this.controls.target).setY(0);
+  this.camera.position.copy(this.controls.target).addScaledVector(new THREE.Vector3(x,y,z).normalize(),Math.min(distance,this.controls.maxDistance));this.controls.update();this.draw();
+ }
+ reset(){this.frame(.35,1,.6);}
+ /** Choosing an object in the list brings the camera to it; clicking one in the scene only selects it. */
+ focus(id){const object=this.objects.find(o=>o.userData.id===id);if(!object)return;const box=new THREE.Box3().setFromObject(object),offset=this.camera.position.clone().sub(this.controls.target);box.getCenter(this.controls.target);offset.y=Math.hypot(offset.x,offset.z)*2;  // steep, so the room's own walls do not hide it
+  this.camera.position.copy(this.controls.target).add(offset.setLength(Math.max(2,box.getSize(new THREE.Vector3()).length()*3)));this.controls.update();this.draw();}
+ action(action){
+  if(action==='reset')return this.reset();
+  if(action==='top')return this.frame(0,1,.001);
+  if(action==='full')return document.fullscreenElement?document.exitFullscreen():this.host.parentElement.requestFullscreen?.().catch(()=>{});
+  const offset=this.camera.position.clone().sub(this.controls.target);
+  if(action==='left'||action==='right')offset.applyAxisAngle(new THREE.Vector3(0,1,0),action==='left'?.25:-.25);else offset.multiplyScalar(action==='in'?.75:1/.75).clampLength(this.controls.minDistance,this.controls.maxDistance);
+  this.camera.position.copy(this.controls.target).add(offset);this.controls.update();this.draw();
+ }
+ /** Runs only while a drag or its damping is still moving the camera; otherwise the scene is drawn on demand. */
+ animate(){if(this.frameId)return;const step=()=>{this.frameId=0;if(!this.visible)return;if(this.controls.update()||this.dragging)this.frameId=requestAnimationFrame(step);};this.frameId=requestAnimationFrame(step);}
+ clearObjects(){for(const object of this.objects){object.userData.tint.dispose();if(object.userData.own)object.geometry.dispose();}this.group.clear();this.objects=[];this.walls=[];}
+ update(snapshot){
+  this.snapshot=snapshot;const geometry=displayGeometry(snapshot),signature=JSON.stringify(geometry);
+  if(signature!==this.signature){
+   this.signature=signature;this.clearObjects();this.select.replaceChildren(new Option('Choose an object',''));
+   this.span=estimateSpan(geometry);
+   const thickness=wallThickness(this.span),edges=geometry.filter(e=>e.type==='room').flatMap(e=>roomEdges(e.points)),lit=(mesh,cast=true)=>{mesh.castShadow=cast;mesh.receiveShadow=true;return mesh;};
+   const place=(object,fit)=>{object.position.set(fit.x,0,fit.z);object.rotation.y=-fit.angle;object.scale.set(fit.length,1,fit.width);return object;};
+   for(const entity of geometry){
+    let object,own=false;const opening=entity.type==='door'||entity.type==='window';
+    const tint=new THREE.MeshStandardMaterial(entity.kind==='counter'?{metalness:.55,roughness:.3}:entity.kind?{roughness:.25}:entity.type==='window'?{roughness:.1,transparent:true,opacity:.55}:{roughness:.9});
+    if(entity.kind){  // a fixture: one group of shared parts, fitted to its footprint
+     object=place(new THREE.Group(),placeFixture(entity.points,entity.kind,edges));
+     for(const [part,material,position,scale] of FIXTURES[entity.kind].parts){const mesh=lit(new THREE.Mesh(this.parts[part],material==='tint'?tint:this.materials[material]),material!=='glass');mesh.position.set(...position);mesh.scale.set(...scale);object.add(mesh);}
+    }else if(opening)object=place(lit(new THREE.Mesh(this.parts.box,tint),entity.type==='door'),placeOpening(entity.points,edges,thickness));
+    else{const shape=new THREE.Shape();entity.points.forEach(([x,y],i)=>i?shape.lineTo(x,-y):shape.moveTo(x,-y));shape.closePath();object=lit(new THREE.Mesh(upright(new THREE.ExtrudeGeometry(shape,{depth:1,bevelEnabled:false,steps:1})),tint),false);own=true;}
+    object.userData={...entity,tint,own};this.group.add(object);this.objects.push(object);this.select.append(new Option(`${entity.label}${entity.uncertain?' · needs review':''}`,entity.id));
+    // Open roof: a room is its floor plus one wall box per polygon edge.
+    if(entity.type==='room')for(const fit of roomWalls(entity.points,thickness)){const wall=place(lit(new THREE.Mesh(this.parts.box,this.materials.wall)),{...fit,width:thickness});wall.userData={id:entity.id,type:'wall'};this.group.add(wall);this.walls.push(wall);}
+   }
+   this.dims.span=this.span;this.applyDimensions();this.reset();
+  }
+  this.select.value=snapshot.selectedId??'';const selected=this.objects.find(o=>o.userData.id===snapshot.selectedId),count=type=>geometry.filter(e=>e.type===type).length;
+  this.status.textContent=geometry.length?`${count('room')} rooms · ${count('fixture')} fixtures${selected?' · Selected: '+selected.userData.label:''}`:'Nothing to show in 3D on this page.';this.paint();
  }
  resize(){if(!this.renderer)return;const w=this.host.clientWidth,h=this.host.clientHeight;if(!w||!h)return;this.renderer.setSize(w,h,false);this.camera.aspect=w/h;this.camera.updateProjectionMatrix();this.draw();}
  draw(){if(this.visible&&!this.lost&&this.renderer)this.renderer.render(this.world,this.camera);}
  setVisible(visible){this.visible=visible;this.controls.enabled=visible;if(visible)this.resize();}
- dispose(){window.removeEventListener('stoa:theme-change',this.onTheme);this.observer?.disconnect();this.controls?.dispose();if(this.group)this.clearMeshes();this.grid?.geometry.dispose();this.grid?.material.dispose();this.wallGeometry?.dispose();this.wallMaterial?.dispose();this.renderer?.dispose();this.container?.replaceChildren();}
+ dispose(){cancelAnimationFrame(this.frameId);window.removeEventListener('stoa:theme-change',this.onTheme);this.observer?.disconnect();this.controls?.dispose();if(this.group)this.clearObjects();for(const item of [...Object.values(this.parts??{}),...Object.values(this.materials??{}),this.ground?.geometry,this.ground?.material])item?.dispose();this.renderer?.dispose();this.container?.replaceChildren();}
 }

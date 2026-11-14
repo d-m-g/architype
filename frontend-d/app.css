@@ -173,20 +173,32 @@ main>section{height:100%}
 /* 3D (room-renderer.js and floor-stack.js build their own markup) */
 .viewport-3d{display:flex;flex-direction:column;background:var(--desk)}
 #three-mount:not(:empty),.three-ui,.floor-stack{display:flex;flex-direction:column;flex:1;min-height:0;min-width:0}
+.three-ui{background:var(--desk)}
 .three-canvas{position:relative;flex:1;min-height:0;overflow:hidden}
-.three-sandbox{position:absolute;top:10px;right:10px;width:min(230px,calc(100% - 20px));max-height:calc(100% - 20px);overflow:auto;padding:8px 12px;border:1px solid var(--line);border-radius:10px;background:var(--paper);color:var(--ink);font-size:12px}
-.three-sandbox summary{font-weight:600;cursor:pointer}
-.three-sandbox p{margin:6px 0;color:var(--ink-2)}
-.three-sandbox div{display:flex;flex-wrap:wrap;justify-content:space-between;gap:0 8px;margin-top:6px}
-.three-sandbox output{font-family:var(--mono)}
-.three-sandbox input{width:100%;margin:2px 0;accent-color:var(--accent)}
-.three-sandbox button{margin-top:8px;height:30px;padding:0 10px;border:1px solid var(--line);border-radius:7px;background:var(--paper);color:inherit;cursor:pointer}
 .three-canvas canvas{display:block;width:100%;height:100%;touch-action:none}
-.three-notice,.stack-heading{display:flex;gap:4px 10px;flex-wrap:wrap;padding:8px 14px;font-size:12px;color:var(--ink-2);background:var(--paper);border-bottom:1px solid var(--line)}
-.three-controls,.stack-controls,.three-select{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;padding:8px 14px;background:var(--paper);border-top:1px solid var(--line);font-size:13px}
-.three-controls button,.stack-plate button{height:30px;min-width:34px;padding:0 10px;border:1px solid var(--line);border-radius:7px;background:var(--paper);cursor:pointer;font-size:13px}
-.three-select select{flex:1;min-width:120px}
-.three-status,#stack-status{padding:6px 14px 10px;font-size:12px;color:var(--ink-3);background:var(--paper)}
+/* Floating over the model so the canvas keeps the whole stage; the sliders stay folded until asked for. */
+.three-sandbox,.three-controls{position:absolute;border:1px solid var(--line);border-radius:10px;background:var(--paper);color:var(--ink);font-size:12px;box-shadow:0 4px 16px #0b122014}
+.three-sandbox{top:12px;right:12px;max-width:calc(100% - 24px);max-height:calc(100% - 24px);overflow:auto;padding:0 12px}
+.three-sandbox[open]{width:212px;padding-bottom:10px}
+.three-sandbox summary{line-height:32px;font-weight:500;cursor:pointer}
+.three-sandbox p{margin:0 0 4px;color:var(--ink-2)}
+.three-sandbox div{display:flex;flex-wrap:wrap;justify-content:space-between;gap:0 8px;margin-top:8px;color:var(--ink-2)}
+.three-sandbox output{font-family:var(--mono);color:var(--ink)}
+.three-sandbox input{width:100%;margin:4px 0 0;accent-color:var(--accent)}
+.three-sandbox button{margin-top:12px}
+.three-controls{left:12px;bottom:12px;display:flex;gap:2px;padding:3px}
+.three-controls button,.three-sandbox button{height:30px;min-width:32px;padding:0 9px;border:0;border-radius:7px;background:none;color:var(--ink-2);cursor:pointer;font-size:13px}
+.three-sandbox button{border:1px solid var(--line)}
+:is(.three-controls,.three-sandbox) button:hover{background:var(--surface);color:var(--ink)}
+.three-foot{display:flex;flex-wrap:wrap;align-items:center;gap:4px 16px;padding:6px 14px;background:var(--paper);border-top:1px solid var(--line);font-size:12px;color:var(--ink-2)}
+.three-select{display:flex;align-items:center;gap:8px}
+.three-select select{max-width:240px}
+.three-status{margin:0 0 0 auto;color:var(--ink-3)}
+.legend.in-3d>:not(.legend-hint){display:none}
+.stack-heading{display:flex;gap:4px 10px;flex-wrap:wrap;padding:8px 14px;font-size:12px;color:var(--ink-2);background:var(--paper);border-bottom:1px solid var(--line)}
+.stack-controls{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;padding:8px 14px;background:var(--paper);border-top:1px solid var(--line);font-size:13px}
+.stack-plate button{height:30px;min-width:34px;padding:0 10px;border:1px solid var(--line);border-radius:7px;background:var(--paper);cursor:pointer;font-size:13px}
+#stack-status{padding:6px 14px 10px;font-size:12px;color:var(--ink-3);background:var(--paper)}
 #three-placeholder{margin:auto;max-width:340px;padding:24px;display:grid;justify-items:center;gap:10px;text-align:center;color:var(--ink-2)}
 #three-placeholder h3{font-size:16px;color:var(--ink)}
 .stack-stage{position:relative;flex:1;min-height:320px;overflow:hidden;display:grid;place-items:center;perspective:850px;padding:35px 20px 80px}
