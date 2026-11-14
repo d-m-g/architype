@@ -110,6 +110,8 @@ main>section{height:100%}
 .seg button[aria-pressed=true]{background:var(--ink);color:var(--paper)}
 .zoom{display:flex;align-items:center;gap:2px}
 .zoom output{min-width:46px;text-align:center;font:12px var(--mono);color:var(--ink-2)}
+.confidence-control{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-2)}
+.confidence-control select{min-height:32px;padding:4px 6px;border:1px solid var(--line);border-radius:6px;background:var(--paper);color:var(--ink)}
 .edit-bar{background:var(--accent-soft);font-size:13px}
 .edit-bar label{display:flex;align-items:center;gap:6px;margin-left:auto}
 

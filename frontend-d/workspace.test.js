@@ -57,7 +57,7 @@ test('confidence rings hide at fit, appear when zoomed in, and hide again withou
  const update=code.slice(code.indexOf('function updateView('),code.indexOf('const MARGIN='));
  const classes=new Set(),ring={dataset:{x:'400',y:'150',w:'180',h:'100'},classList:{toggle:(name,on)=>on?classes.add(name):classes.delete(name)}};
  const properties=new Map(),screen={width:800,height:600};
- const context={view:{x:0,y:0,w:1060,h:795},pageSize:()=>({w:1000,h:750}),MARGIN:1.06,
+ const context={confidenceDisplay:'auto',view:{x:0,y:0,w:1060,h:795},pageSize:()=>({w:1000,h:750}),MARGIN:1.06,
   svg:{setAttribute(){},getBoundingClientRect:()=>screen,style:{setProperty:(name,value)=>properties.set(name,value)},classList:{toggle(){}}},
   $:id=>id==='overlays'?{querySelectorAll:selector=>selector==='.confidence-ring'?[ring]:[]}: {},publish(){}};
  runInNewContext(visibility+update+';updateView(false);',context);
@@ -69,6 +69,29 @@ test('confidence rings hide at fit, appear when zoomed in, and hide again withou
  ring.dataset.w='5';runInNewContext('updateView(false)',context);assert.equal(classes.has('is-readable'),false);
  ring.dataset.w='180';context.view.x=600;runInNewContext('updateView(false)',context);assert.equal(classes.has('is-readable'),false);
  context.view={x:0,y:0,w:1060,h:795};runInNewContext('updateView(false)',context);assert.equal(classes.has('is-readable'),false);
+ context.confidenceDisplay='on';runInNewContext('updateView(false)',context);assert.equal(classes.has('is-readable'),true,'On overrides the zoom threshold');
+ context.confidenceDisplay='off';context.view={x:100,y:100,w:500,h:375};runInNewContext('updateView(false)',context);assert.equal(classes.has('is-readable'),false,'Off hides scores even when zoomed in');
+ context.confidenceDisplay='auto';runInNewContext('updateView(false)',context);assert.equal(classes.has('is-readable'),true);
+});
+
+test('the visible confidence control applies immediately, remembers the choice, and works when storage is blocked',()=>{
+ const source=readFileSync(new URL('./main.js',import.meta.url),'utf8');
+ const code=source.slice(source.indexOf("const CONFIDENCE_DISPLAY="),source.indexOf('let view='));
+ const saved=new Map();
+ function load(blocked=false){
+  const nodes={'confidence-display':{},'confidence-legend':{}},updates=[];
+  runInNewContext(code,{$:id=>nodes[id],updateView:sync=>updates.push(sync),localStorage:{
+   getItem:key=>{if(blocked)throw Error('Blocked');return saved.get(key);},
+   setItem:(key,value)=>{if(blocked)throw Error('Blocked');saved.set(key,value);}
+  }});
+  return {nodes,updates,change(value){nodes['confidence-display'].value=value;nodes['confidence-display'].onchange();}};
+ }
+ const first=load();assert.equal(first.nodes['confidence-display'].value,'auto');first.change('on');
+ assert.match(first.nodes['confidence-legend'].textContent,/all zoom levels/);assert.deepEqual(first.updates,[false]);
+ const reloaded=load();assert.equal(reloaded.nodes['confidence-display'].value,'on');reloaded.change('off');
+ assert.match(reloaded.nodes['confidence-legend'].textContent,/hidden/);assert.equal(load().nodes['confidence-display'].value,'off');
+ saved.set('blueprints-confidence-display','invalid');assert.equal(load().nodes['confidence-display'].value,'auto');
+ const blocked=load(true);blocked.change('on');assert.equal(blocked.nodes['confidence-display'].value,'on');assert.deepEqual(blocked.updates,[false]);
 });
 
 test('rings report zero and full confidence honestly, omit missing scores, and keep type colours stable',()=>{

@@ -113,6 +113,13 @@
           <button id="fit" class="btn quiet" type="button">Fit</button>
           <button id="general-view" class="btn quiet general-view" type="button" hidden>General view</button>
         </div>
+        <label id="confidence-control" class="confidence-control">Confidence
+          <select id="confidence-display" aria-label="Confidence scores on the drawing">
+            <option value="auto">Auto</option>
+            <option value="on">On</option>
+            <option value="off">Off</option>
+          </select>
+        </label>
         <span class="spacer"></span>
         <button id="edit-toggle" class="btn quiet" type="button" aria-pressed="false" disabled>
           <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="m4 20 4-1L19 8l-3-3L5 16z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
@@ -161,7 +168,7 @@
       </div>
 
       <footer class="legend">
-        <span>Outline colour = object type · Ring colour = model score: red 0 → green 100 (from 175% zoom)</span>
+        <span id="confidence-legend">Outline colour = object type · Ring colour = model score: red 0 → green 100 (from 175% zoom)</span>
         <span id="counted-legend"><i class="key key-counted"></i>Counted in the answer</span>
         <span><i class="key key-other"></i><span id="other-legend">Found, not counted</span></span>
         <span><i class="key key-review"></i>Score below 80, review</span>

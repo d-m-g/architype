@@ -65,6 +65,24 @@ export function formatValue(value,unit){
 
 // ───────── viewer ─────────
 const svg=$('drawing'),image=$('page-image');
+const CONFIDENCE_DISPLAY='blueprints-confidence-display';
+let confidenceDisplay='auto';
+try{const saved=localStorage.getItem(CONFIDENCE_DISPLAY);if(['auto','on','off'].includes(saved))confidenceDisplay=saved;}catch{}
+function syncConfidenceControl(){
+ $('confidence-display').value=confidenceDisplay;
+ $('confidence-legend').textContent='Outline colour = object type · '+({
+  auto:'Ring colour = model score: red 0 → green 100 (from 175% zoom)',
+  on:'Scores shown at all zoom levels: red 0 → green 100',
+  off:'Confidence scores hidden'
+ })[confidenceDisplay];
+}
+function setConfidenceDisplay(value){
+ confidenceDisplay=['auto','on','off'].includes(value)?value:'auto';
+ syncConfidenceControl();updateView(false);
+ try{localStorage.setItem(CONFIDENCE_DISPLAY,confidenceDisplay);}catch{}
+}
+syncConfidenceControl();
+$('confidence-display').onchange=()=>setConfidenceDisplay($('confidence-display').value);
 let view={x:0,y:0,w:1000,h:760};
 const pageSize=()=>state.scene?{w:state.scene.width,h:state.scene.height}:{w:state.preview?.width??1000,h:state.preview?.height??760};
 function publish(){
@@ -80,7 +98,7 @@ function updateView(sync=true){
  svg.classList.toggle('dense',view.w>pageSize().w*.6&&$('overlays').querySelectorAll('.badge').length>12);
  for(const ring of $('overlays').querySelectorAll('.confidence-ring')){
   const bounds={x:Number(ring.dataset.x),y:Number(ring.dataset.y),w:Number(ring.dataset.w),h:Number(ring.dataset.h)};
-  ring.classList.toggle('is-readable',confidenceRingVisible(bounds,view,box,pageSize().w));
+  ring.classList.toggle('is-readable',confidenceDisplay==='on'||(confidenceDisplay==='auto'&&confidenceRingVisible(bounds,view,box,pageSize().w)));
  }
  $('zoom-label').textContent=Math.round(pageSize().w*MARGIN*100/view.w)+'%';
  if(sync)publish();
@@ -726,6 +744,7 @@ export function showPanel(name){
 }
 function setView(next){
  mode=next;
+ $('confidence-control').hidden=mode!=='2d';
  $('viewport-2d').hidden=mode!=='2d';$('viewport-3d').hidden=mode!=='3d';
  $('view-2d').setAttribute('aria-pressed',String(mode==='2d'));$('view-3d').setAttribute('aria-pressed',String(mode==='3d'));
  document.querySelector('.zoom').hidden=mode!=='2d';
