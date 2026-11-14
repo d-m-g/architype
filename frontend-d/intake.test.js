@@ -32,3 +32,11 @@ test('a cancelled late answer is rejected instead of accepted',async(t)=>{
  await assert.rejects(requestDrawing('data/test.pdf','Count',controller.signal),{name:'AbortError'});
  assert.equal(calls,2);
 });
+import {isDrawingPath,uploadDrawing} from './api-client.js';
+test('uploaded identifiers and raw-body upload match the team contract',async(t)=>{
+ assert.equal(isDrawingPath('uploads/abc.pdf'),true);assert.equal(isDrawingPath('data/a.png'),true);assert.equal(isDrawingPath('https://example.com/a'),false);
+ const blob=new Blob(['%PDF-1.7'],{type:'application/pdf'});let sent;
+ t.mock.method(globalThis,'fetch',async(url,options)=>{sent={url,options};return new Response(JSON.stringify({path:'uploads/abc.pdf',reader:'vision'}));});
+ const result=await uploadDrawing(blob,'drawing.pdf');
+ assert.equal(sent.url,'/api/upload?filename=drawing.pdf');assert.equal(sent.options.body,blob);assert.equal(sent.options.headers['Content-Type'],'application/pdf');assert.equal(result.path,'uploads/abc.pdf');
+});

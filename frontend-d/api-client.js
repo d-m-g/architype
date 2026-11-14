@@ -15,3 +15,10 @@ export async function requestDrawing(path,question,signal,onProgress=()=>{}){
  if(signal?.aborted)throw new DOMException('Request cancelled','AbortError');
  return {scene:scene.status==='fulfilled'?scene.value:null,answer:answer.status==='fulfilled'?answer.value:null,errors:[scene.status==='rejected'?`Scene: ${scene.reason.message}`:null,answer.status==='rejected'?`Answer: ${answer.reason.message}`:null].filter(Boolean)};
 }
+
+export const isDrawingPath=path=>typeof path==='string'&&(path.startsWith('data/')||path.startsWith('uploads/'));
+export async function uploadDrawing(file,filename,signal){
+ const value=await requestJSON('/api/upload?'+new URLSearchParams({filename}),{method:'POST',headers:{'Content-Type':file.type||'application/octet-stream'},body:file,signal});
+ if(typeof value.path!=='string'||!value.path.startsWith('uploads/'))throw new Error('Upload response did not include a valid drawing identifier.');
+ return value;
+}

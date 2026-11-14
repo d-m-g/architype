@@ -1,5 +1,5 @@
 import {historyStore} from './history-state.js';
-import {requestDrawing,requestJSON} from './api-client.js';
+import {requestDrawing,requestJSON,isDrawingPath} from './api-client.js';
 import {publishEditor} from './editor-bridge.js';
 import {scene as mockScene,scenarios,resolveMockQuestion,zoomView} from './mock-scene.js';
 import {adaptScene,adaptAnswer,imageURL} from './contracts.js';
@@ -64,7 +64,7 @@ $('retry-request').onclick=()=>{if(lastRequest){$('api-path').value=lastRequest.
 async function askAPI(){
  window.dispatchEvent(new Event('stoa:close-local'));
  const path=$('api-path').value.trim(),question=$('question').value.trim();
- if(!path.startsWith('data/')||!question){$('contract-status').textContent='Enter a dataset path beginning data/ and a question.';return;}
+ if(!isDrawingPath(path)||!question){$('contract-status').textContent='Enter a data/ or uploads/ drawing path and a question.';return;}
  lastRequest={path,question};apiAbort?.abort();apiAbort=new AbortController();const controller=apiAbort,id=++requestNumber;const timer=setTimeout(()=>controller.abort(),60000);
  openPending(path,question);setBusy(true);$('contract-status').textContent='Requesting scene and answer from the team API…';
  try{

@@ -32,7 +32,7 @@ Tests: run `npm test` from this directory, or run the Node test files listed in 
 `contracts.js` adapts `blueprints/schemas.py` v1 to frontend presentation. It does not modify the team schema or execute queries. Tests read the actual team fixtures. Boundary checks catch version, coordinate, page, duplicate ID, evidence and metric problems; these are frontend checks, not a replacement for backend Pydantic validation.
 
 - Scene: normalized `geom` becomes page pixel coordinates; `page` is zero-based; page selection and evidence selection switch images. Image URLs use `/api/image?path=<encoded Page.image>`. Empty geometry remains listed. `covers` and builder are displayed.
-- Answer: `extra_entities` merge only when IDs do not collide; unknown evidence IDs are reported rather than silently verified. Units, reported confidence, tier, interpretation, read-only assumptions, formula, trace/model/tokens/GPU/time/cache/cost are displayed. Query and scene-build costs remain separate.
+- Answer: `extra_entities` merge by ID; identical repeated scene entities are accepted, while conflicting duplicates are rejected; unknown evidence IDs are reported rather than silently verified. Units, reported confidence, tier, interpretation, read-only assumptions, formula, trace/model/tokens/GPU/time/cache/cost are displayed. Query and scene-build costs remain separate.
 - API: GET `/api/scene`, POST `/api/ask` with only path/question, GET `/api/image`. Errors and 501 responses do not become answers. Request tokens prevent older responses replacing newer requests or a return to mocks.
 - Local imports: open “Shared schema input” and select matching Scene and Answer JSON files. Files stay in browser memory. Images still require the team image endpoint. An Answer has no path field, so callers must ensure it belongs to the selected Scene.
 - EvalRow: dashboard imports JSONL with source/type/tier filtering, scored accuracy, answered accuracy, coverage, reported cost/time, confidence bins, and failure links. Null correctness is unscored. Viewer links send only path and question, never gold or predicted answers.
@@ -82,7 +82,7 @@ Verification: 16 Node tests including page isolation, display proportions and im
 
 Pulled origin/main through f049a0c without overwriting local D changes. The unchanged team API runs against the existing preview dataset. Verified through the frontend proxy: connection check succeeds; Swiss scene GET returns 501 with lane A's missing-parser message; POST ask returns answer=null / tier=none and that error; PNG image bytes match the dataset file SHA-256. The team contract script passed 10 checks. Browser verified connection status, API abstention/error in the editor, and return to mock area/3D/dashboard functionality.
 
-All scene builders are still stubs in this checkout, so no real question-to-evidence success is claimed. The proxy and UI are connected and ready for their implementations. No API keys, dataset files, generated caches, or Python environments are committed. Reference answers are never sent to `/api/ask`.
+The dataset builders remain stubs. The pulled vision reader can analyse uploads when its provider is configured; local verification currently returns the explicit missing GEMINI_API_KEY response, so no real inference success is claimed. No API keys, dataset files, generated caches, or Python environments are committed. Reference answers are never sent to `/api/ask`.
 
 Proxy tests cover upstream response codes/body, byte-preserving images, source path forwarding, unavailable API, private runtime-file exclusion and local-only destination enforcement. Client requests the scene before the answer so a successful scene build can populate the team's cache. Missing-scene responses still allow the API's structured abstention to be shown. Requests have timeouts; a return to mocks aborts pending work and ignores stale replies.
 
@@ -101,11 +101,11 @@ Use **Start mock demo** above the workspace for seven manually controlled steps 
 
 ## Live judging alignment (14 November update)
 
-The editor now prioritizes **Bring your drawing**. PDF, PNG, JPEG and WebP files up to 25 MB can be selected for a browser-local preview, with content-signature checks, an editable question draft, replacement and close. No bytes are uploaded. The prior viewer/answer is hidden during preview and restored on close; the question draft is retained. Native PDF preview availability depends on the browser.
+The editor now prioritizes **Bring your drawing**. PDF, PNG, JPEG and WebP files up to 25 MB can be selected for a browser-local preview, with content-signature checks, an editable question draft, replacement and close. Bytes stay local until the explicit upload action. The prior viewer/answer is hidden during preview and restored on close; the question draft is retained. Native PDF preview availability depends on the browser.
 
-**Upload analysis is blocked by the current team API contract:** blueprints/api.py exposes ask, scene and image only, and ask validates dataset paths. The disabled analysis action states this limitation. We have not invented an upload route or changed backend/schema code. To connect it, C must provide the multipart request contract, accepted formats/limits, returned drawing identifier, how that identifier is used for ask/scene/image, processing status and error shape. A/C own file ingestion and drawing readers.
+**Upload is connected to the team API:** the explicit upload action sends raw PDF/PNG/JPEG bytes to POST `/api/upload?filename=...`, preserves the returned `uploads/` identifier, and shows the reported reader. The UI limit is 25 MiB (backend limit: 50 MiB); WebP remains preview-only. Asking a question then loads the scene and answer through the existing endpoints. Missing provider configuration is shown as an error/abstention, never mock evidence. The current reader uses the first PDF page; IFC/DXF, multi-page ingestion, stage events and scale calibration remain pending. A/C own ingestion and readers.
 
-For existing server drawings, expand **Use a drawing already on the team server**, enter its data/ path and select **Use live drawing**. The question button switches to **Ask live drawing** and sends arbitrary text verbatim, including Finnish and multi-step questions. It does not imply that the current backend can answer them. Progress distinguishes scene loading and question answering. Cancel rejects late responses; retry restores the last submitted path/question. Missing source scenes never inherit mock evidence. Typed and dictated text use the same API.
+For existing server drawings, expand **Use a drawing already on the team server**, enter its data/ or uploads/ path and select **Use live drawing**. The question button switches to **Ask live drawing** and sends arbitrary text verbatim, including Finnish and multi-step questions. It does not imply that the current backend can answer them. Progress distinguishes scene loading and question answering. Cancel rejects late responses; retry restores the last submitted path/question. Missing source scenes never inherit mock evidence. Typed and dictated text use the same API.
 
 Mocks, local Scene/Answer import, illustrative 3D, dashboard and guided mock demo remain available. Use the mock demo as a labelled fallback, not as a substitute for live judging. The API still has no assumptions-override contract; assumptions remain read-only.
 
@@ -133,7 +133,7 @@ Every action can be undone in reverse order, including deletion and addition. Th
 
 Blue/amber draft overlays replace the original overlays only while correction mode is on. The reported answer, original scene, confidence, evidence list, read-aloud and 3D are unchanged. A visible answer-card notice identifies pending user corrections and says that a new answer is unavailable. Switching to 3D or starting the mock demo restores original overlays and retains the draft.
 
-Recalculation is intentionally disabled until C supplies the returned QueryPlan and the recompute contract. No executor runs in JavaScript, no model calls are made, and edits are not uploaded or appended to training JSONL. Logging and editable plan assumptions require the agreed backend contracts.
+The team now exposes POST /api/recompute and GET /api/plan, but Answer still does not include the exact plan used for that answer. Recalculation remains intentionally disabled until that association and integration are available; generating a new plan would not guarantee the same calculation. No executor runs in JavaScript, no model calls are made, and edits are not uploaded or appended to training JSONL. Logging and editable plan assumptions require the agreed backend contracts.
 
 Validation: 30 Node checks. Browser verified deletion/undo, type changes, area changes, amber confirmation, numeric and pointer-drawn boxes, panel navigation, 3D isolation and complete undo to the original scene.
 
@@ -146,3 +146,8 @@ Expand **Questions & answer history** below the answer trace. The drawing select
 Correction drafts stay separate and are retained for the matching scene revision. Opening saved history exits draft-overlay mode so the saved evidence is visible. Pending requests and asynchronous imports cannot replace a restored history entry.
 
 Validation: 34 Node checks, including immutable snapshots, drawing isolation, retention, zero/null answers and read-only history navigation. Browser checked mock evidence restoration, explicit resubmission, nonduplicating history navigation, and separate live-error history.
+
+
+## Pulled API compatibility check
+
+Aligned D with team commit bdc8893: raw uploads, uploads/ source paths, proxy upload/plan/recompute routes and identical repeated vision evidence. Browser verification confirmed a real PNG upload, the reported reader, and deliberate missing-provider abstention. Automated checks cover byte preservation, route forwarding, evidence deduplication and existing viewer/history/correction behavior.
