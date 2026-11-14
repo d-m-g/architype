@@ -175,7 +175,7 @@ function confidenceRing(entity){
  const xs=entity.polygon.map(p=>p[0]),ys=entity.polygon.map(p=>p[1]);
  const x=Math.max(...xs),y=Math.min(...ys),w=x-Math.min(...xs),h=Math.max(...ys)-y;
  const score=Math.round(Math.max(0,Math.min(1,entity.conf))*100);
- return el('g',{class:'confidence-ring','aria-hidden':'true',style:`--x:${x};--y:${y}`,
+ return el('g',{class:'confidence-ring','aria-hidden':'true','data-entity':entity.id,style:`--x:${x};--y:${y};--confidence-h:${score*1.2}`,
   'data-x':x,'data-y':y,'data-w':w,'data-h':h},
   el('circle',{class:'confidence-disc',r:17}),
   el('circle',{class:'confidence-track',r:13}),
@@ -228,6 +228,10 @@ function markSelection(){
   const on=node.dataset.entity===state.selected;node.classList.toggle('selected',on);
   if(node.hasAttribute('aria-pressed'))node.setAttribute('aria-pressed',String(on));
  }
+ // SVG paint order, rather than z-index, decides what covers a ring. Lift just the score,
+ // leaving polygon order and keyboard focus intact so small objects remain clickable.
+ const layer=$('overlays'),ring=[...layer.querySelectorAll('.confidence-ring')].find(node=>node.dataset.entity===state.selected);
+ if(ring)layer.append(ring);
 }
 const inspectors=[];
 /** Other modules add controls to the inspector: fn(entity, node). */
