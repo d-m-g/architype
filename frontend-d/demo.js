@@ -43,6 +43,7 @@ export function mountDemo(root = document) {
       get('demo-guide').scrollIntoView({block:'start'});
     } finally { applying = false; }
   };
+  window.addEventListener('stoa:restore-answer',()=>{if(index>=0)end();});
   get('demo-start').onclick = () => show(0);
   get('demo-back').onclick = () => show(index - 1);
   get('demo-next').onclick = () => { if (index === demoSteps.length - 1) { end(); get('demo-start').focus(); } else show(index + 1); };

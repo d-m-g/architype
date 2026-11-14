@@ -136,3 +136,13 @@ Blue/amber draft overlays replace the original overlays only while correction mo
 Recalculation is intentionally disabled until C supplies the returned QueryPlan and the recompute contract. No executor runs in JavaScript, no model calls are made, and edits are not uploaded or appended to training JSONL. Logging and editable plan assumptions require the agreed backend contracts.
 
 Validation: 30 Node checks. Browser verified deletion/undo, type changes, area changes, amber confirmation, numeric and pointer-drawn boxes, panel navigation, 3D isolation and complete undo to the original scene.
+
+## Question and answer history
+
+Expand **Questions & answer history** below the answer trace. The drawing selector groups mock and real paths separately. Each drawing retains its latest 20 results in this browser tab, newest first; reloading clears history. Entries include the submitted question, timestamp, answer/status, available reported confidence/cost, and immutable original scene/answer snapshots. Abstentions, errors and explicit cancellations are included; loading, pan/zoom, selection and correction actions do not create entries.
+
+**Open saved answer** restores the saved result and evidence without rerunning inference. Source images may still be fetched from their original paths; history does not archive image bytes. **Reuse question** restores the drawing and fills its question, then waits for an explicit submit. It does not send conversation history or reference answers to the API. Imported Answer JSON has no question field, so its question is labelled unavailable and reuse is disabled.
+
+Correction drafts stay separate and are retained for the matching scene revision. Opening saved history exits draft-overlay mode so the saved evidence is visible. Pending requests and asynchronous imports cannot replace a restored history entry.
+
+Validation: 34 Node checks, including immutable snapshots, drawing isolation, retention, zero/null answers and read-only history navigation. Browser checked mock evidence restoration, explicit resubmission, nonduplicating history navigation, and separate live-error history.
