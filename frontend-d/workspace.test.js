@@ -57,7 +57,7 @@ test('confidence rings hide at fit, appear when zoomed in, and hide again withou
  const update=code.slice(code.indexOf('function updateView('),code.indexOf('const MARGIN='));
  const classes=new Set(),ring={dataset:{x:'400',y:'150',w:'180',h:'100'},classList:{toggle:(name,on)=>on?classes.add(name):classes.delete(name)}};
  const properties=new Map(),screen={width:800,height:600};
- const context={confidenceDisplay:'auto',view:{x:0,y:0,w:1060,h:795},pageSize:()=>({w:1000,h:750}),MARGIN:1.06,
+ const context={confidenceDisplay:'auto',view:{x:0,y:0,w:1060,h:795},pageSize:()=>({w:1000,h:750}),MARGIN:1.06,stageBox:()=>screen,
   svg:{setAttribute(){},getBoundingClientRect:()=>screen,style:{setProperty:(name,value)=>properties.set(name,value)},classList:{toggle(){}}},
   $:id=>id==='overlays'?{querySelectorAll:selector=>selector==='.confidence-ring'?[ring]:[]}: {},publish(){}};
  runInNewContext(visibility+update+';updateView(false);',context);
@@ -291,6 +291,6 @@ test('selecting evidence on another page redraws its overlays and focuses the ma
  const context={state,entityById:()=>entity,setPage:p=>state.page=p,renderDrawingSide:()=>calls.render++,drawMarks:()=>calls.draw++,markSelection(){},$:id=>nodes[id],evidenceIds:()=>['first',entity.id],el:()=>({}),KINDS:{room:['Room']},ROOM_TYPE:{},inspectors:[],matchMedia:()=>({matches:true}),publish(){}};
  runInNewContext(code,context);context.select(entity.id,{focusEvidence:true});assert.equal(state.page,1);assert.equal(calls.draw,1);assert.equal(calls.render,1);assert.equal(calls.focus,1);assert.equal(calls.scroll,1);assert.match(nodes['evidence-navigation'].textContent,/2 of 2/);
  context.objectFocusViewport=runInNewContext(source.slice(source.indexOf('export function objectFocusViewport'),start).replace('export ','')+';objectFocusViewport');
- entity.polygon=[[100,100],[120,100],[120,120]];context.pageSize=()=>({w:1000,h:800});context.svg={getBoundingClientRect:()=>({width:900,height:600})};context.updateView=()=>{};
+ entity.polygon=[[100,100],[120,100],[120,120]];context.pageSize=()=>({w:1000,h:800});context.svg={getBoundingClientRect:()=>({width:900,height:600})};context.stageBox=()=>context.svg.getBoundingClientRect();context.updateView=()=>{};
  context.select(entity.id,{scrollEvidence:false,zoomTo:true});assert.equal(calls.scroll,1);assert.equal(calls.focus,1);assert.ok(context.view.w<150);
 });

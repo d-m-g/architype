@@ -90,9 +90,23 @@ function publish(){
  publishEditor({wireScene:state.raw,answer:state.rawAnswer,entities:state.scene?.entities??[],selectedId:state.selected,pageIndex:state.page,
   viewport:{...view},sourcePreview:null,mode:state.raw?'shared':'pending'});
 }
+// Rotation turns the whole drawing element, not its contents: the image, the marks, pan, zoom and corrections all
+// stay in page coordinates, and the browser maps pointer positions through the turn. It changes the view only.
+let turn=0;  // quarter turns clockwise
+/** The drawing element's size on screen before it is turned: a quarter turn swaps the sides of its bounding box. */
+function stageBox(){const box=svg.getBoundingClientRect();return turn%2?{width:box.height,height:box.width}:box;}
+function setTurn(next){
+ turn=((next%4)+4)%4;
+ const frame=$('viewport-2d');
+ // On its side the element takes the frame's height as its width, so it still fills the frame once turned.
+ Object.assign(svg.style,turn%2?{position:'absolute',left:'50%',top:'50%',width:frame.clientHeight+'px',height:frame.clientWidth+'px',transform:`translate(-50%,-50%) rotate(${turn*90}deg)`}
+  :{position:'',left:'',top:'',width:'',height:'',transform:turn?'rotate(180deg)':''});
+ svg.style.setProperty('--turn',-90*turn);  // number badges and score rings turn back, so they read upright
+ updateView(false);
+}
 function updateView(sync=true){
  svg.setAttribute('viewBox',`${view.x} ${view.y} ${view.w} ${view.h}`);
- const box=svg.getBoundingClientRect();
+ const box=stageBox();
  // --u is drawing units per screen pixel, so number badges keep one size at every zoom.
  if(box.width)svg.style.setProperty('--u',Math.max(view.w/box.width,view.h/box.height));
  svg.classList.toggle('dense',view.w>pageSize().w*.6&&$('overlays').querySelectorAll('.badge').length>12);
@@ -115,11 +129,16 @@ function frameEvidence(){
  view={w:width,h:width*h/w,x:(Math.min(...xs)+Math.max(...xs))/2-width/2,y:(Math.min(...ys)+Math.max(...ys))/2-width*h/w/2};updateView();
 }
 function zoom(factor,anchor={x:view.x+view.w/2,y:view.y+view.h/2}){view=zoomAt(view,factor,anchor,pageSize().w);updateView();}
-function pan(dx,dy){view.x+=dx*view.w*.12;view.y+=dy*view.h*.12;updateView();}
+function pan(dx,dy){
+ for(let i=0;i<turn;i++)[dx,dy]=[dy,-dx];  // an arrow key moves the way it points on screen, whatever the turn
+ view.x+=dx*view.w*.12;view.y+=dy*view.h*.12;updateView();
+}
 export function svgPoint(event){const p=svg.createSVGPoint();p.x=event.clientX;p.y=event.clientY;return p.matrixTransform(svg.getScreenCTM().inverse());}
 const locked=()=>svg.classList.contains('drawing-box');
 
 $('zoom-in').onclick=()=>zoom(1.25);$('zoom-out').onclick=()=>zoom(.8);$('fit').onclick=fit;
+$('rotate').onclick=()=>setTurn(turn+1);
+new ResizeObserver(()=>{if(turn%2)setTurn(turn);}).observe($('viewport-2d'));  // a turned drawing is sized in pixels
 svg.addEventListener('keydown',event=>{
  if(event.target!==svg)return;
  const move={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]}[event.key];
@@ -127,6 +146,7 @@ svg.addEventListener('keydown',event=>{
  else if(event.key==='+'||event.key==='='){event.preventDefault();zoom(1.25);}
  else if(event.key==='-'){event.preventDefault();zoom(.8);}
  else if(event.key==='0'){event.preventDefault();fit();}
+ else if(event.key==='r'){event.preventDefault();setTurn(turn+1);}
 });
 // Paint once per frame; pointer movement must not rebuild the page.
 let frame=0,syncTimer;
@@ -285,7 +305,7 @@ export function select(id,{zoomTo=false,focusEvidence=false,scrollEvidence=true}
  if(scrollEvidence)row?.scrollIntoView({block:'nearest',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
  if(focusEvidence)row?.focus({preventScroll:true});
  if(zoomTo&&entity.polygon.length){
-  view=objectFocusViewport(entity.polygon,pageSize(),svg.getBoundingClientRect());
+  view=objectFocusViewport(entity.polygon,pageSize(),stageBox());
   updateView(false);
  }
  publish();
@@ -541,6 +561,7 @@ function resetDrawing(){
  state.layers.clear();shownHistory=null;
  $('overlays').replaceChildren();$('inspector').hidden=true;$('page-rail').hidden=true;
  $('working').hidden=true;
+ if(turn)setTurn(0);  // a new drawing opens the way it was drawn
  window.dispatchEvent(new Event('stoa:drawing-reset'));
 }
 export function showStart(){

@@ -140,7 +140,8 @@ main>section{height:100%}
 .mark.evidence polygon.region-shape{fill:var(--type);fill-opacity:.22;stroke:var(--type);stroke-width:1.5;mix-blend-mode:normal}
 .mark.evidence:is(:hover,.hot,:focus-visible) polygon.region-shape{stroke-width:3;fill-opacity:.32}
 .mark.selected polygon.region-shape{stroke:#141b24;stroke-width:3;fill-opacity:.32}
-.badge{transform:translate(calc(var(--x)*1px),calc(var(--y)*1px)) scale(var(--u,1));pointer-events:none}
+/* --turn undoes the drawing's rotation, so numbers and scores read upright on a turned drawing. */
+.badge{transform:translate(calc(var(--x)*1px),calc(var(--y)*1px)) scale(var(--u,1)) rotate(calc(var(--turn,0)*1deg));pointer-events:none}
 .badge circle{fill:#141b24;stroke:#fff;stroke-width:1.5}
 .badge text{fill:#fff;font:600 10px var(--sans);text-anchor:middle}
 /* Many marks on a zoomed-out page: numbers shrink to dots until you zoom in or point at one. */
@@ -169,7 +170,7 @@ main>section{height:100%}
 .mark.selected polygon.region-shape{stroke:var(--type)}
 .type-key{display:inline-block;width:9px;height:9px;flex:none;border-radius:2px;background:var(--type)}
 /* Counter-scale the ring with the same drawing-units/pixel ratio as evidence numbers. */
-.confidence-ring{transform:translate(calc(var(--x)*1px),calc(var(--y)*1px)) scale(var(--u,1));pointer-events:none;opacity:0;transition:opacity .12s}
+.confidence-ring{transform:translate(calc(var(--x)*1px),calc(var(--y)*1px)) scale(var(--u,1)) rotate(calc(var(--turn,0)*1deg));pointer-events:none;opacity:0;transition:opacity .12s}
 .confidence-ring.is-readable{opacity:1}
 .confidence-ring .confidence-disc{fill:#fff;stroke:#141b24;stroke-width:1}
 .confidence-ring .confidence-track{fill:none;stroke:hsl(var(--confidence-h) 85% 38%);stroke-opacity:.2;stroke-width:3}
