@@ -16,9 +16,17 @@ syncThemeControls();
 let loading3D=false;
 async function load3D(){if(renderer||loading3D)return;loading3D=true;try{const {RoomRenderer}=await import('./room-renderer.js');register3DRenderer(new RoomRenderer());}catch(error){$('three-placeholder').hidden=false;$('three-placeholder').querySelector('h3').textContent='3D could not start.';$('three-placeholder').querySelector('p:not(.eyebrow)').textContent='The graphics module or WebGL is unavailable. The 2D editor remains fully usable.';$('view-status').textContent='3D unavailable';}finally{loading3D=false;}}
 let panel='editor',view='2d',renderer=null,unsubscribeRenderer=null;
-function showPanel(name,focus=false){panel=['editor','dashboard','sources','settings'].includes(name)?name:'editor';document.querySelectorAll('[data-workspace-panel]').forEach(p=>p.hidden=p.dataset.workspacePanel!==panel);document.querySelectorAll('[data-panel]').forEach(link=>{if(link.dataset.panel===panel)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current');});document.title=`Stoa / ${panel[0].toUpperCase()+panel.slice(1)}`;if(focus){const heading=$(`panel-${panel}`).querySelector('h1');heading?.focus();heading?.scrollIntoView({block:'start'});}}
+function showPanel(name,focus=false){
+ const advanced=name==='sources'||name==='settings-advanced';
+ panel=advanced?'settings':['editor','dashboard','settings'].includes(name)?name:'editor';
+ document.querySelectorAll('[data-workspace-panel]').forEach(p=>p.hidden=p.dataset.workspacePanel!==panel);
+ document.querySelectorAll('[data-panel]').forEach(link=>{if(link.dataset.panel===panel)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current');});
+ document.title=`Stoa / ${panel[0].toUpperCase()+panel.slice(1)}`;
+ if(advanced){$('advanced-settings').open=true;const summary=$('advanced-settings-summary');if(focus)summary.focus();summary.scrollIntoView({block:'start'});}
+ else if(focus){const heading=$(`panel-${panel}`).querySelector('h1');heading?.focus();heading?.scrollIntoView({block:'start'});}
+}
 function setView(next){view=next==='3d'?'3d':'2d';if(view==='3d'&&!renderer)load3D();$('viewport-2d').hidden=view!=='2d';$('viewport-3d').hidden=view!=='3d';$('view-2d').setAttribute('aria-pressed',String(view==='2d'));$('view-3d').setAttribute('aria-pressed',String(view==='3d'));$('view-status').textContent=view==='2d'?'2D source evidence':renderer?'Illustrative 3D · not to scale':'3D preview · renderer not installed';renderer?.setVisible?.(view==='3d'&&panel==='editor');}
-function route(){const hash=location.hash.slice(1);if(hash==='editor-3d'){showPanel('editor');setView('3d');}else if(hash.startsWith('scenario=')){showPanel('editor');setView('2d');}else if(['editor','dashboard','sources','settings'].includes(hash)){showPanel(hash);}else showPanel('editor');renderer?.setVisible?.(view==='3d'&&panel==='editor');}
+function route(){const hash=location.hash.slice(1);if(hash==='editor-3d'){showPanel('editor');setView('3d');}else if(hash.startsWith('scenario=')){showPanel('editor');setView('2d');}else if(['editor','dashboard','sources','settings','settings-advanced'].includes(hash)){showPanel(hash);}else showPanel('editor');renderer?.setVisible?.(view==='3d'&&panel==='editor');}
 window.addEventListener('hashchange',route);
 $('view-2d').onclick=()=>{setView('2d');history.replaceState(null,'',location.pathname+location.search+'#editor');};$('view-3d').onclick=()=>{setView('3d');history.replaceState(null,'',location.pathname+location.search+'#editor-3d');};$('back-to-2d').onclick=()=>{$('view-2d').click();$('view-2d').focus();};
 $('setting-labels').onchange=e=>document.body.classList.toggle('hide-evidence-labels',!e.target.checked);$('setting-compact').onchange=e=>document.body.classList.toggle('compact-evidence',e.target.checked);

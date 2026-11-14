@@ -299,3 +299,10 @@ html{scroll-padding-top:88px}
 .evidence-row,.detected-source{scroll-margin-block:20px}
 .detected-source{margin:10px 0;padding:14px;border:1px solid var(--accent);border-radius:8px;background:var(--accent-soft)}
 .detected-source h3{margin:0;font-size:14px}
+
+.advanced-settings>summary{min-height:44px;font-size:15px;align-content:center}
+.advanced-settings #panel-sources{padding-top:12px}
+.advanced-settings h2{margin-bottom:12px}
+.advanced-settings label{display:flex;flex-direction:column;align-items:flex-start;gap:6px;width:100%;margin:12px 0}
+.advanced-settings input{width:100%;min-height:44px}
+#advanced-settings-summary{scroll-margin-top:100px}

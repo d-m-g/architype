@@ -220,3 +220,5 @@ Overview and question requests share one extraction per drawing in this tab. Up 
 Follow-up questions keep the existing source, camera and highlights visible, with a Previous result label while answering. Failed transport requests and cancellation retain that result rather than recording it as the new question's answer. A successful answer on the same source page preserves the camera.
 
 Overview counts and areas are scoped to the active page. Missing room coverage is shown as unavailable; subtype-only coverage is labelled partial. Room counts include detections without drawable geometry. Indoor area summaries exclude outdoor rooms, identify missing quantities, preserve reported zeros and are labelled partial when coverage or quantities are incomplete. They are reported room-area sums, not verified building footprint measurements.
+
+Source JSON imports, dataset-path entry and API diagnostics are under Settings > Advanced settings (collapsed by default). Ask and Evaluate remain in the primary navigation. Existing #sources links still open the advanced settings section and preserve the current drawing and answer.
