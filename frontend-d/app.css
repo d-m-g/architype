@@ -129,14 +129,14 @@ main>section{height:100%}
 /* marks */
 .mark{cursor:pointer;outline:none}
 .mark polygon{vector-effect:non-scaling-stroke;stroke-linejoin:round}
-.mark.other polygon{fill:var(--k);fill-opacity:.05;stroke:var(--k);stroke-width:1.5}
+.mark.other polygon{fill:hsl(var(--h) 92% 50%);fill-opacity:.05;stroke:hsl(var(--h) 90% 38%);stroke-width:1.5}
+.mark.review polygon{stroke-dasharray:5 3}
 .mark.other:is(:hover,.hot,:focus-visible) polygon{fill-opacity:.18;stroke-width:2.5}
-.kind-room{--k:var(--room)} .kind-door{--k:var(--door)} .kind-window{--k:var(--window)} .kind-fixture{--k:var(--fixture)}
-.kind-apartment,.kind-level,.kind-wall,.kind-slab,.kind-column,.kind-row,.kind-other{--k:var(--zone)}
-.mark.kind-apartment polygon,.mark.kind-level polygon{stroke-dasharray:8 5;fill-opacity:0}
-/* --h is the item's own confidence as a hue: red 0, amber 60, green 120. Under 80% the outline is also dashed. */
+/* Apartment and floor outlines are groupings, not detections to doubt: neutral and long-dashed. */
+.mark.kind-apartment polygon,.mark.kind-level polygon{stroke:var(--zone);stroke-dasharray:8 5;fill-opacity:0}
+/* --h is the item's own confidence as a hue: red 0, amber 60, green 120. Under 80% the outline is also dashed.
+   Counted items are filled like highlighter; everything else found is an outline in the same colour scale. */
 .mark.evidence polygon{fill:hsl(var(--h) 92% 58%);fill-opacity:.6;stroke:hsl(var(--h) 85% 30%);stroke-width:1.5;mix-blend-mode:multiply}
-.mark.evidence.review polygon{stroke-dasharray:5 3}
 .mark.evidence:is(:hover,.hot,:focus-visible) polygon{stroke-width:3;fill-opacity:.8}
 .mark.selected polygon{stroke:#141b24;stroke-width:3;fill-opacity:.8}
 .badge{transform:translate(calc(var(--x)*1px),calc(var(--y)*1px)) scale(var(--u,1));pointer-events:none}
@@ -166,7 +166,8 @@ main>section{height:100%}
 .key{width:18px;height:11px;border-radius:2px;border:1.5px solid}
 .key-scale{width:54px;border:0;background:linear-gradient(90deg,hsl(0 92% 58%),hsl(60 92% 58%),hsl(120 92% 58%))}
 .key-review{background:transparent;border-color:var(--ink-2);border-style:dashed}
-.key-other{background:color-mix(in srgb,var(--room) 10%,transparent);border-color:var(--room)}
+.key-counted{background:hsl(120 92% 58%);border-color:hsl(120 85% 30%)}
+.key-other{background:transparent;border-color:hsl(120 90% 38%)}
 .legend-hint{margin-left:auto;color:var(--ink-3)}
 
 /* 3D (room-renderer.js and floor-stack.js build their own markup) */
@@ -211,10 +212,8 @@ main>section{height:100%}
 .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
 .chips:empty{display:none}
 .chip{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border:1px solid var(--line);border-radius:999px;background:transparent;font-size:12.5px;cursor:pointer;color:var(--ink-2)}
-.chip i{width:9px;height:9px;border-radius:2px;border:1.5px solid var(--k)}
 .chip b{font-weight:600;color:var(--ink)}
-.chip[aria-pressed=true]{border-color:var(--k);color:var(--ink);background:color-mix(in srgb,var(--k) 9%,transparent)}
-.chip[aria-pressed=true] i{background:var(--k)}
+.chip[aria-pressed=true]{border-color:var(--accent);color:var(--ink);background:var(--accent-soft)}
 .suggestion{display:block;width:100%;text-align:left;padding:9px 12px;margin-top:6px;border:1px solid var(--line);border-radius:9px;background:transparent;cursor:pointer;font-size:13px}
 .suggestion:hover{border-color:var(--accent);background:var(--accent-soft)}
 

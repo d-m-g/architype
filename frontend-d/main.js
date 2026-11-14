@@ -152,14 +152,14 @@ const previewLoader=createSourcePreviewLoader(path=>new Promise((resolve,reject)
 
 // ───────── marks on the drawing ─────────
 const kindOf=entity=>entity.type;
-/** A counted item's colour follows its own confidence: hue 0 (red) at 0%, 60 (amber) at 50%, 120 (green) at 100%. */
+/** Every box's colour follows its own confidence: hue 0 (red) at 0%, 60 (amber) at 50%, 120 (green) at 100%. */
 const hue=entity=>Math.round((entity.conf??1)*120);
 const area=e=>Math.abs(e.polygon.reduce((sum,p,i,points)=>{const q=points[(i+1)%points.length];return sum+p[0]*q[1]-q[0]*p[1];},0));
 const evidenceIds=()=>state.result?[...new Set(state.result.evidence)]:[];
 export function entityById(id){return state.scene?.entities.find(e=>e.id===id);}
 function hover(id,on){for(const node of document.querySelectorAll('[data-entity]'))if(node.dataset.entity===id)node.classList.toggle('hot',on);}
 function mark(entity,className,label){
- const group=el('g',{class:className,role:'button',tabindex:'0','aria-label':label,'data-entity':entity.id,
+ const group=el('g',{class:className+(entity.uncertain?' review':''),style:`--h:${hue(entity)}`,role:'button',tabindex:'0','aria-label':label,'data-entity':entity.id,
   onclick:()=>select(entity.id),onmouseenter:()=>hover(entity.id,true),onmouseleave:()=>hover(entity.id,false),
   onkeydown:event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();event.stopPropagation();select(entity.id);}}},
   el('polygon',{points:entity.polygon.map(p=>p.join(',')).join(' ')}));
@@ -171,12 +171,11 @@ function drawMarks(){
  if(!state.scene||state.editing)return;
  const cited=evidenceIds(),onPage=state.scene.entities.filter(e=>e.page===state.page&&e.polygon.length>=3).sort((a,b)=>area(b)-area(a));
  for(const entity of onPage)if(!cited.includes(entity.id)&&state.layers.has(kindOf(entity)))
-  layer.append(mark(entity,`mark other kind-${entity.type}`,`${entity.label}, not part of the answer`));
+  layer.append(mark(entity,`mark other kind-${entity.type}`,`${entity.label}, ${Math.round(entity.conf*100)}% sure, not part of the answer`));
  const badges=[];
  for(const entity of onPage){
   const n=cited.indexOf(entity.id);if(n<0)continue;
-  const counted=mark(entity,`mark evidence${entity.uncertain?' review':''}`,`${n+1}. ${entity.label}, ${Math.round(entity.conf*100)}% sure`);
-  counted.style.setProperty('--h',hue(entity));layer.append(counted);
+  layer.append(mark(entity,'mark evidence',`${n+1}. ${entity.label}, ${Math.round(entity.conf*100)}% sure`));
   const xs=entity.polygon.map(p=>p[0]),ys=entity.polygon.map(p=>p[1]);
   badges.push(el('g',{class:`badge${entity.uncertain?' review':''}`,'data-entity':entity.id,style:`--x:${Math.min(...xs)};--y:${Math.min(...ys)}`},
    el('circle',{r:9,cx:-5,cy:-5}),el('text',{x:-5,y:-5,dy:'.35em'},String(n+1))));
@@ -258,9 +257,9 @@ function renderDrawingSide(){
  if(kind){$('drawing-meta').textContent=`This looks like a ${kind}, not a floor plan, so there is nothing to count on it.`;return;}
  const cost=(raw.trace??[]).reduce((sum,step)=>sum+(step.usd??0),0);
  $('drawing-meta').textContent=`${readerName(raw)}${cost?`, ${money(cost)} once`:', no model cost'}${raw.pages.length>1?`. Page ${state.page+1} of ${raw.pages.length}`:''}.`;
- $('layers').append(...counts().map(([kind,n])=>el('button',{type:'button',class:`chip kind-${kind}`,'aria-pressed':String(state.layers.has(kind)),title:'Show or hide on the drawing',
+ $('layers').append(...counts().map(([kind,n])=>el('button',{type:'button',class:'chip','aria-pressed':String(state.layers.has(kind)),title:'Show or hide on the drawing',
   onclick:()=>{state.layers.has(kind)?state.layers.delete(kind):state.layers.add(kind);renderDrawingSide();drawMarks();}},
-  el('i',{'aria-hidden':'true'}),el('span',{},KINDS[kind]?.[1]??kind),el('b',{},String(n)))));
+  el('span',{},KINDS[kind]?.[1]??kind),el('b',{},String(n)))));
 }
 function suggest(){
  const raw=state.raw,list=[];
