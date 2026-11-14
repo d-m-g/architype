@@ -229,6 +229,16 @@ function markSelection(){
 const inspectors=[];
 /** Other modules add controls to the inspector: fn(entity, node). */
 export function onInspect(fn){inspectors.push(fn);}
+/** Frame the object with context, using the viewer's actual shape rather than the sheet's aspect ratio. */
+export function objectFocusViewport(polygon,page,screen){
+ const xs=polygon.map(p=>p[0]),ys=polygon.map(p=>p[1]);
+ const x0=Math.min(...xs),x1=Math.max(...xs),y0=Math.min(...ys),y1=Math.max(...ys);
+ const aspect=screen.width>0&&screen.height>0?screen.width/screen.height:page.w/page.h;
+ // 40% context on each side; small symbols no longer force 30% of the sheet onto the screen.
+ const width=Math.max((x1-x0)*1.8,(y1-y0)*1.8*aspect,page.w*.08,page.h*.08*aspect);
+ const height=width/aspect;
+ return {x:(x0+x1-width)/2,y:(y0+y1-height)/2,w:width,h:height};
+}
 export function select(id,{zoomTo=false,focusEvidence=false,scrollEvidence=true}={}){
  const entity=id?entityById(id):null;
  state.selected=entity?.id??null;
@@ -249,9 +259,7 @@ export function select(id,{zoomTo=false,focusEvidence=false,scrollEvidence=true}
  if(scrollEvidence)row?.scrollIntoView({block:'nearest',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
  if(focusEvidence)row?.focus({preventScroll:true});
  if(zoomTo&&entity.polygon.length){
-  const xs=entity.polygon.map(p=>p[0]),ys=entity.polygon.map(p=>p[1]),{w,h}=pageSize();
-  const width=Math.min(w,Math.max((Math.max(...xs)-Math.min(...xs))*4,(Math.max(...ys)-Math.min(...ys))*4*w/h,w*.3));
-  view={w:width,h:width*h/w,x:(Math.min(...xs)+Math.max(...xs))/2-width/2,y:(Math.min(...ys)+Math.max(...ys))/2-width*h/w/2};
+  view=objectFocusViewport(entity.polygon,pageSize(),svg.getBoundingClientRect());
   updateView(false);
  }
  publish();
