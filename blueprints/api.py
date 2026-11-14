@@ -15,10 +15,11 @@ import sys
 import threading
 import time
 from functools import lru_cache
+from typing import Annotated
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from . import pipeline
 from .executor import execute
@@ -155,6 +156,16 @@ class Recompute(BaseModel):
     plan: QueryPlan
 
 
+Coord = Annotated[float, Field(ge=0, le=1)]
+Box = tuple[Coord, Coord, Coord, Coord]  # x0, y0, x1, y1 of the page, as in Entity.geom
+
+
+class Alike(BaseModel):
+    image: str  # Page.image of the page the boxes are on
+    box: Box  # the detection the user rejected
+    others: dict[str, Box] = Field(max_length=2000)  # entity id -> box of the detections to compare with it
+
+
 def _drawing(path: str):
     from .brain.vision import drawing_file
     try:
@@ -278,17 +289,39 @@ def _viewable(path: str, file):
     return small
 
 
+def _page_file(path: str):
+    """The file behind a Page.image: a dataset file ("data/..."), an upload ("uploads/...") or a rendered page ("pages/...")."""
+    if path.startswith(("data/", "uploads/")):
+        return _drawing(path)
+    file = (pipeline.CACHE / path).resolve()
+    if not file.is_relative_to(pipeline.CACHE / "pages") or not file.is_file():
+        raise HTTPException(404, f"no such image: {path}")
+    return file
+
+
 @app.get("/api/image")
 def image(path: str) -> FileResponse:
-    """Serves Page.image: a dataset file ("data/..."), an upload ("uploads/...") or a rendered page ("pages/...").
-    A raster above the viewer's size limits is served as a scaled-down PNG."""
-    if path.startswith(("data/", "uploads/")):
-        return FileResponse(_viewable(path, _drawing(path)))
-    pages = pipeline.CACHE / "pages"
-    file = (pipeline.CACHE / path).resolve()
-    if not file.is_relative_to(pages) or not file.is_file():
-        raise HTTPException(404, f"no such image: {path}")
-    return FileResponse(file)
+    """Serves Page.image. A raster above the viewer's size limits is served as a scaled-down PNG."""
+    file = _page_file(path)
+    return FileResponse(_viewable(path, file) if path.startswith(("data/", "uploads/")) else file)
+
+
+@lru_cache(maxsize=2)  # ponytail: two pages held in memory (a 140 MP sheet is 140 MB); shrink them first if that hurts
+def _gray(image: str):
+    from PIL import Image
+    Image.MAX_IMAGE_PIXELS = 300_000_000  # as the detector: an A1 scan at 600 dpi is ~250 MP
+    try:
+        return Image.open(_page_file(image)).convert("L")
+    except (OSError, Image.DecompressionBombError):  # a page that is a PDF, not a raster, or too large to open
+        raise HTTPException(415, "look-alikes need a raster page image") from None
+
+
+@app.post("/api/alike")
+def alike(body: Alike) -> dict:
+    """The ids among `others` that show the same symbol as `box`, most alike first: the user rejects one detection
+    and the viewer offers to remove the rest. Compares the page's own pixels; no model call."""
+    from .detector.alike import look_alikes
+    return {"ids": look_alikes(_gray(body.image), body.box, body.others)}
 
 
 from .brain.voice import router as voice_router

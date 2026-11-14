@@ -71,12 +71,19 @@ def get_scene(path: str) -> Scene:
         dataset_file(path)
     cached = CACHE / "scenes" / source_of(path) / (hashlib.md5(path.encode()).hexdigest() + ".json")
     from .brain.room_types import add_room_types  # room labels in any language -> room types (Küche -> kitchen)
-    if READ_CACHE and cached.exists():
-        return add_room_types(Scene.model_validate_json(cached.read_text()))
-    scene = add_room_types(build_scene(path))
-    _BUILT_NOW.add(path)
-    cached.parent.mkdir(parents=True, exist_ok=True)
-    cached.write_text(scene.model_dump_json())
+    fresh = not (READ_CACHE and cached.exists())
+    scene = build_scene(path) if fresh else Scene.model_validate_json(cached.read_text())
+    if path.startswith("uploads/") and scene.tier == "detect" and "room" not in scene.covers:
+        # A PNG or JPG upload: the detector finds doors, windows and fixtures, and the vision reader adds rooms by
+        # type, apartments and floors, so it gives what a PDF upload gives. Done here, not in build_scene, so scenes
+        # cached before this (or while the reader was down) get their rooms the next time they are opened.
+        from .brain.vision import add_rooms
+        fresh = add_rooms(scene, path) or fresh
+    scene = add_room_types(scene)
+    if fresh:
+        _BUILT_NOW.add(path)
+        cached.parent.mkdir(parents=True, exist_ok=True)
+        cached.write_text(scene.model_dump_json())
     return scene
 
 
@@ -92,6 +99,8 @@ def answer(path: str, question: str) -> Answer:
         plan, plan_steps = plan_with_trace(question, scene)
         steps += plan_steps
         result = execute(plan, scene)
+        from .brain.vision import checked
+        result = checked(result, plan, scene)  # rooms the vision reader added to an upload: no surer than the reader
     except Exception as e:  # a crashed builder (e.g. an undeployed Modal app) escalates instead of failing the answer
         steps += getattr(e, "steps", [])  # the planner's cost when it judged the question unsupported
         result = Answer(error=str(e) if isinstance(e, NotImplementedError) else f"{type(e).__name__}: {e}")

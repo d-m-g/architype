@@ -10,4 +10,4 @@ dependencies = ["pydantic>=2"]
 [project.optional-dependencies]
 parsers = ["ezdxf", "ifcopenshell", "pillow", "pymupdf", "shapely"]
 detector = ["modal"]
-brain = ["openai", "fastapi", "uvicorn", "pymupdf"]
+brain = ["openai", "fastapi", "uvicorn", "pymupdf", "numpy", "pillow"]  # numpy, pillow: /api/alike compares page pixels

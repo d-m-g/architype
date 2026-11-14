@@ -149,6 +149,11 @@ main>section{height:100%}
 .edit-mark polygon.region-shape{fill:#1f4fd8;fill-opacity:.08;stroke:#1f4fd8;stroke-width:1.5;vector-effect:non-scaling-stroke;cursor:pointer}
 .edit-mark:hover polygon.region-shape,.edit-mark.selected polygon.region-shape{fill-opacity:.3;stroke-width:3}
 .edit-mark.added polygon.region-shape{stroke:#157f3b;fill:#157f3b}
+/* The items that show the same symbol as the selected one, offered for removal together. */
+.edit-mark.alike polygon.region-shape{stroke:#c2410c;fill:#c2410c;fill-opacity:.3;stroke-width:3;stroke-dasharray:5 3}
+/* Corner handles of the selected box; --u keeps them one size on screen at every zoom, like the number badges. */
+.edit-handle{transform:translate(calc(var(--x)*1px),calc(var(--y)*1px)) scale(var(--u,1));fill:#fff;stroke:#1f4fd8;stroke-width:2;cursor:nwse-resize}
+.edit-handle:is([data-corner="1"],[data-corner="3"]){cursor:nesw-resize}
 
 /* Opaque light/dark backing strokes remain visible on any source colour. */
 .mark polygon,.edit-mark polygon{vector-effect:non-scaling-stroke;stroke-linejoin:round}
@@ -176,7 +181,7 @@ main>section{height:100%}
 .stage-status .time{color:#aab4c1;margin-left:4px}
 .inspector{position:absolute;left:14px;bottom:14px;width:min(300px,calc(100% - 28px));padding:12px 36px 12px 14px;border:1px solid var(--line);border-radius:10px;background:var(--paper);box-shadow:0 8px 28px #0b122026;display:grid;gap:3px;font-size:13px}
 .inspector .close{position:absolute;top:4px;right:4px;border:0;background:none}
-.inspector .actions{display:flex;gap:6px;margin-top:8px}
+.inspector .actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 
 .legend{display:flex;flex-wrap:wrap;gap:6px 18px;align-items:center;padding:8px 14px;background:var(--paper);border-top:1px solid var(--line);font-size:12px;color:var(--ink-2)}
 .legend span{display:flex;align-items:center;gap:7px}
