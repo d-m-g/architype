@@ -46,7 +46,8 @@ def select(q: Query, scene: Scene) -> list[Entity]:
         and (q.level is None or _same(e.level, q.level))
         and (q.apartment is None or _same(e.apartment, q.apartment))
         and (q.outdoor is None or e.outdoor == q.outdoor)
-        and all(k in e.attrs and e.attrs[k] == v for k, v in q.where.items())
+        and all(k in e.attrs and (_same(e.attrs[k], v) if isinstance(v, str) and isinstance(e.attrs[k], str)
+                                  else e.attrs[k] == v) for k, v in q.where.items())
     ]
 
 
