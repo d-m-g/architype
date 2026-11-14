@@ -212,3 +212,11 @@ Uploaded PDFs render page 1 as an image in the regular SVG drawing viewer instea
 PDF.js 5.4.624 is loaded lazily from jsDelivr (library, worker, fonts and decoder assets). PDF bytes are rendered locally and are not sent to the CDN. This network dependency is necessary within the frontend-only deployment scope because the backend's public asset allowlist does not yet include PDF.js vendor files. If it is unavailable, local preview explains the failure and still permits uploading the original PDF for server analysis. A future backend allowlist update can enable self-hosting these pinned assets. Raster uploads and dataset readers retain their existing paths.
 
 Clicking a detected region opens and scrolls to its source evidence in the answer panel. Cited regions expand their matching evidence row with the source reference, page and extraction method; other detections show a separate source card explicitly labelled as not cited. Neither action changes the reported answer or its evidence count. The selection stays synchronized with the drawing and 3D.
+
+### Shared scene loading and honest overviews
+
+Overview and question requests share one extraction per drawing in this tab. Up to eight successful scenes are retained; failures can be retried. Cancelling stops a caller from accepting a late response, while the shared extraction may continue so a retry can join it. Extraction has the same five-minute budget as live questions. Reload the page to refresh a cached scene after a reader update.
+
+Follow-up questions keep the existing source, camera and highlights visible, with a Previous result label while answering. Failed transport requests and cancellation retain that result rather than recording it as the new question's answer. A successful answer on the same source page preserves the camera.
+
+Overview counts and areas are scoped to the active page. Missing room coverage is shown as unavailable; subtype-only coverage is labelled partial. Room counts include detections without drawable geometry. Indoor area summaries exclude outdoor rooms, identify missing quantities, preserve reported zeros and are labelled partial when coverage or quantities are incomplete. They are reported room-area sums, not verified building footprint measurements.

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {validateLocalDrawing,MAX_LOCAL_BYTES,validateImageSize,createSourcePreviewLoader,sourcePreviewKind,pdfPreviewSize,renderPDFPreview} from './local-file.js';
-import {requestDrawing,getConnectionStatus,requestJSON} from './api-client.js';
+import {requestDrawing,getConnectionStatus,requestJSON,createSceneLoader} from './api-client.js';
 
 test('connection check reads production OpenAPI and verifies route methods',async(t)=>{
  let route;
@@ -120,4 +120,28 @@ test('PDF renders only page one, reports full page count and cleans up on succes
  await assert.rejects(renderPDFPreview(new Blob(['%PDF-test']),{loadLibrary:async()=>lib,createCanvas}),/broken PDF/);assert.equal(destroyed,2);
  const failed={getDocument:()=>({promise:Promise.reject({name:'PasswordException'}),destroy:async()=>taskDestroyed++})};
  await assert.rejects(renderPDFPreview(new Blob(['%PDF-test']),{loadLibrary:async()=>failed,createCanvas}),/requires a password/);assert.equal(taskDestroyed,1);
+});
+
+test('overview and follow-up share extraction; one cancelled caller cannot cancel the other',async()=>{
+ let loads=0,finish;const loader=createSceneLoader(()=>{loads++;return new Promise(resolve=>finish=resolve);});
+ const controller=new AbortController(),path='uploads/shared.png';
+ const overview=loader(path),cancelled=loader(path,controller.signal);await Promise.resolve();
+ const cancelledResult=assert.rejects(cancelled,{name:'AbortError'});controller.abort();await cancelledResult;
+ finish({schema_version:1,path,pages:[],entities:[]});const scene=await overview;
+ assert.equal(loads,1);scene.entities.push({id:'local-change'});
+ const next=await loader(path);assert.deepEqual(next.entities,[]);assert.equal(loads,1);
+});
+test('scene failures can be retried and a cancelled retry rejoins ongoing extraction',async()=>{
+ let calls=0,finish;const path='uploads/retry.png';
+ const loader=createSceneLoader(()=>{calls++;if(calls===1)throw new Error('reader offline');return new Promise(resolve=>finish=resolve);});
+ await assert.rejects(loader(path),/reader offline/);
+ const controller=new AbortController(),first=loader(path,controller.signal);await Promise.resolve();
+ const cancelled=assert.rejects(first,{name:'AbortError'});controller.abort();await cancelled;
+ const retry=loader(path);finish({schema_version:1,path,pages:[],entities:[]});await retry;assert.equal(calls,2);
+});
+test('different drawings never reuse each other and failed-shaped scenes are not cached',async()=>{
+ let calls=0;const loader=createSceneLoader(async path=>{calls++;return {schema_version:1,path,pages:[],entities:[]};});
+ await loader('uploads/a.png');await loader('uploads/b.png');await loader('uploads/a.png');assert.equal(calls,2);
+ let invalid=0;const bad=createSceneLoader(async()=>{invalid++;return {detail:'not a scene'};});await bad('uploads/a.png');await bad('uploads/a.png');assert.equal(invalid,2);
+ const controller=new AbortController();controller.abort();await assert.rejects(loader('uploads/a.png',controller.signal),{name:'AbortError'});assert.equal(calls,2);
 });

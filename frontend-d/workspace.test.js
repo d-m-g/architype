@@ -29,3 +29,24 @@ test('appearance remains usable when storage is blocked or a saved value is inva
 });
 test('workspace contains all persistent panels and preserves unique control IDs',()=>{const html=readFileSync(new URL('./index.html',import.meta.url),'utf8');const ids=[...html.matchAll(/\bid="([^"]+)"/g)].map(m=>m[1]);assert.equal(ids.length,new Set(ids).size);for(const id of ['panel-editor','panel-dashboard','panel-sources','panel-settings','drawing','question','threshold','source','run-file','scene-file','answer-file','viewport-2d','viewport-3d'])assert.ok(ids.includes(id),id);assert.equal((html.match(/<main\b/g)||[]).length,1);assert.equal((html.match(/<\/main>/g)||[]).length,1);});
 test('renderer subscription receives current selection and can unsubscribe',()=>{publishEditor({selectedId:'window-1',pageIndex:0});const seen=[];const stop=subscribeEditor(s=>seen.push(s.selectedId));publishEditor({selectedId:'room-1',pageIndex:0});stop();publishEditor({selectedId:'room-2',pageIndex:1});assert.deepEqual(seen,['window-1','room-1']);assert.equal(getEditorSnapshot().pageIndex,1);});
+
+function liveFollowupHarness(response){
+ const text=readFileSync(new URL('./app.js',import.meta.url),'utf8');
+ const ask=text.slice(text.indexOf('async function askAPI(){'),text.indexOf('function openPending('));
+ const nodes=new Map(),calls={opened:0,rendered:0,recorded:0,shown:0,busy:[]};
+ const node=id=>{if(!nodes.has(id))nodes.set(id,{value:id==='api-path'?'uploads/current.png':id==='question'?'New question':'',textContent:'',hidden:false});return nodes.get(id);};
+ let finish;const pending=new Promise(resolve=>finish=resolve);
+ const result={answer:'previous answer',evidence:['old-evidence']};
+ const context={window:{dispatchEvent(){}},Event,AbortController,setTimeout:()=>1,clearTimeout(){},$:node,shared:true,rawScene:{path:'uploads/current.png'},result,requestNumber:0,apiAbort:null,lastRequest:null,LIVE_REQUEST_TIMEOUT_MS:300000,isDrawingPath:()=>true,openPending:()=>calls.opened++,setBusy:value=>calls.busy.push(value),requestDrawing:()=>pending,showShared:()=>calls.shown++,recoveryMessage:value=>String(value),render:()=>calls.rendered++,recordHistory:()=>calls.recorded++};
+ const request=runInNewContext(ask+';askAPI()',context);
+ return {node,calls,result,context,finish:()=>finish(response),request};
+}
+test('follow-up retains source and evidence until its answer arrives',async()=>{
+ const h=liveFollowupHarness({scene:{},answer:{answer:2,evidence:[]},errors:[]});
+ assert.equal(h.calls.opened,0);assert.equal(h.context.result,h.result);assert.match(h.node('status').textContent,/Previous result/);assert.equal(h.calls.rendered,0);
+ h.finish();await h.request;assert.equal(h.calls.shown,1);assert.equal(h.calls.recorded,1);assert.deepEqual(h.calls.busy,[true,false]);
+});
+test('failed follow-up retains previous evidence and never saves it as the new question',async()=>{
+ const h=liveFollowupHarness({scene:{},answer:null,errors:['Answer: 503 unavailable']});
+ h.finish();await h.request;assert.equal(h.context.result,h.result);assert.equal(h.calls.shown,0);assert.equal(h.calls.rendered,0);assert.equal(h.calls.recorded,0);assert.equal(h.node('retry-request').hidden,false);assert.match(h.node('contract-status').textContent,/Previous answer and evidence remain/);
+});

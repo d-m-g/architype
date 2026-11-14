@@ -21,3 +21,29 @@ test('vision answers can repeat identical scene evidence without duplicate overl
  assert.equal(scene.entities.length,sharedScene.entities.length);
  assert.throws(()=>adaptScene(sharedScene,{extra_entities:[{...original,label:'Conflicting item'}]}),/conflicts/);
 });
+
+import {summarizeScene} from './contracts.js';
+
+test('overview distinguishes unsupported room detection from a covered zero',()=>{
+ const raw={covers:['window'],entities:[]};const unavailable=summarizeScene(raw);
+ assert.equal(unavailable.answer,'Room detection unavailable');assert.match(unavailable.explanation,/0 detected windows/);assert.equal(unavailable.formula,null);
+ const zero=summarizeScene({...raw,covers:['room']});assert.equal(zero.answer,'0 detected rooms');
+});
+test('overview reports partial coverage and partial areas without mixing pages or balconies',()=>{
+ const raw={covers:['room:kitchen'],entities:[
+  {id:'kitchen',type:'room',page:0,qty:{m2:20}},
+  {id:'unmeasured',type:'room',page:0,qty:{}},
+  {id:'balcony',type:'room',page:0,outdoor:true,qty:{m2:10}},
+  {id:'upstairs',type:'room',page:1,qty:{m2:200}}
+ ]};
+ const result=summarizeScene(raw);assert.match(result.answer,/3 detected rooms.*partial coverage/);
+ assert.match(result.formula,/Partial reported.*20.00.*1 of 2/);assert.doesNotMatch(result.formula,/230.00/);
+ assert.deepEqual(result.evidence,['kitchen','unmeasured','balcony']);
+ const pageTwo=summarizeScene(raw,1);assert.deepEqual(pageTwo.evidence,['upstairs']);assert.match(pageTwo.formula,/200.00/);
+});
+test('overview preserves reported zero areas and labels missing quantities',()=>{
+ const room={id:'zero',type:'room',qty:{m2:0}};
+ assert.match(summarizeScene({covers:['room'],entities:[room]}).formula,/^Reported.*0.00/);
+ const missing=summarizeScene({covers:['room'],entities:[{...room,qty:{}}]});assert.equal(missing.formula,null);assert.match(missing.explanation,/areas are unavailable/);
+ const partial=summarizeScene({covers:['room'],entities:[room,{id:'unknown',type:'room',qty:{}}]});assert.match(partial.formula,/^Partial reported/);
+});

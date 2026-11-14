@@ -13,11 +13,38 @@ export function apiCapabilities(spec,origin=''){
  return {connected,origin,title:spec?.info?.title??'Team API',upload_available:Boolean(paths['/api/upload']?.post),recompute_available:Boolean(paths['/api/recompute']?.post),message:connected?'API reachable; reader availability is checked per drawing.':'The service is missing required drawing API routes.'};
 }
 export async function getConnectionStatus(){return apiCapabilities(await requestJSON('/openapi.json'),globalThis.location?.origin??'');}
+/** Share extraction across overview, follow-up and retry requests in this tab.
+ * Local cancellation stops that caller waiting; the shared server job may still finish. */
+export function createSceneLoader(load){
+ const entries=new Map();
+ return async function get(path,signal){
+  if(signal?.aborted)throw new DOMException('Request cancelled','AbortError');
+  let entry=entries.get(path);
+  if(!entry){
+   entry={};entries.set(path,entry);
+   entry.promise=Promise.resolve().then(()=>load(path,AbortSignal.timeout(LIVE_REQUEST_TIMEOUT_MS))).then(value=>{
+    if(value?.schema_version===1&&value.path===path&&Array.isArray(value.pages)&&Array.isArray(value.entities))entry.value=value;
+    else if(entries.get(path)===entry)entries.delete(path);
+    for(const [key,item] of entries){if(entries.size<=8)break;if(item.value&&key!==path)entries.delete(key);}
+    return value;
+   },error=>{if(entries.get(path)===entry)entries.delete(path);throw error;});
+  }
+  const value=await new Promise((resolve,reject)=>{
+   const abort=()=>{cleanup();reject(new DOMException('Request cancelled','AbortError'));};
+   const cleanup=()=>signal?.removeEventListener('abort',abort);
+   signal?.addEventListener('abort',abort,{once:true});
+   entry.promise.then(value=>{cleanup();resolve(value);},error=>{cleanup();reject(error);});
+   if(signal?.aborted)abort();
+  });
+  return structuredClone(value);
+ };
+}
+export const getDrawingScene=createSceneLoader((path,signal)=>requestJSON(`/api/scene?${new URLSearchParams({path})}`,{signal}));
 /** Scene and Answer are independent API responses; an absent builder must not mask Answer.error. */
 export async function requestDrawing(path,question,signal,onProgress=()=>{}){
  // Request scene first so a successful builder populates its cache before /ask.
  onProgress('Loading drawing evidence…');
- const [scene]=await Promise.allSettled([requestJSON(`/api/scene?${new URLSearchParams({path})}`,{signal})]);
+ const [scene]=await Promise.allSettled([getDrawingScene(path,signal)]);
  if(signal?.aborted)throw new DOMException('Request cancelled','AbortError');
  onProgress('Asking the live question… Complex questions may take a few minutes; you can cancel.');
  const [answer]=await Promise.allSettled([requestJSON('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path,question}),signal})]);
