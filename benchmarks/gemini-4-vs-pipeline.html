@@ -1,0 +1,85 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Blueprint QA Benchmark</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Archivo:wght@600;800&display=swap">
+<style>
+/* Layout: single drafting-sheet column, title block up top, numbered sheets below */
+:root {
+  --bg:#f3f5f7; --paper:#ffffff; --fg:#17202a; --muted:#5d6b7a; --line:#d5dde5; --accent:#1f5fa8;
+  --ok:#1d7a46; --bad:#b3362c;
+  --s0:#1f5fa8; --s1:#c27c0e; --s2:#7a5cbf; --s3:#2e8f86;
+  --display:"Archivo",system-ui,sans-serif; --body:"IBM Plex Sans",system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg:#0f1419; --paper:#161d24; --fg:#e4e9ee; --muted:#93a1af; --line:#2a3540; --accent:#6aa5ea;
+  --ok:#5cc58a; --bad:#ec7a70; --s0:#6aa5ea; --s1:#e0a646; --s2:#a98ce8; --s3:#57c2b7; color-scheme:dark } }
+:root[data-theme="dark"] {
+  --bg:#0f1419; --paper:#161d24; --fg:#e4e9ee; --muted:#93a1af; --line:#2a3540; --accent:#6aa5ea;
+  --ok:#5cc58a; --bad:#ec7a70; --s0:#6aa5ea; --s1:#e0a646; --s2:#a98ce8; --s3:#57c2b7; color-scheme:dark }
+body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.55 var(--body); padding-left:max(16px,env(safe-area-inset-left,0px)); padding-right:max(16px,env(safe-area-inset-right,0px)) }
+main { max-width:940px; margin:0 auto; padding-block:40px 64px; display:grid; gap:28px }
+h1,h2 { font-family:var(--display); text-wrap:balance; margin:0 }
+h1 { font-size:2.1rem; font-weight:800; letter-spacing:-.01em }
+h2 { font-size:1.15rem; font-weight:600; display:flex; gap:10px; align-items:baseline }
+h2 .no { font-family:var(--mono); font-size:.75rem; color:var(--muted); font-weight:400 }
+.tb { border:1.5px solid var(--fg); display:grid; grid-template-columns:1fr auto; background:var(--paper) }
+.tb > div { padding:18px 20px; min-width:0 }
+.tb .meta { border-left:1.5px solid var(--fg); font-family:var(--mono); font-size:.78rem; color:var(--muted); display:grid; gap:4px; align-content:center }
+.lede { max-width:65ch; margin:10px 0 0; font-size:1.02rem }
+section { background:var(--paper); border:1px solid var(--line); padding:20px; display:grid; gap:14px; min-width:0 }
+.bar { display:grid; grid-template-columns:minmax(0,190px) 1fr 70px; gap:12px; align-items:center; font-size:.9rem }
+.bl { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family:var(--mono); font-size:.8rem }
+.track { height:14px; background:var(--line); display:block }
+.fill { height:100%; display:block }
+.bv { text-align:right; font-variant-numeric:tabular-nums; font-family:var(--mono) }
+.scroll { overflow-x:auto }
+table { border-collapse:collapse; width:100%; font-variant-numeric:tabular-nums; font-size:.9rem }
+th,td { padding:7px 10px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap }
+thead th { font-family:var(--mono); font-size:.72rem; font-weight:500; text-transform:uppercase; letter-spacing:.06em; color:var(--muted) }
+th[scope=row], thead th:first-child { text-align:left; font-weight:500 }
+th small { color:var(--muted); font-family:var(--mono); font-weight:400; margin-left:8px; font-size:.72rem }
+td.top { font-weight:600; color:var(--accent) }
+.ok { color:var(--ok) } .bad { color:var(--bad) }
+.dot { display:inline-block; width:9px; height:9px; margin-right:8px; vertical-align:middle }
+.two { display:grid; grid-template-columns:1fr 1fr; gap:28px }
+.two > * { min-width:0 }
+.note { color:var(--muted); font-size:.85rem; margin:0; max-width:70ch }
+ul.ex { list-style:none; padding:0; margin:0; display:grid; gap:12px }
+ul.ex li { border-left:3px solid var(--line); padding:4px 0 4px 12px; min-width:0 }
+.q { margin:0; font-weight:500 }
+.meta { margin:2px 0 6px; font-size:.78rem; color:var(--muted) }
+.meta code { font-family:var(--mono); word-break:break-all }
+dl { display:grid; grid-template-columns:auto 1fr; gap:2px 12px; margin:0; font-family:var(--mono); font-size:.82rem }
+dt { color:var(--muted) } dd { margin:0; overflow-wrap:anywhere }
+@media (max-width:640px) { .tb { grid-template-columns:1fr } .tb .meta { border-left:0; border-top:1.5px solid var(--fg) } .two { grid-template-columns:1fr } .bar { grid-template-columns:minmax(0,110px) 1fr 58px } }
+</style>
+<main>
+<header class="tb">
+  <div><h1>Blueprint QA Benchmark</h1><p class="lede">On the same 300 held-out test questions, our pipeline scores <b>86.7%</b> against <b>78.3%</b> for the best plain Gemini 4 model (gemini-4-carbon), at <b>15× lower</b> cost per question.</p></div>
+  <div class="meta"><span>JUNCTION 2026 · STOA</span><span>SPLIT test (held-out 20%)</span><span>SAMPLE seeded n=300</span><span>DATE 2026-11-14</span></div>
+</header>
+
+<section><h2><span class="no">01</span>Accuracy</h2><div class="bar"><span class="bl">Our pipeline</span><span class="track"><span class="fill" style="width:86.7%;background:var(--s0)"></span></span><span class="bv">86.7%</span></div><div class="bar"><span class="bl">gemini-4-argon</span><span class="track"><span class="fill" style="width:78.0%;background:var(--s1)"></span></span><span class="bv">78.0%</span></div><div class="bar"><span class="bl">gemini-4-carbon</span><span class="track"><span class="fill" style="width:78.3%;background:var(--s2)"></span></span><span class="bv">78.3%</span></div><div class="bar"><span class="bl">gemini-4-hydrogen</span><span class="track"><span class="fill" style="width:70.3%;background:var(--s3)"></span></span><span class="bv">70.3%</span></div>
+<div class="scroll"><table><thead><tr><th>System</th><th>Accuracy</th><th>Correct</th><th>USD / 1k q</th><th>Median latency</th><th>Errors</th></tr></thead><tbody><tr><th scope=row><i class="dot" style="background:var(--s0)"></i>Our pipeline</th><td>86.7%</td><td>260/300</td><td>$0.17</td><td>0.0 s</td><td>1</td></tr><tr><th scope=row><i class="dot" style="background:var(--s1)"></i>gemini-4-argon</th><td>78.0%</td><td>234/300</td><td>$2.61</td><td>7.0 s</td><td>0</td></tr><tr><th scope=row><i class="dot" style="background:var(--s2)"></i>gemini-4-carbon</th><td>78.3%</td><td>235/300</td><td>$2.63</td><td>6.9 s</td><td>8</td></tr><tr><th scope=row><i class="dot" style="background:var(--s3)"></i>gemini-4-hydrogen</th><td>70.3%</td><td>211/300</td><td>$1.94</td><td>6.1 s</td><td>43</td></tr></tbody></table></div>
+<p class="note">Scoring follows the dataset README: counts must match exactly, areas, lengths and volumes within 2%. Errors (timeouts, unparsed replies) count as wrong.</p></section>
+
+<section><h2><span class="no">02</span>Cost per 1,000 questions</h2><div class="bar"><span class="bl">Our pipeline</span><span class="track"><span class="fill" style="width:6.5%;background:var(--s0)"></span></span><span class="bv">$0.17</span></div><div class="bar"><span class="bl">gemini-4-argon</span><span class="track"><span class="fill" style="width:99.3%;background:var(--s1)"></span></span><span class="bv">$2.61</span></div><div class="bar"><span class="bl">gemini-4-carbon</span><span class="track"><span class="fill" style="width:100.0%;background:var(--s2)"></span></span><span class="bv">$2.63</span></div><div class="bar"><span class="bl">gemini-4-hydrogen</span><span class="track"><span class="fill" style="width:74.0%;background:var(--s3)"></span></span><span class="bv">$1.94</span></div>
+<p class="note">Token prices from <code>blueprints/costs.py</code> (Google AI Studio paid tier, read 2026-11-13). Our cost includes any Gemini escalation calls the pipeline made.</p></section>
+
+<section><h2><span class="no">03</span>Accuracy by file type</h2><div class="scroll"><table><thead><tr><th>File type</th><th>Our pipeline</th><th>gemini-4-argon</th><th>gemini-4-carbon</th><th>gemini-4-hydrogen</th></tr></thead><tbody><tr><th scope=row>PNG raster plan<small>n=195</small></th><td class="">81.0%</td><td class="">83.6%</td><td class="top">85.6%</td><td class="">79.5%</td></tr><tr><th scope=row>PDF plan + DXF<small>n=94</small></th><td class="top">97.9%</td><td class="">69.1%</td><td class="">71.3%</td><td class="">58.5%</td></tr><tr><th scope=row>PDF plan + IFC model<small>n=10</small></th><td class="top">100.0%</td><td class="">50.0%</td><td class="">10.0%</td><td class="">10.0%</td></tr><tr><th scope=row>PDF schedule sheet<small>n=1</small></th><td class="">0.0%</td><td class="top">100.0%</td><td class="">0.0%</td><td class="">0.0%</td></tr></tbody></table></div></section>
+<section><h2><span class="no">04</span>Accuracy by question type</h2><div class="scroll"><table><thead><tr><th>Type</th><th>Our pipeline</th><th>gemini-4-argon</th><th>gemini-4-carbon</th><th>gemini-4-hydrogen</th></tr></thead><tbody><tr><th scope=row>count<small>n=269</small></th><td class="top">85.1%</td><td class="">83.6%</td><td class="">83.6%</td><td class="">77.7%</td></tr><tr><th scope=row>area<small>n=30</small></th><td class="top">100.0%</td><td class="">30.0%</td><td class="">33.3%</td><td class="">6.7%</td></tr><tr><th scope=row>length<small>n=1</small></th><td class="top">100.0%</td><td class="">0.0%</td><td class="">0.0%</td><td class="">0.0%</td></tr></tbody></table></div></section>
+
+<div class="two">
+<section><h2><span class="no">05</span>Head to head</h2>
+<div class="scroll"><table><thead><tr><th>vs</th><th>Only ours</th><th>Only theirs</th><th>Both</th><th>Neither</th></tr></thead><tbody><tr><th scope=row>gemini-4-argon</th><td class="ok">43</td><td class="bad">17</td><td>217</td><td>23</td></tr><tr><th scope=row>gemini-4-carbon</th><td class="ok">41</td><td class="bad">16</td><td>219</td><td>24</td></tr><tr><th scope=row>gemini-4-hydrogen</th><td class="ok">62</td><td class="bad">13</td><td>198</td><td>27</td></tr></tbody></table></div>
+<p class="note">Questions only our pipeline gets right, against questions only the Gemini model gets right.</p></section>
+<section><h2><span class="no">06</span>Our confidence, calibrated?</h2>
+<div class="scroll"><table><thead><tr><th>Confidence</th><th>n</th><th>Accuracy</th></tr></thead><tbody><tr><th scope=row>0.00–0.50</th><td>3</td><td>33.3%</td></tr><tr><th scope=row>0.50–0.80</th><td>56</td><td>62.5%</td></tr><tr><th scope=row>0.80–0.95</th><td>104</td><td>91.3%</td></tr><tr><th scope=row>0.95–1.00</th><td>136</td><td>94.9%</td></tr></tbody></table></div>
+<p class="note">Answered questions only. Tiers used: detect 64%, parse 35%, llm 1%.</p></section>
+</div>
+
+<div class="two">
+<section><h2><span class="no">07</span>We win, gemini-4-carbon misses</h2><p class="note">41 questions; first 6 shown.</p><ul class="ex"><li><p class="q">Kuinka monta WC-istuinta pohjapiirustukseen on piirretty?</p><p class="meta">PNG raster plan · <code>colorful-11195.png</code></p><dl><dt>gold</dt><dd>1 count</dd><dt>Our pipeline</dt><dd class="ok">1 count</dd><dt>gemini-4-carbon</dt><dd class="bad">2 count</dd></dl></li><li><p class="q">Kuinka monta parveketta (myös lasitetut parvekkeet) pohjapiirustuksessa on?</p><p class="meta">PNG raster plan · <code>high_quality-12896.png</code></p><dl><dt>gold</dt><dd>0 count</dd><dt>Our pipeline</dt><dd class="ok">0 count</dd><dt>gemini-4-carbon</dt><dd class="bad">1 count</dd></dl></li><li><p class="q">How many balconies (parveke, including glazed balconies) are on this floor plan?</p><p class="meta">PNG raster plan · <code>high_quality-12896.png</code></p><dl><dt>gold</dt><dd>0 count</dd><dt>Our pipeline</dt><dd class="ok">0 count</dd><dt>gemini-4-carbon</dt><dd class="bad">1 count</dd></dl></li><li><p class="q">Kuinka monta WC-istuinta pohjapiirustukseen on piirretty?</p><p class="meta">PNG raster plan · <code>high_quality_architectural-13016.png</code></p><dl><dt>gold</dt><dd>1 count</dd><dt>Our pipeline</dt><dd class="ok">1 count</dd><dt>gemini-4-carbon</dt><dd class="bad">3 count</dd></dl></li><li><p class="q">Kuinka monta WC-istuinta pohjapiirustukseen on piirretty?</p><p class="meta">PNG raster plan · <code>high_quality_architectural-13620.png</code></p><dl><dt>gold</dt><dd>1 count</dd><dt>Our pipeline</dt><dd class="ok">1 count</dd><dt>gemini-4-carbon</dt><dd class="bad">2 count</dd></dl></li><li><p class="q">How many toilet bowls (WC seats) are drawn on this floor plan?</p><p class="meta">PNG raster plan · <code>high_quality_architectural-2560.png</code></p><dl><dt>gold</dt><dd>2 count</dd><dt>Our pipeline</dt><dd class="ok">2 count</dd><dt>gemini-4-carbon</dt><dd class="bad">3 count</dd></dl></li></ul></section>
+<section><h2><span class="no">08</span>gemini-4-carbon wins, we miss</h2><p class="note">16 questions; first 6 shown.</p><ul class="ex"><li><p class="q">How many doors are shown on this floor plan? Count doorways fitted with a door; open doorways without a door leaf do not count.</p><p class="meta">PNG raster plan · <code>high_quality-1036.png</code></p><dl><dt>gold</dt><dd>10 count</dd><dt>Our pipeline</dt><dd class="bad">11 count</dd><dt>gemini-4-carbon</dt><dd class="ok">10 count</dd></dl></li><li><p class="q">How many toilet bowls (WC seats) are drawn on this floor plan?</p><p class="meta">PNG raster plan · <code>high_quality-14593.png</code></p><dl><dt>gold</dt><dd>4 count</dd><dt>Our pipeline</dt><dd class="bad">3 count</dd><dt>gemini-4-carbon</dt><dd class="ok">4 count</dd></dl></li><li><p class="q">How many saunas are on this floor plan?</p><p class="meta">PNG raster plan · <code>high_quality-2026.png</code></p><dl><dt>gold</dt><dd>1 count</dd><dt>Our pipeline</dt><dd class="bad">0 count</dd><dt>gemini-4-carbon</dt><dd class="ok">1 count</dd></dl></li><li><p class="q">How many floors (storeys) does this floor plan show?</p><p class="meta">PNG raster plan · <code>high_quality-7086.png</code></p><dl><dt>gold</dt><dd>3 count</dd><dt>Our pipeline</dt><dd class="bad">2 count</dd><dt>gemini-4-carbon</dt><dd class="ok">3 count</dd></dl></li><li><p class="q">How many toilet bowls (WC seats) are drawn on this floor plan?</p><p class="meta">PNG raster plan · <code>high_quality_architectural-11347.png</code></p><dl><dt>gold</dt><dd>2 count</dd><dt>Our pipeline</dt><dd class="bad">3 count</dd><dt>gemini-4-carbon</dt><dd class="ok">2 count</dd></dl></li><li><p class="q">Kuinka monta keittiötä (myös keittokomerot, avo- ja tupakeittiöt sekä apukeittiöt) pohjapiirustuksessa on?</p><p class="meta">PNG raster plan · <code>high_quality_architectural-11691.png</code></p><dl><dt>gold</dt><dd>1 count</dd><dt>Our pipeline</dt><dd class="bad">0 count</dd><dt>gemini-4-carbon</dt><dd class="ok">1 count</dd></dl></li></ul></section>
+</div>
+</main>
