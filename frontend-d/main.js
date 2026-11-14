@@ -4,7 +4,7 @@ import {historyStore,createWorkspaceStorage} from './history-state.js';
 import {requestJSON,getDrawingScene,recoveryMessage,LIVE_REQUEST_TIMEOUT_MS} from './api-client.js';
 import {publishEditor,subscribeEditor,selectEditorEntity} from './editor-bridge.js';
 import {zoomAt} from './mock-scene.js';
-import {adaptScene,adaptAnswer,adaptAnswerEvidence,imageURL} from './contracts.js';
+import {adaptScene,adaptAnswer,adaptAnswerEvidence,imageURL,calculationAudit} from './contracts.js';
 import {finishVoiceInput} from './voice-input.js';
 
 export const $=id=>document.getElementById(id);
@@ -227,7 +227,7 @@ function confidenceRing(entity){
   el('text',{'text-anchor':'middle',dy:'.35em'},String(score)));
 }
 const area=e=>Math.abs(e.polygon.reduce((sum,p,i,points)=>{const q=points[(i+1)%points.length];return sum+p[0]*q[1]-q[0]*p[1];},0));
-const evidenceIds=()=>{const known=new Set(state.scene?.entities.map(entity=>entity.id)??[]);return state.result?[...new Set(state.result.evidence)].filter(id=>known.has(id)):[];};
+const evidenceIds=()=>{const known=new Set(state.scene?.entities.map(entity=>entity.id)??[]),audit=calculationAudit(state.rawAnswer);return state.result?[...new Set(audit?.included??state.result.evidence)].filter(id=>known.has(id)):[];};
 export function entityById(id){return state.scene?.entities.find(e=>e.id===id);}
 function hover(id,on){for(const node of document.querySelectorAll('[data-entity]'))if(node.dataset.entity===id)node.classList.toggle('hot',on);}
 function mark(entity,className,label){
@@ -253,7 +253,7 @@ $('general-view').onclick=toggleGeneralView;
 function drawMarks(){
  const layer=$('overlays');layer.replaceChildren();
  if(!state.scene||state.editing)return;
- const answerCited=evidenceIds(),cited=state.generalView?[]:answerCited,onPage=state.scene.entities.filter(e=>e.page===state.page&&e.polygon.length>=3).sort((a,b)=>area(b)-area(a));
+ const answerCited=evidenceIds(),cited=state.generalView?[]:answerCited,onPage=state.scene.entities.filter(e=>e.page===state.page&&e.polygon.length>=3&&(!e.calculationExcluded||e.id===state.selected)).sort((a,b)=>area(b)-area(a));
  for(const entity of onPage)if(!cited.includes(entity.id)&&state.layers.has(kindOf(entity)))
   layer.append(mark(entity,`mark other kind-${entity.type}`,`${entity.label}, model score ${Number.isFinite(entity.conf)?Math.round(entity.conf*100)+'/100':'unavailable'}, ${answerCited.includes(entity.id)?'counted in the answer':'not part of the answer'}`));
  const badges=[];
@@ -304,8 +304,9 @@ export function select(id,{zoomTo=false,focusEvidence=false,scrollEvidence=true}
   el('strong',{},entity.label),
   // A room's name is what the drawing says; its type is what "how many bedrooms" counts, so show it to be checked.
   el('p',{},[entity.type==='room'?`Room - ${ROOM_TYPE[entity.subtype]??'type not known'}`:KINDS[entity.type]?.[0]??entity.type,entity.quantityText,entity.context].filter(Boolean).join(', ')),
-  el('p',{class:'muted small'},[n>=0?`Counted in the answer as number ${n+1}`:'Not part of this answer',
+  el('p',{class:'muted small'},[n>=0?`${state.rawAnswer?.answer===null?'Supported match':'Counted in the answer'} as number ${n+1}`:'Not part of this answer',
    Number.isFinite(entity.conf)?`Model score ${Math.round(entity.conf*100)}/100 (uncalibrated)`:'Model score unavailable',entity.ref?`source ${entity.ref}`:null].filter(Boolean).join(' · ')));
+ if(entity.calculationExclusion)box.append(el('p',{class:'muted small'},entity.calculationExclusion));
  for(const fn of inspectors)fn(entity,box);
  const row=[...$('evidence-list').children].find(node=>node.dataset.entity===entity.id);
  if(scrollEvidence)row?.scrollIntoView({block:'nearest',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
@@ -365,7 +366,7 @@ function steps(list){
 }
 function counts(){
  const tally=new Map();
- for(const entity of state.scene.entities)if(entity.page===state.page)tally.set(kindOf(entity),(tally.get(kindOf(entity))??0)+1);
+ for(const entity of state.scene.entities)if(entity.page===state.page&&!entity.calculationExcluded)tally.set(kindOf(entity),(tally.get(kindOf(entity))??0)+1);
  return [...tally].sort((a,b)=>Object.keys(KINDS).indexOf(a[0])-Object.keys(KINDS).indexOf(b[0]));
 }
 let objectListEntities=null,objectListPath=null;
@@ -375,7 +376,8 @@ function renderObjectBrowser(){
  browser.hidden=!state.generalView||!state.scene||state.editing;
  if(browser.hidden)return;
  const entities=state.scene.entities;
- $('object-total').textContent=String(entities.length);
+ const eligible=entities.filter(e=>!e.calculationExcluded).length;
+ $('object-total').textContent=eligible===entities.length?String(entities.length):`${eligible} eligible / ${entities.length} found`;
  if(objectListEntities===entities&&objectListPath===state.path)return;
  const sameDrawing=objectListPath===state.path;
  const expanded=new Set(sameDrawing?[...container.querySelectorAll('details[open]')].map(node=>node.dataset.kind):[]);
@@ -387,7 +389,7 @@ function renderObjectBrowser(){
   items.sort((a,b)=>a.page-b.page||String(a.label??a.id).localeCompare(String(b.label??b.id),undefined,{numeric:true}));
   const rows=el('div',{class:'object-rows'}),group=el('details',{class:'object-group','data-kind':kind,open:expanded.has(kind)},
    el('summary',{},el('i',{class:'type-key',style:`--type:${typeColour({type:kind})}`,'aria-hidden':'true'}),
-    el('span',{},KINDS[kind]?.[1]??kind),el('span',{class:'count'},String(items.length))),rows);
+    el('span',{},KINDS[kind]?.[1]??kind),el('span',{class:'count'},items.some(e=>e.calculationExcluded)?`${items.filter(e=>!e.calculationExcluded).length} eligible / ${items.length} found`:String(items.length))),rows);
   let built=false;
   const build=()=>{
    if(!group.open||built)return;built=true;
@@ -398,10 +400,11 @@ function renderObjectBrowser(){
      onclick:()=>{
       state.layers.add(kind);renderDrawingSide();drawMarks();
       select(entity.id,{zoomTo:true,scrollEvidence:false});
+      if(entity.calculationExcluded)drawMarks();
      },onmouseenter:()=>hover(entity.id,true),onmouseleave:()=>hover(entity.id,false)},
      el('span',{class:'object-name'},entity.label??entity.id),
      el('small',{},[`Page ${entity.page+1}`,entity.quantityText,entity.context,
-      Number.isFinite(entity.conf)?`Score ${Math.round(entity.conf*100)}/100`:null,located?null:'No located geometry'].filter(Boolean).join(' · ')));
+      Number.isFinite(entity.conf)?`Score ${Math.round(entity.conf*100)}/100`:null,entity.calculationExclusion,located?null:'No located geometry'].filter(Boolean).join(' · ')));
    }));
   };
   group.addEventListener('toggle',build);build();return group;
@@ -445,7 +448,28 @@ function suggest(){
 // ───────── right side: the answer ─────────
 const TIER={parse:'Read from the CAD geometry',detect:'Counted from detections',llm:'Vision model and agent',none:'No route answered'};
 const STEP={scene:'Read the drawing',room_types:'Named the room types',plan:'Understood the question',execute:'Counted and measured',escalate:'Agent reasoning',
+ calculation_evidence:'Checked calculation confidence',resolve_room_connections:'Reviewed room connections',
  look:'Vision model looked at the drawing',verify_answer:'Verified the final calculation','tool:list_entities':'Agent listed what is on the drawing','tool:run_plan':'Agent ran a calculation','tool:look':'Agent asked for a closer look'};
+function renderCalculationReview(raw){
+ const box=$('calculation-review'),audit=calculationAudit(raw);box.replaceChildren();box.hidden=!audit;
+ $('evidence-label').textContent=audit?(raw.answer===null?'Supported calculation evidence':'Included in calculation'):'On the drawing';
+ if(!audit)return;
+ const roomNames=audit.context.map(entityById).filter(Boolean).map(e=>e.label).join(', ');
+ box.append(el('p',{class:'muted small'},`${audit.included.length} objects included · ${Math.round(audit.threshold*100)}% provisional cutoff. `+
+  (roomNames?`Room context: ${roomNames}. `:'')+'This score is not a calibrated probability of correctness.'));
+ const pending=new Set(audit.unresolved);
+ for(const [label,rows,open] of [
+  ['Unresolved candidates',audit.excluded.filter(e=>pending.has(e.id)),true],
+  ['Other detections not included',audit.excluded.filter(e=>!pending.has(e.id)),false]
+ ]){
+  if(!rows.length)continue;
+  box.append(el('details',{class:'calculation-review-group',open},el('summary',{},`${label} (${rows.length})`),
+   ...rows.map(row=>{const entity=entityById(row.id);return el('button',{type:'button',class:'evidence-row review',disabled:!entity,'data-entity':row.id,
+    style:`--type:${entity?typeColour(entity):'var(--zone)'}`,
+    onclick:()=>{state.layers.add(entity.type);select(row.id,{zoomTo:true});drawMarks();}},
+    el('span',{class:'n'},'–'),el('span',{class:'what'},`${row.id} · ${entity?.label??'Unavailable source'}`,el('small',{},row.reason)));})));
+ }
+}
 function renderAnswer(){
  const result=state.result,raw=state.rawAnswer;
  $('answer-card').hidden=$('working').hidden===false||!result;
@@ -466,11 +490,13 @@ function renderAnswer(){
  $('retry-request').hidden=!failed;
 
  const confidence=Math.round(raw.confidence*100),level=raw.confidence>=.8?'high':raw.confidence>=.5?'medium':'low';
+ const audit=calculationAudit(raw);
  const verifiedCalculation=typeof raw.answer==='number'&&Number.isFinite(raw.answer)&&Boolean(raw.formula)&&(raw.trace??[]).some(step=>step.step==='execute');
  const sourceDerived=verifiedCalculation&&(raw.tier!=='llm'||raw.trace.some(step=>step.step==='verify_answer'));
  const models=[...new Set((raw.trace??[]).filter(step=>step.model&&!step.cached&&step.usd).map(step=>step.model))];
  $('facts').replaceChildren(...[
-  failed?null:[sourceDerived?'Source score':'Confidence',el('span',{class:'meter'},el('i',{style:`width:${confidence}%;--c:${confidence}`})),sourceDerived?`${confidence}%`:`${confidence}%, ${level}`],
+  failed?null:[audit?'Calculation confidence':sourceDerived?'Source score':'Confidence',el('span',{class:'meter'},el('i',{style:`width:${confidence}%;--c:${confidence}`})),audit||sourceDerived?`${confidence}%`:`${confidence}%, ${level}`],
+  audit?['Evidence cutoff',null,`${Math.round(audit.threshold*100)}% · provisional`]:null,
   failed||!verifiedCalculation?null:['Calculation',null,'Verified arithmetic'],
   failed||!raw.confidence_note?null:['How scored',null,raw.confidence_note],
   ['Route',null,TIER[raw.tier]],
@@ -483,14 +509,15 @@ function renderAnswer(){
  $('assumptions').hidden=!assumptions.length;
  $('assumptions').replaceChildren(el('h3',{},'Assumptions'),...assumptions.map(([key,value])=>el('span',{},`${key.replace(/_/g,' ')}: `,el('b',{},String(value)))));
 
+ renderCalculationReview(raw);
  const cited=evidenceIds().map(id=>entityById(id)).filter(Boolean),unsure=cited.filter(e=>e.uncertain).length;
- $('evidence').hidden=!cited.length;
+ $('evidence').hidden=!cited.length&&$('calculation-review').hidden!==false;
  $('evidence-count').textContent=`${cited.length}${unsure?`, ${unsure} to check`:''}`;
  $('evidence-navigation').textContent='Select an item, then use arrow keys to browse. Home and End jump to the first and last item.';
  $('evidence-list').replaceChildren(...cited.map((entity,i)=>el('button',{type:'button',class:`evidence-row${entity.uncertain?' review':''}`,style:`--type:${typeColour(entity)}`,'data-entity':entity.id,'aria-pressed':'false',
   onclick:()=>select(entity.id,{zoomTo:true,focusEvidence:true}),onmouseenter:()=>hover(entity.id,true),onmouseleave:()=>hover(entity.id,false)},
   el('span',{class:'n'},String(i+1)),
-  el('span',{class:'what'},entity.label,el('small',{},[entity.quantityText,entity.context,Number.isFinite(entity.conf)?`Model score ${Math.round(entity.conf*100)}/100${entity.uncertain?', review':''}`:null,
+  el('span',{class:'what'},entity.label,el('small',{},[entity.id,entity.quantityText,entity.context,Number.isFinite(entity.conf)?`Model score ${Math.round(entity.conf*100)}/100${entity.uncertain?', review':''}`:null,
    state.scene.pages.length>1?`page ${entity.page+1}`:null,entity.polygon.length?null:'not drawn'].filter(Boolean).join(' · '))))));
 
  const trace=raw.trace??[];
@@ -503,7 +530,8 @@ function renderAnswer(){
    el('span',{class:'step-name'},skipped?`${step.step.split(' ')[1]} did not respond, skipped`:STEP[step.step]??step.step),
    el('span',{class:'step-meta'},[step.model,tokens,step.gpu_s?`${step.gpu_s.toFixed(1)} GPU s`:null,step.cached?'cached':null,step.ms?seconds(step.ms):null].filter(Boolean).join(' · ')),
    el('span',{class:'step-cost'},step.usd?money(step.usd):'free'),
-   step.detail?el('span',{class:'step-detail'},step.detail):'');
+   step.detail?el('span',{class:'step-detail'},step.step==='calculation_evidence'&&audit?
+    `${audit.included.length} objects included; ${audit.excluded.length} not included. Provisional ${Math.round(audit.threshold*100)}% cutoff. Inspect the evidence list above.`:step.detail):'');
  }));
  const reading=(state.raw?.trace??[]).reduce((sum,step)=>sum+(step.usd??0),0);
  $('trace-note').textContent=reading?`Reading this drawing cost ${money(reading)} once; every later question reuses it.`:'';
@@ -740,7 +768,7 @@ export async function ask(text){
   }
   answer??=await track(requestJSON('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path,question}),signal:controller.signal}));
   // The first question on an unread drawing may have produced its scene; pick it up for the outlines.
-  if(!state.raw&&!controller.signal.aborted)try{setScene(await getDrawingScene(path,controller.signal));}catch{}
+  if(!state.edited&&(!state.raw||calculationAudit(answer))&&!controller.signal.aborted)try{setScene(await getDrawingScene(path,controller.signal),{keepView:!!state.raw});}catch{}
  }catch(error){
   if(askAbort!==controller)return;  // stopped by the user or replaced by a newer question
   reached=false;

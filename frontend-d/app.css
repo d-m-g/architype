@@ -336,6 +336,9 @@ main>section{height:100%}
 .evidence-row.review .n{border-style:dashed}
 .evidence-row .what{display:grid;font-weight:500;overflow-wrap:anywhere}
 .evidence-row small{font-weight:400;font-size:12px;color:var(--ink-2)}
+.calculation-review-group{margin:10px 0;font-size:13px}
+.calculation-review-group summary{cursor:pointer;padding:8px 0;font-weight:600}
+.calculation-review-group .evidence-row{min-height:44px}
 
 .trace summary{cursor:pointer;font-size:13px;font-weight:600}
 .trace ol{margin:12px 0 0 5px;border-left:1.5px solid var(--line);display:grid;gap:10px}
