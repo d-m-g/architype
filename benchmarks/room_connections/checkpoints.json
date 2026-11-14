@@ -1,0 +1,126 @@
+{
+  "reference_kind": "Reviewed recorded room connections, not independent visual re-annotation or a population accuracy benchmark",
+  "live_baseline_reported_cost_usd": 0.0300803,
+  "local_main_baseline_commit": "fb610664e8b4f1dbd325085cc367dd15db488000",
+  "latest_main_compatibility_commit": "0765eb1b792939137ac85b633752ae99a32664de",
+  "feature_frontend_tests_passed": 116,
+  "latest_main_frontend_tests_passed": 115,
+  "feature_backend_tests_passed": 41,
+  "latest_main_and_feature_contract_checks_passed": 11,
+  "security_static_checks_passed": true,
+  "checkpoints": [
+    {
+      "label": "checkpoint-2",
+      "at": "2026-11-14T20:47:03Z",
+      "main_commit": "fb610664e8b4f1dbd325085cc367dd15db488000",
+      "feature_head": "fb610664e8b4f1dbd325085cc367dd15db488000",
+      "feature_files_sha256": "e9776df91fd9584372123a984f83e86d3c76935a45e2be52616761930ef51409",
+      "main_count_correct": 0,
+      "feature_fully_correct": 4,
+      "additional_paid_model_calls": 0,
+      "safety_abstentions": 0,
+      "both_contract_suites_passed": true
+    },
+    {
+      "label": "checkpoint-3",
+      "at": "2026-11-14T20:56:32Z",
+      "main_commit": "fb610664e8b4f1dbd325085cc367dd15db488000",
+      "feature_head": "fb610664e8b4f1dbd325085cc367dd15db488000",
+      "feature_files_sha256": "4e7d4af5a41c39b437866ce4a495d3a61dae4d05808fb86bd16ec4d00b78ecf9",
+      "main_count_correct": 0,
+      "feature_fully_correct": 4,
+      "additional_paid_model_calls": 0,
+      "safety_abstentions": 3,
+      "both_contract_suites_passed": true
+    },
+    {
+      "label": "checkpoint-4-final",
+      "at": "2026-11-14T20:58:03Z",
+      "main_commit": "fb610664e8b4f1dbd325085cc367dd15db488000",
+      "feature_head": "fb610664e8b4f1dbd325085cc367dd15db488000",
+      "feature_files_sha256": "1a918ebe4c49c7703077e8aeb041bc3d93711031fbbe0a388cf5996c1d4a1d0e",
+      "main_count_correct": 0,
+      "feature_fully_correct": 4,
+      "additional_paid_model_calls": 0,
+      "safety_abstentions": 3,
+      "both_contract_suites_passed": true
+    },
+    {
+      "label": "checkpoint-5-latest-main",
+      "at": "2026-11-14T21:04:52Z",
+      "main_commit": "fb610664e8b4f1dbd325085cc367dd15db488000",
+      "feature_head": "df24a066c6ce0ba92a12f58563e1d31d7507f2a9",
+      "feature_files_sha256": "34b912dae12e310d5fb5fd8607b915ba192723992894bd80ca75657be544abce",
+      "main_count_correct": 0,
+      "feature_fully_correct": 4,
+      "additional_paid_model_calls": 0,
+      "safety_abstentions": 3,
+      "both_contract_suites_passed": true
+    }
+  ],
+  "final_cases": [
+    {
+      "id": "screenshot-doors",
+      "main_answer": null,
+      "main_count_correct": false,
+      "main_seconds": 40.569194599986076,
+      "main_reported_cost_usd": 0.0095152,
+      "branch_answer": 6,
+      "expected_count": 6,
+      "winner_count": 2,
+      "correct_count_winners_and_evidence": true,
+      "evidence_located": true,
+      "branch_median_ms": 0.19460001203697175,
+      "branch_incremental_model_cost_usd": 0.0
+    },
+    {
+      "id": "screenshot-windows",
+      "main_answer": null,
+      "main_count_correct": false,
+      "main_seconds": 27.49705149998772,
+      "main_reported_cost_usd": 0.0102885,
+      "branch_answer": 2,
+      "expected_count": 2,
+      "winner_count": 5,
+      "correct_count_winners_and_evidence": true,
+      "evidence_located": true,
+      "branch_median_ms": 0.16419999883510172,
+      "branch_incremental_model_cost_usd": 0.0
+    },
+    {
+      "id": "S03-doors",
+      "main_answer": null,
+      "main_count_correct": false,
+      "main_seconds": 13.125750600011088,
+      "main_reported_cost_usd": 0.0039341,
+      "branch_answer": 7,
+      "expected_count": 7,
+      "winner_count": 1,
+      "correct_count_winners_and_evidence": true,
+      "evidence_located": true,
+      "branch_median_ms": 0.21239998750388622,
+      "branch_incremental_model_cost_usd": 0.0
+    },
+    {
+      "id": "S04-doors",
+      "main_answer": null,
+      "main_count_correct": false,
+      "main_seconds": 10.654234500019811,
+      "main_reported_cost_usd": 0.0063425,
+      "branch_answer": 8,
+      "expected_count": 8,
+      "winner_count": 2,
+      "correct_count_winners_and_evidence": true,
+      "evidence_located": true,
+      "branch_median_ms": 0.6841999856987968,
+      "branch_incremental_model_cost_usd": 0.0
+    }
+  ],
+  "limits": "Live-demo answers are a timestamped black-box capture, not a controlled deterministic execution of the pinned local main. Branch timings exclude extraction and HTTP. Source-relationship references do not prove geometry detection completeness.",
+  "other_limits": [
+    "Raw scenes and live API responses are private ignored artifacts, not committed.",
+    "A four-case source-relationship replay is not a population accuracy benchmark.",
+    "Browser interactions and model choice of the new tool for arbitrary wording are not live-staging tested.",
+    "No changes were deployed to main or demo."
+  ]
+}

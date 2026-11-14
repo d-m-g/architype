@@ -33,14 +33,17 @@ MAX_TURNS = 8
 
 SYSTEM = """You answer a question about one construction drawing, using tools. The drawing has already been read into
 a scene: a list of entities (rooms, doors, windows, fixtures, apartments, levels) with ids, labels and quantities.
-- Use list_entities to see what is there, and run_plan for every count, sum or arithmetic: never compute numbers yourself.
+- Use list_entities to see what is there, run_plan for general counts/sums/arithmetic and rank_rooms for room connection rankings. Never compute numbers yourself.
+- For ranking rooms by connected doors, windows or fixtures, use rank_rooms. It counts recorded connections across
+  the full scene, reports ties and refuses incomplete links. Finish with its result_id; the server verifies the
+  room ranking and its evidence together. Do not infer ranks from a truncated list_entities response.
 - Each entity is one room or object. For "the largest / smallest room" call list_entities with sort and limit 1 and
   report that single entity; never combine rooms that share a label unless the question asks for a total.
 - Use look only when the scene lacks something you need; it asks a vision model about the page or a region of it.
 - Finish by calling answer with the value, its unit, the ids of the entities the answer rests on, and a one-sentence
   explanation. When the question asks how many, how big or how much, the answer is that number and the names go in
   the explanation (e.g. answer 31.05, unit m2, explanation "Reduit 2.30 is the largest room").
-- For EVERY numeric final answer, include plan: the complete QueryPlan JSON that computes the FINAL requested value,
+- For numeric final answers other than a verified rank_rooms result_id, include plan: the complete QueryPlan JSON that computes the FINAL requested value,
   including tile size, waste and rounding when requested. The server executes this plan and uses its result, formula
   and evidence, not your proposed number or arithmetic in the explanation. Select a single room by its number and
   apartment when appropriate; do not sum every bathroom for a question about the largest bathroom.
@@ -48,7 +51,7 @@ a scene: a list of entities (rooms, doors, windows, fixtures, apartments, levels
 
 TOOLS = [
     {"type": "function", "function": {
-        "name": "list_entities", "description": "List scene entities, optionally filtered. Returns id, type, subtype, label, number, apartment, level, area_m2, conf.",
+        "name": "list_entities", "description": "List scene entities, optionally filtered. Returns id, type, subtype, label, number, apartment, level, area_m2, conf and recorded room connections in attrs.room/room2 (or room_id/room_id2).",
         "parameters": {"type": "object", "properties": {
             "type": {"type": "string", "description": "room, apartment, level, door, window, fixture, wall, slab, column, row or other"},
             "subtype": {"type": "string"}, "label": {"type": "string", "description": "case-insensitive substring of the label"},
@@ -56,6 +59,15 @@ TOOLS = [
             "max_area_m2": {"type": "number", "description": "keep only entities with an area of at most this"},
             "sort": {"type": "string", "enum": ["area_desc", "area_asc"], "description": "order by area, e.g. for the largest or smallest room"},
             "limit": {"type": "integer", "description": "return at most this many entities"}}}}},
+    {"type": "function", "function": {
+        "name": "rank_rooms", "description": "Rank rooms by unique connected door, window or fixture counts using all scene records. Reports ties and missing links. Use the returned result_id in the final answer; do not recompute or invent the winner.",
+        "parameters": {"type": "object", "properties": {
+            "object_type": {"type": "string", "enum": ["door", "window", "fixture"]},
+            "order": {"type": "string", "enum": ["asc", "desc"]},
+            "apartment": {"type": "string"}, "level": {"type": "string"},
+            "page": {"type": "integer", "description": "Zero-based page index"},
+            "include_outdoor": {"type": "boolean"},
+            "limit": {"type": "integer", "description": "Shown ranking rows (1 to 20). Does not limit the computation or discard ties."}}}}},
     {"type": "function", "function": {
         "name": "run_plan", "description": "Run a QueryPlan on the scene with the exact executor; returns the value, the formula and the evidence ids.",
         "parameters": {"type": "object", "required": ["plan"], "properties": {"plan": {"type": "string", "description":
@@ -72,7 +84,8 @@ TOOLS = [
         "parameters": {"type": "object", "required": ["answer", "explanation"], "properties": {
             "answer": {"type": ["number", "string"]}, "unit": {"type": "string", "enum": ["count", "m2", "m", "m3", "ft2"]},
             "evidence": {"type": "array", "items": {"type": "string"}}, "explanation": {"type": "string"},
-            "plan": {"type": "string", "description": "Required for numeric answers: complete QueryPlan JSON computing the final requested value, including all arithmetic and rounding. The server uses this calculation as the answer."}}}}},
+            "plan": {"type": "string", "description": "Required for numeric answers unless result_id is supplied: complete QueryPlan JSON computing the final requested value, including all arithmetic and rounding."},
+            "result_id": {"type": "string", "description": "Copy the result_id from rank_rooms to use its complete verified answer, room ranking, ties and source evidence."}}}}},
 ]
 
 
@@ -84,7 +97,7 @@ def escalate(question: str, path: str, scene: Scene | None, draft: Answer) -> An
         result = answer_from_vision(question, path, draft)
         from .vision import not_a_floor_plan, read_scene
         vision = read_scene(path)[0]
-        if result.answer is not None or not_a_floor_plan(vision):
+        if result.answer is not None or not_a_floor_plan(vision) or any(step.step == "room_connections" for step in result.trace):
             return result
         return agent(question, vision, result, inline_evidence=True)
     return agent(question, scene, draft, inline_evidence=False)
@@ -99,6 +112,11 @@ def answer_from_vision(question: str, path: str, draft: Answer | None = None) ->
     if kind:
         return Answer(tier="llm", error=f"not a floor plan (read as: {kind}); this tool answers questions about floor plans",
                       trace=draft.trace + (vision.trace if fresh else []))
+    from ..room_connections import direct_room_ranking
+    ranking = direct_room_ranking(question, vision)
+    if ranking is not None:
+        return ranking.model_copy(update={"tier": "llm", "extra_entities": [e for e in vision.entities if e.id in set(ranking.evidence)],
+                                          "trace": draft.trace + (vision.trace if fresh else []) + ranking.trace})
     try:
         plan, plan_steps = plan_with_trace(question, vision)
     except NotImplementedError as e:  # no plan fits (or no planner): escalate() hands it to the agent
@@ -142,7 +160,7 @@ def _look(scene: Scene, question: str, box: list | None) -> tuple[str, TraceStep
     return reply.choices[0].message.content or "", step
 
 
-def _tool(name: str, args: dict, scene: Scene) -> tuple[str, list[TraceStep]]:
+def _tool(name: str, args: dict, scene: Scene, results: dict | None = None) -> tuple[str, list[TraceStep]]:
     """Run one tool call. Returns the text the agent sees and any costed steps."""
     if name == "list_entities":
         lo, hi = args.get("min_area_m2"), args.get("max_area_m2")
@@ -155,9 +173,22 @@ def _tool(name: str, args: dict, scene: Scene) -> tuple[str, list[TraceStep]]:
             hits = sorted(hits, key=lambda e: (("m2" not in e.qty), -e.qty.get("m2", 0) if args["sort"] == "area_desc" else e.qty.get("m2", 0)))
         rows = [{k: v for k, v in {"id": e.id, "type": e.type, "subtype": e.subtype, "label": e.label, "number": e.number,
                                    "apartment": e.apartment, "level": e.level, "area_m2": e.qty.get("m2"),
-                                   "conf": round(e.conf, 2)}.items() if v is not None} for e in hits]
+                                   "conf": round(e.conf, 2),
+                                   "attrs": {k: v for k, v in e.attrs.items() if k in ("room", "room2", "room_label", "room_label2", "room_id", "room_id2", "copies")} or None}.items() if v is not None} for e in hits]
         limit = args.get("limit") if isinstance(args.get("limit"), int) and args["limit"] > 0 else 150
         return json.dumps({"count": len(rows), "entities": rows[:min(limit, 150)]}, ensure_ascii=False), []
+    if name == "rank_rooms":
+        from ..room_connections import rank_rooms, ranking_id
+        arguments = {k: v for k, v in args.items() if k != "limit"}
+        try:
+            ranked = rank_rooms(scene, **arguments)
+            result_id = ranking_id(scene, arguments)
+            text = json.dumps(ranked.tool_result(result_id, args.get("limit", 5)), ensure_ascii=False)
+        except (ValueError, TypeError) as error:
+            return f"invalid room ranking: {error}", []
+        if results is not None:
+            results[result_id] = ranked.answer
+        return text, []
     if name == "run_plan":
         try:
             plan = QueryPlan.model_validate_json(args.get("plan", ""))
@@ -273,6 +304,7 @@ def _agent_loop(question, scene, draft, inline_evidence, url, key, model, extra,
     # A provider that failed first is still on the card: the failed attempt shows as a zero-cost step.
     steps: list[TraceStep] = [TraceStep(step=f"escalate:unavailable {f.split(':')[0]}") for f in failures]
     force_answer = False
+    verified_results = {}
     for turn in range(MAX_TURNS):
         remaining = deadline - time.monotonic()
         if remaining < 5:
@@ -302,6 +334,16 @@ def _agent_loop(question, scene, draft, inline_evidence, url, key, model, extra,
             except json.JSONDecodeError:
                 args = {}
             if call.function.name == "answer":
+                if args.get("result_id"):
+                    verified = verified_results.get(args["result_id"])
+                    if verified is None:
+                        messages.append({"role": "tool", "tool_call_id": call.id,
+                                         "content": "Unknown result_id. Call rank_rooms first and use its returned result_id."})
+                        force_answer = False
+                        continue
+                    ids = set(verified.evidence)
+                    return verified.model_copy(update={"tier": "llm", "trace": draft.trace + steps + verified.trace,
+                        "extra_entities": [e for e in scene.entities if e.id in ids] if inline_evidence else []})
                 ids = {e.id for e in scene.entities}
                 evidence = [i for i in args.get("evidence", []) if i in ids]
                 value = args.get("answer")
@@ -347,7 +389,7 @@ def _agent_loop(question, scene, draft, inline_evidence, url, key, model, extra,
                     interpretation=args.get("explanation"), error=None if value is not None else args.get("explanation"),
                     trace=draft.trace + steps)
             t1 = time.perf_counter()
-            text, costed = _tool(call.function.name, args, scene)
+            text, costed = _tool(call.function.name, args, scene, verified_results)
             asked = ", ".join(f"{k}={v}" for k, v in args.items())
             steps.append(TraceStep(step=f"tool:{call.function.name}", ms=(time.perf_counter() - t1) * 1000,
                                    detail=f"{asked[:300]} → {text[:400]}"))
