@@ -7,6 +7,8 @@ one opening, so a double door (one box, two arcs) is one door.
 Most plans also hold exact copies of some boxes (identical coordinates, new handle), about 11% of all
 boxes. They render as one door, so we count each position once. The dataset's gold counts every copy,
 so this deliberately scores lower on door and window questions: we count what a reader sees.
+Confirmed with the team after Stoa's reply on 14 Nov: one visible door is one door, and the dataset
+accuracy is evaluated with that in mind. Do not revert to counting copies.
 """
 
 
