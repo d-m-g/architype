@@ -1,4 +1,4 @@
-/** Session-only snapshots; never persists questions or source data to storage. */
+/** In-memory answer history. Workspace persistence below saves explicit browser snapshots. */
 export function createHistoryStore(limit=20) {
   const drawings=new Map(),listeners=new Set();
   let current=null,viewed=null,sequence=0;
@@ -22,3 +22,29 @@ export function createHistoryStore(limit=20) {
   };
 }
 export const historyStore=createHistoryStore();
+
+/** Large scenes belong in IndexedDB, rather than the small localStorage quota. */
+export function createWorkspaceStorage(indexedDB=globalThis.indexedDB){
+ let database;
+ const open=()=>database??=new Promise((resolve,reject)=>{
+  if(!indexedDB){reject(new Error('Browser storage is unavailable'));return;}
+  const request=indexedDB.open('blueprints-workspaces',1);
+  request.onupgradeneeded=()=>request.result.createObjectStore('drawings');
+  request.onsuccess=()=>resolve(request.result);
+  request.onerror=()=>reject(request.error);
+  request.onblocked=()=>reject(new Error('Browser storage is blocked'));
+ });
+ async function run(mode,path,value){
+  const db=await open();
+  return new Promise((resolve,reject)=>{
+   const transaction=db.transaction('drawings',mode),store=transaction.objectStore('drawings');
+   const request=mode==='readonly'?store.get(path):store.put(value,path);
+   transaction.oncomplete=()=>resolve(request.result);
+   transaction.onabort=transaction.onerror=()=>reject(transaction.error??new Error('Could not save drawing'));
+  });
+ }
+ return {
+  async load(path){const saved=await run('readonly',path);return saved?.version===1&&saved.path===path?saved:null;},
+  save(snapshot){return run('readwrite',snapshot.path,structuredClone({...snapshot,version:1}));}
+ };
+}

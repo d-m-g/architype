@@ -15,10 +15,11 @@ import sys
 import threading
 import time
 from functools import lru_cache
+from typing import Annotated, Literal
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from . import pipeline
 from .executor import execute
@@ -155,6 +156,40 @@ class Recompute(BaseModel):
     plan: QueryPlan
 
 
+Coord = Annotated[float, Field(ge=0, le=1)]
+Box = tuple[Coord, Coord, Coord, Coord]  # x0, y0, x1, y1 of the page, as in Entity.geom
+
+
+class Alike(BaseModel):
+    image: str  # Page.image of the page the boxes are on
+    box: Box  # the detection the user rejected
+    others: dict[str, Box] = Field(max_length=2000)  # entity id -> box of the detections to compare with it
+
+
+class Label(BaseModel):
+    action: Literal["added", "removed", "resized", "confirmed"]
+    image: str  # Page.image of the page the box is on
+    entity: str = Field(max_length=80)  # Entity.id: later corrections of the same item replace this one
+    type: str
+    subtype: str | None = None
+    box: Box
+    was: Box | None = None  # resized: the box before
+    conf: float | None = Field(None, ge=0, le=1)  # the detector's score before the correction
+
+
+class Labels(BaseModel):
+    correction: str = Field(pattern=r"^[\w-]{1,40}$")  # the viewer's id for one user action; an undo names it
+    labels: list[Label] = Field([], max_length=2000)
+    undo: bool = False
+
+
+class Reject(BaseModel):
+    image: str  # Page.image of the page the box is on
+    box: Box  # the detection the user removed together with its look-alikes
+    type: str  # what the detector took it for: Entity.type and subtype
+    subtype: str | None = None
+
+
 def _drawing(path: str):
     from .brain.vision import drawing_file
     try:
@@ -205,7 +240,8 @@ def plan(question: str) -> QueryPlan:
 @app.post("/api/recompute")
 def recompute(body: Recompute) -> Answer:
     """Run a plan on a scene the user edited: no model call, the same executor as every other answer."""
-    return execute(body.plan, body.scene)
+    from .brain.vision import checked
+    return checked(execute(body.plan, body.scene), body.plan, body.scene)  # as pipeline.answer: no confident zero from the vision reader's rooms
 
 
 @app.post("/api/upload")
@@ -278,17 +314,81 @@ def _viewable(path: str, file):
     return small
 
 
+def _page_file(path: str):
+    """The file behind a Page.image: a dataset file ("data/..."), an upload ("uploads/...") or a rendered page ("pages/...")."""
+    if path.startswith(("data/", "uploads/")):
+        return _drawing(path)
+    file = (pipeline.CACHE / path).resolve()
+    if not file.is_relative_to(pipeline.CACHE / "pages") or not file.is_file():
+        raise HTTPException(404, f"no such image: {path}")
+    return file
+
+
 @app.get("/api/image")
 def image(path: str) -> FileResponse:
-    """Serves Page.image: a dataset file ("data/..."), an upload ("uploads/...") or a rendered page ("pages/...").
-    A raster above the viewer's size limits is served as a scaled-down PNG."""
-    if path.startswith(("data/", "uploads/")):
-        return FileResponse(_viewable(path, _drawing(path)))
-    pages = pipeline.CACHE / "pages"
-    file = (pipeline.CACHE / path).resolve()
-    if not file.is_relative_to(pages) or not file.is_file():
-        raise HTTPException(404, f"no such image: {path}")
-    return FileResponse(file)
+    """Serves Page.image. A raster above the viewer's size limits is served as a scaled-down PNG."""
+    file = _page_file(path)
+    return FileResponse(_viewable(path, file) if path.startswith(("data/", "uploads/")) else file)
+
+
+@lru_cache(maxsize=2)  # ponytail: two pages held in memory (a 140 MP sheet is 140 MB); shrink them first if that hurts
+def _gray(image: str):
+    from PIL import Image
+    from .detector.alike import gray
+    try:
+        return gray(_page_file(image))
+    except (OSError, Image.DecompressionBombError):  # a page that is a PDF, not a raster, or too large to open
+        raise HTTPException(415, "look-alikes need a raster page image") from None
+
+
+@app.post("/api/alike")
+def alike(body: Alike) -> dict:
+    """The ids among `others` that show the same symbol as `box`, most alike first: the user rejects one detection
+    and the viewer offers to remove the rest. Compares the page's own pixels; no model call."""
+    from .detector.alike import look_alikes
+    return {"ids": look_alikes(_gray(body.image), body.box, body.others)}
+
+
+def _kind(type: str, subtype: str | None) -> str:
+    """"door" or "fixture:toilet", refused unless the schema knows it: it names a folder in the cache."""
+    from .schemas import Entity
+    try:
+        Entity(id="_", type=type, subtype=subtype)
+    except ValueError:
+        raise HTTPException(422, "unknown entity type or subtype") from None
+    return f"{type}:{subtype}" if subtype else type
+
+
+@app.post("/api/labels")
+def labels(body: Labels) -> dict:
+    """Keep what the user corrected in the viewer as training labels (detector/labels.py), or take one correction
+    back when the viewer undoes it."""
+    from .detector import labels as log
+    if body.undo:
+        log.undo(body.correction)
+        return {"saved": 0}
+    for image in {label.image for label in body.labels}:
+        _page_file(image)  # 404 unless it is a drawing or page this server holds
+    for kind in {(label.type, label.subtype) for label in body.labels}:
+        _kind(*kind)
+    log.save(body.correction, [label.model_dump(exclude_none=True) for label in body.labels])
+    return {"saved": len(body.labels)}
+
+
+@app.post("/api/reject")
+def reject(body: Reject) -> dict:
+    """Remember the symbol in `box` as "not a <type>": the detector's boxes on it are set aside on drawings uploaded
+    from now on (detector/alike.py). id is null when a remembered symbol already covers it."""
+    from .detector.alike import remember
+    return {"id": remember(_gray(body.image), body.box, _kind(body.type, body.subtype))}
+
+
+@app.delete("/api/reject")
+def unreject(type: str, id: Annotated[str, Query(pattern="^[0-9a-f]{16}$")], subtype: str | None = None) -> dict:
+    """Forget a remembered symbol: the viewer's Undo of the removal that stored it."""
+    from .detector.alike import forget
+    forget(_kind(type, subtype), id)
+    return {"ok": True}
 
 
 from .brain.voice import router as voice_router

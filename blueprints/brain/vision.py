@@ -10,6 +10,7 @@ import hashlib
 import os
 import time
 
+from collections import Counter
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -198,6 +199,49 @@ def read_scene(path: str) -> tuple[Scene, bool]:
     return scene, True
 
 
+ADDED_KINDS = ("room", "apartment", "level")  # what add_rooms takes from the vision reader
+
+
+def checked(result, plan, scene: Scene):
+    """An Answer about the kinds add_rooms took from the vision reader is no surer than the reader. When the reader
+    listed nothing the question asks for, that is weak evidence of none (it named 5 zones on a sheet of 48 dorm
+    rooms): the answer is withdrawn, so the pipeline hands the question to the agent with the reason."""
+    from ..executor import select
+    from .escalate import VISION_CONFIDENCE
+    asked = [q for q in plan.queries.values() if q.type in ADDED_KINDS]
+    if result.answer is None or f"+{BUILDER}" not in scene.builder or not asked:
+        return result
+    none = [f"{q.type}:{q.subtype}" if q.subtype else q.type for q in asked if not select(q, scene)]
+    if none:
+        return result.model_copy(update={"answer": None, "unit": None, "confidence": 0.0, "evidence": [], "error":
+            f"the vision reader listed no {', '.join(none)} on this drawing, which is weak evidence that there are "
+            f"none: look at the drawing itself before answering zero"})
+    return result.model_copy(update={"confidence": min(result.confidence, VISION_CONFIDENCE)})
+
+
+def add_rooms(scene: Scene, path: str, seen: Scene | None = None) -> bool:
+    """Give a detector scene of an upload what a PDF upload gets: rooms by type, apartments and floors, from the
+    vision reader's scene of the same drawing (seen; read here when not passed). The detector keeps doors, windows
+    and fixtures, where its boxes are the better ones. Returns whether the scene changed: it does not when the reader
+    is unavailable or saw no floor plan, and the scene then covers only what the detector finds, as before."""
+    from .escalate import VISION_CONFIDENCE
+    if seen is None:
+        try:
+            seen = read_scene(path)[0]
+        except NotImplementedError:
+            return False
+    kinds = ADDED_KINDS
+    covers = [c for c in seen.covers if c.partition(":")[0] in kinds and c not in scene.covers]
+    if not covers:
+        return False
+    # The model's list is not certain: the same confidence an answer on a vision-only scene gets.
+    scene.entities += [e.model_copy(update={"conf": VISION_CONFIDENCE}) for e in seen.entities if e.type in kinds]
+    scene.covers += covers
+    scene.trace += seen.trace
+    scene.builder += f"+{BUILDER}"
+    return True
+
+
 if __name__ == "__main__":  # self-check of the conversion, no model call
     page = Page(image="data/x.png", width=100, height=50)
     s = to_scene("data/x.png", page, {
@@ -218,4 +262,24 @@ if __name__ == "__main__":  # self-check of the conversion, no model call
     assert not section.entities and not section.covers and not_a_floor_plan(section) == "section"
     assert not_a_floor_plan(s) is None
     assert all(0 <= v <= 1 for e in s.entities for p in e.geom for v in p)
+    # a detector scene of an upload takes the rooms, apartment and floors, and keeps its own doors and fixtures
+    door = Entity(id="det-0", type="door", conf=0.9)
+    det = Scene(path="uploads/x.png", builder="fixtures-6:tiled@2", tier="detect", covers=["door", "fixture:sink"], pages=[page], entities=[door])
+    assert add_rooms(det, "uploads/x.png", s) and not add_rooms(det, "uploads/x.png", s)  # the second time adds nothing
+    assert Counter(e.type for e in det.entities) == {"door": 1, "room": 3, "apartment": 1, "level": 2}
+    assert {"room", "room:bedroom", "level", "apartment", "door"} <= set(det.covers) and "window" not in det.covers
+    assert det.entities[0].conf == 0.9 and all(e.conf < 1 for e in det.entities[1:]) and "+vision:" in det.builder
+    assert not_a_floor_plan(det) is None and not add_rooms(det.model_copy(update={"covers": ["door"]}), "uploads/x.png", section)
+    Scene.model_validate(det.model_dump())
+    # no sauna was listed: weak evidence of none, so no answer (the pipeline escalates); a listed bedroom is as sure
+    # as the reader; the detector's own doors are left alone
+    from ..executor import execute
+    from ..schemas import Query, QueryPlan
+    count = lambda kind, sub=None: QueryPlan(queries={"n": Query(op="count", type=kind, subtype=sub)}, unit="count")
+    ask = lambda scene, *kind: checked(execute(count(*kind), scene), count(*kind), scene)
+    none = ask(det, "room", "sauna")
+    assert none.answer is None and "room:sauna" in none.error
+    assert (ask(det, "room", "bedroom").answer, ask(det, "door").answer, ask(det, "door").confidence) == (1, 1, 0.9)
+    assert 0.5 < ask(det, "room", "bedroom").confidence < 1
+    assert ask(s, "room", "sauna").answer == 0  # a vision-only scene is rated by answer_from_vision
     print("ok: vision scene conversion")

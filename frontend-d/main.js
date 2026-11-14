@@ -1,6 +1,6 @@
 /** The Ask view: drawing viewer, question flow, answer card, evidence and trace. */
 import {createSourcePreviewLoader,sourcePreviewKind,loadPDFPreview} from './local-file.js';
-import {historyStore} from './history-state.js';
+import {historyStore,createWorkspaceStorage} from './history-state.js';
 import {requestJSON,getDrawingScene,recoveryMessage,LIVE_REQUEST_TIMEOUT_MS} from './api-client.js';
 import {publishEditor,subscribeEditor,selectEditorEntity} from './editor-bridge.js';
 import {zoomAt} from './mock-scene.js';
@@ -53,7 +53,7 @@ const clean=text=>{const s=String(text??'').replace(/^lane [A-D]: /i,'').trim();
 const notAPlan=raw=>raw?.builder.includes(':not-a-floor-plan:')?raw.builder.split(':not-a-floor-plan:')[1]:null;
 function readerName(raw){
  if(raw.builder.startsWith('vision'))return 'Read by the vision model';
- return raw.tier==='parse'?'Read from the CAD geometry':'Read by the detector';
+ return raw.tier==='parse'?'Read from the CAD geometry':raw.builder.includes('+vision')?'Read by the detector, rooms by the vision model':'Read by the detector';
 }
 export function formatValue(value,unit){
  if(typeof value!=='number')return [String(value),''];
@@ -66,6 +66,7 @@ const svg=$('drawing'),image=$('page-image');
 let view={x:0,y:0,w:1000,h:760};
 const pageSize=()=>state.scene?{w:state.scene.width,h:state.scene.height}:{w:state.preview?.width??1000,h:state.preview?.height??760};
 function publish(){
+ scheduleSave();
  publishEditor({wireScene:state.raw,answer:state.rawAnswer,entities:state.scene?.entities??[],selectedId:state.selected,pageIndex:state.page,
   viewport:{...view},sourcePreview:null,mode:state.raw?'shared':'pending'});
 }
@@ -75,6 +76,10 @@ function updateView(sync=true){
  // --u is drawing units per screen pixel, so number badges keep one size at every zoom.
  if(box.width)svg.style.setProperty('--u',Math.max(view.w/box.width,view.h/box.height));
  svg.classList.toggle('dense',view.w>pageSize().w*.6&&$('overlays').querySelectorAll('.badge').length>12);
+ for(const ring of $('overlays').querySelectorAll('.confidence-ring')){
+  const bounds={x:Number(ring.dataset.x),y:Number(ring.dataset.y),w:Number(ring.dataset.w),h:Number(ring.dataset.h)};
+  ring.classList.toggle('is-readable',confidenceRingVisible(bounds,view,box,pageSize().w));
+ }
  $('zoom-label').textContent=Math.round(pageSize().w*MARGIN*100/view.w)+'%';
  if(sync)publish();
 }
@@ -153,18 +158,39 @@ const previewLoader=createSourcePreviewLoader(path=>new Promise((resolve,reject)
 
 // ───────── marks on the drawing ─────────
 const kindOf=entity=>entity.type;
-/** Every box's colour follows its own confidence: hue 0 (red) at 0%, 60 (amber) at 50%, 120 (green) at 100%. */
-const hue=entity=>Math.round((entity.conf??1)*120);
+/** Object colour is stable; the ring separately encodes the reader's confidence score. */
+const TYPE_COLOUR={room:'var(--room)',door:'var(--door)',window:'var(--window)',fixture:'var(--fixture)'};
+const typeColour=entity=>TYPE_COLOUR[entity.type]??'var(--zone)';
+/** Fit is 100%. Small objects wait until their on-screen footprint can support a readable ring. */
+export function confidenceRingVisible(bounds,viewport,screen,pageWidth){
+ const scale=Math.min(screen.width/viewport.w,screen.height/viewport.h);
+ return Number.isFinite(scale)&&scale>0&&pageWidth*1.06/viewport.w>=1.75&&
+  Math.max(bounds.w,bounds.h)*scale>=48&&Math.min(bounds.w,bounds.h)*scale>=10&&
+  bounds.x>=viewport.x&&bounds.x<=viewport.x+viewport.w&&bounds.y>=viewport.y&&bounds.y<=viewport.y+viewport.h;
+}
+function confidenceRing(entity){
+ if(!Number.isFinite(entity.conf)||entity.polygon.length<3)return null;
+ const xs=entity.polygon.map(p=>p[0]),ys=entity.polygon.map(p=>p[1]);
+ const x=Math.max(...xs),y=Math.min(...ys),w=x-Math.min(...xs),h=Math.max(...ys)-y;
+ const score=Math.round(Math.max(0,Math.min(1,entity.conf))*100);
+ return el('g',{class:'confidence-ring','aria-hidden':'true',style:`--x:${x};--y:${y}`,
+  'data-x':x,'data-y':y,'data-w':w,'data-h':h},
+  el('circle',{class:'confidence-disc',r:17}),
+  el('circle',{class:'confidence-track',r:13}),
+  el('circle',{class:'confidence-progress',r:13,pathLength:100,'stroke-dasharray':`${score} 100`,transform:'rotate(-90)'}),
+  el('text',{'text-anchor':'middle',dy:'.35em'},String(score)));
+}
 const area=e=>Math.abs(e.polygon.reduce((sum,p,i,points)=>{const q=points[(i+1)%points.length];return sum+p[0]*q[1]-q[0]*p[1];},0));
 const evidenceIds=()=>{const known=new Set(state.scene?.entities.map(entity=>entity.id)??[]);return state.result?[...new Set(state.result.evidence)].filter(id=>known.has(id)):[];};
 export function entityById(id){return state.scene?.entities.find(e=>e.id===id);}
 function hover(id,on){for(const node of document.querySelectorAll('[data-entity]'))if(node.dataset.entity===id)node.classList.toggle('hot',on);}
 function mark(entity,className,label){
- const group=el('g',{class:className+(entity.uncertain?' review':''),style:`--h:${hue(entity)}`,role:'button',tabindex:'0','aria-label':label,'data-entity':entity.id,
+ const group=el('g',{class:className+(entity.uncertain?' review':''),style:`--type:${typeColour(entity)}`,role:'button',tabindex:'0','aria-label':label,'data-entity':entity.id,
   onclick:()=>select(entity.id,{focusEvidence:true}),onmouseenter:()=>hover(entity.id,true),onmouseleave:()=>hover(entity.id,false),
   onkeydown:event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();event.stopPropagation();select(entity.id,{focusEvidence:true});}}},
-  el('polygon',{points:entity.polygon.map(p=>p.join(',')).join(' ')}));
+  ...['halo-dark','halo-light','region-shape'].map(kind=>el('polygon',{class:kind,points:entity.polygon.map(p=>p.join(',')).join(' ')})));
  group.append(el('title',{},label));
+ const ring=confidenceRing(entity);if(ring)group.append(ring);
  return group;
 }
 /** Switch the drawing overview without clearing the question, answer or history. */
@@ -183,11 +209,11 @@ function drawMarks(){
  if(!state.scene||state.editing)return;
  const answerCited=evidenceIds(),cited=state.generalView?[]:answerCited,onPage=state.scene.entities.filter(e=>e.page===state.page&&e.polygon.length>=3).sort((a,b)=>area(b)-area(a));
  for(const entity of onPage)if(!cited.includes(entity.id)&&state.layers.has(kindOf(entity)))
-  layer.append(mark(entity,`mark other kind-${entity.type}`,`${entity.label}, ${Math.round(entity.conf*100)}% sure, ${answerCited.includes(entity.id)?'counted in the answer':'not part of the answer'}`));
+  layer.append(mark(entity,`mark other kind-${entity.type}`,`${entity.label}, model score ${Number.isFinite(entity.conf)?Math.round(entity.conf*100)+'/100':'unavailable'}, ${answerCited.includes(entity.id)?'counted in the answer':'not part of the answer'}`));
  const badges=[];
  for(const entity of onPage){
   const n=cited.indexOf(entity.id);if(n<0)continue;
-  layer.append(mark(entity,'mark evidence',`${n+1}. ${entity.label}, ${Math.round(entity.conf*100)}% sure`));
+  layer.append(mark(entity,'mark evidence',`${n+1}. ${entity.label}, model score ${Number.isFinite(entity.conf)?Math.round(entity.conf*100)+'/100':'unavailable'}`));
   const xs=entity.polygon.map(p=>p[0]),ys=entity.polygon.map(p=>p[1]);
   badges.push(el('g',{class:`badge${entity.uncertain?' review':''}`,'data-entity':entity.id,style:`--x:${Math.min(...xs)};--y:${Math.min(...ys)}`},
    el('circle',{r:9,cx:-5,cy:-5}),el('text',{x:-5,y:-5,dy:'.35em'},String(n+1))));
@@ -204,7 +230,17 @@ function markSelection(){
 const inspectors=[];
 /** Other modules add controls to the inspector: fn(entity, node). */
 export function onInspect(fn){inspectors.push(fn);}
-export function select(id,{zoomTo=false,focusEvidence=false}={}){
+/** Frame the object with context, using the viewer's actual shape rather than the sheet's aspect ratio. */
+export function objectFocusViewport(polygon,page,screen){
+ const xs=polygon.map(p=>p[0]),ys=polygon.map(p=>p[1]);
+ const x0=Math.min(...xs),x1=Math.max(...xs),y0=Math.min(...ys),y1=Math.max(...ys);
+ const aspect=screen.width>0&&screen.height>0?screen.width/screen.height:page.w/page.h;
+ // 40% context on each side; small symbols no longer force 30% of the sheet onto the screen.
+ const width=Math.max((x1-x0)*1.8,(y1-y0)*1.8*aspect,page.w*.08,page.h*.08*aspect);
+ const height=width/aspect;
+ return {x:(x0+x1-width)/2,y:(y0+y1-height)/2,w:width,h:height};
+}
+export function select(id,{zoomTo=false,focusEvidence=false,scrollEvidence=true}={}){
  const entity=id?entityById(id):null;
  state.selected=entity?.id??null;
  if(entity&&entity.page!==state.page){setPage(entity.page);renderDrawingSide();drawMarks();}
@@ -218,15 +254,13 @@ export function select(id,{zoomTo=false,focusEvidence=false}={}){
   el('strong',{},entity.label),
   el('p',{},[KINDS[entity.type]?.[0]??entity.type,entity.quantityText,entity.context].filter(Boolean).join(', ')),
   el('p',{class:'muted small'},[n>=0?`Counted in the answer as number ${n+1}`:'Not part of this answer',
-   entity.conf<1?`${Math.round(entity.conf*100)}% sure it is real`:null,entity.ref?`source ${entity.ref}`:null].filter(Boolean).join(' · ')));
+   Number.isFinite(entity.conf)?`Model score ${Math.round(entity.conf*100)}/100 (uncalibrated)`:'Model score unavailable',entity.ref?`source ${entity.ref}`:null].filter(Boolean).join(' · ')));
  for(const fn of inspectors)fn(entity,box);
  const row=[...$('evidence-list').children].find(node=>node.dataset.entity===entity.id);
- row?.scrollIntoView({block:'nearest',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
+ if(scrollEvidence)row?.scrollIntoView({block:'nearest',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
  if(focusEvidence)row?.focus({preventScroll:true});
  if(zoomTo&&entity.polygon.length){
-  const xs=entity.polygon.map(p=>p[0]),ys=entity.polygon.map(p=>p[1]),{w,h}=pageSize();
-  const width=Math.min(w,Math.max((Math.max(...xs)-Math.min(...xs))*4,(Math.max(...ys)-Math.min(...ys))*4*w/h,w*.3));
-  view={w:width,h:width*h/w,x:(Math.min(...xs)+Math.max(...xs))/2-width/2,y:(Math.min(...ys)+Math.max(...ys))/2-width*h/w/2};
+  view=objectFocusViewport(entity.polygon,pageSize(),svg.getBoundingClientRect());
   updateView(false);
  }
  publish();
@@ -242,6 +276,7 @@ export function nextEvidenceId(ids,selected,key){
 function browseEvidence(event){
  if(event.defaultPrevented||event.isComposing||event.altKey||event.ctrlKey||event.metaKey||event.shiftKey||asking||state.editing||!state.result||$('workspace').hidden||$('panel-ask').hidden)return;
  const target=event.target;
+ if(target.closest('#object-browser'))return;
  if(target.isContentEditable||target.closest('input,textarea,select,[contenteditable]:not([contenteditable="false"]),[role="textbox"],[role="slider"],[role="spinbutton"]'))return;
  if(target!==document.body&&!target.closest('#workspace'))return;
  const ids=evidenceIds().filter(id=>entityById(id)),next=nextEvidenceId(ids,state.selected,event.key);if(next===null)return;
@@ -282,7 +317,48 @@ function counts(){
  for(const entity of state.scene.entities)if(entity.page===state.page)tally.set(kindOf(entity),(tally.get(kindOf(entity))??0)+1);
  return [...tally].sort((a,b)=>Object.keys(KINDS).indexOf(a[0])-Object.keys(KINDS).indexOf(b[0]));
 }
+let objectListEntities=null,objectListPath=null;
+/** Keep open groups and row focus when changing pages; build large groups only when expanded. */
+function renderObjectBrowser(){
+ const browser=$('object-browser'),container=$('object-groups');
+ browser.hidden=!state.generalView||!state.scene||state.editing;
+ if(browser.hidden)return;
+ const entities=state.scene.entities;
+ $('object-total').textContent=String(entities.length);
+ if(objectListEntities===entities&&objectListPath===state.path)return;
+ const sameDrawing=objectListPath===state.path;
+ const expanded=new Set(sameDrawing?[...container.querySelectorAll('details[open]')].map(node=>node.dataset.kind):[]);
+ objectListEntities=entities;objectListPath=state.path;
+ const groups=new Map();
+ for(const entity of entities){const kind=kindOf(entity);if(!groups.has(kind))groups.set(kind,[]);groups.get(kind).push(entity);}
+ const order=Object.keys(KINDS),rank=kind=>order.includes(kind)?order.indexOf(kind):order.length;
+ container.replaceChildren(...[...groups].sort(([a],[b])=>rank(a)-rank(b)||a.localeCompare(b)).map(([kind,items])=>{
+  items.sort((a,b)=>a.page-b.page||String(a.label??a.id).localeCompare(String(b.label??b.id),undefined,{numeric:true}));
+  const rows=el('div',{class:'object-rows'}),group=el('details',{class:'object-group','data-kind':kind,open:expanded.has(kind)},
+   el('summary',{},el('i',{class:'type-key',style:`--type:${typeColour({type:kind})}`,'aria-hidden':'true'}),
+    el('span',{},KINDS[kind]?.[1]??kind),el('span',{class:'count'},String(items.length))),rows);
+  let built=false;
+  const build=()=>{
+   if(!group.open||built)return;built=true;
+   rows.replaceChildren(...items.map(entity=>{
+    const located=entity.polygon.length>=3;
+    return el('button',{type:'button',class:'object-row'+(entity.id===state.selected?' selected':''),'data-entity':entity.id,'aria-pressed':String(entity.id===state.selected),
+     disabled:!located,title:located?'Highlight and zoom to this object':'This object has no located geometry',
+     onclick:()=>{
+      state.layers.add(kind);renderDrawingSide();drawMarks();
+      select(entity.id,{zoomTo:true,scrollEvidence:false});
+     },onmouseenter:()=>hover(entity.id,true),onmouseleave:()=>hover(entity.id,false)},
+     el('span',{class:'object-name'},entity.label??entity.id),
+     el('small',{},[`Page ${entity.page+1}`,entity.quantityText,entity.context,
+      Number.isFinite(entity.conf)?`Score ${Math.round(entity.conf*100)}/100`:null,located?null:'No located geometry'].filter(Boolean).join(' · ')));
+   }));
+  };
+  group.addEventListener('toggle',build);build();return group;
+ }));
+ if(!entities.length)container.append(el('p',{class:'muted small'},'No objects were detected in this drawing.'));
+}
 function renderDrawingSide(){
+ renderObjectBrowser();
  $('counted-legend').hidden=state.generalView;$('other-legend').textContent=state.generalView?'Detected area':'Found, not counted';
  if($('viewport-3d').hidden)$('view-status').textContent=state.generalView?'General view: all detected areas. Drag to pan, scroll to zoom':'Answer view: cited areas. Drag to pan, scroll to zoom';
  const overview=$('general-view');overview.hidden=!state.result||!state.scene;overview.disabled=state.editing;overview.textContent=state.generalView?'Answer view':'General view';overview.title=state.generalView?'Return to the answer highlights':'Fit the full drawing and show all detected areas';
@@ -296,7 +372,7 @@ function renderDrawingSide(){
  $('drawing-meta').textContent=`${readerName(raw)}${cost?`, ${money(cost)} once`:', no model cost'}${raw.pages.length>1?`. Page ${state.page+1} of ${raw.pages.length}`:''}.`;
  $('layers').append(...counts().map(([kind,n])=>el('button',{type:'button',class:'chip','aria-pressed':String(state.layers.has(kind)),title:'Show or hide on the drawing',
   onclick:()=>{state.layers.has(kind)?state.layers.delete(kind):state.layers.add(kind);renderDrawingSide();drawMarks();}},
-  el('span',{},KINDS[kind]?.[1]??kind),el('b',{},String(n)))));
+  el('i',{class:'type-key',style:`--type:${typeColour({type:kind})}`,'aria-hidden':'true'}),el('span',{},KINDS[kind]?.[1]??kind),el('b',{},String(n)))));
 }
 function suggest(){
  const raw=state.raw,list=[];
@@ -334,6 +410,7 @@ function renderAnswer(){
  $('explanation').hidden=!$('explanation').textContent;
  $('formula').hidden=!raw.formula;$('formula').textContent=raw.formula??'';
  $('edit-note').hidden=!state.corrected;$('edit-note').textContent=state.corrected??'';
+ renderReading();
  $('retry-request').hidden=!failed;
 
  const confidence=Math.round(raw.confidence*100),level=raw.confidence>=.8?'high':raw.confidence>=.5?'medium':'low';
@@ -354,10 +431,10 @@ function renderAnswer(){
  $('evidence').hidden=!cited.length;
  $('evidence-count').textContent=`${cited.length}${unsure?`, ${unsure} to check`:''}`;
  $('evidence-navigation').textContent='Select an item, then use arrow keys to browse. Home and End jump to the first and last item.';
- $('evidence-list').replaceChildren(...cited.map((entity,i)=>el('button',{type:'button',class:`evidence-row${entity.uncertain?' review':''}`,style:`--h:${hue(entity)}`,'data-entity':entity.id,'aria-pressed':'false',
+ $('evidence-list').replaceChildren(...cited.map((entity,i)=>el('button',{type:'button',class:`evidence-row${entity.uncertain?' review':''}`,style:`--type:${typeColour(entity)}`,'data-entity':entity.id,'aria-pressed':'false',
   onclick:()=>select(entity.id,{zoomTo:true,focusEvidence:true}),onmouseenter:()=>hover(entity.id,true),onmouseleave:()=>hover(entity.id,false)},
   el('span',{class:'n'},String(i+1)),
-  el('span',{class:'what'},entity.label,el('small',{},[entity.quantityText,entity.context,entity.conf<1?`${Math.round(entity.conf*100)}% sure${entity.uncertain?', check it':''}`:null,
+  el('span',{class:'what'},entity.label,el('small',{},[entity.quantityText,entity.context,Number.isFinite(entity.conf)?`Model score ${Math.round(entity.conf*100)}/100${entity.uncertain?', review':''}`:null,
    state.scene.pages.length>1?`page ${entity.page+1}`:null,entity.polygon.length?null:'not drawn'].filter(Boolean).join(' · '))))));
 
  const trace=raw.trace??[];
@@ -405,7 +482,7 @@ export function showAnswer(raw,question,ms=null){
 
 // ───────── saved results: the last drawings and their answers survive a reload ─────────
 const SAVED='blueprints-results';
-export function savedResults(){try{return JSON.parse(localStorage.getItem(SAVED))??[];}catch{return [];}}
+export function savedResults(){try{const saved=JSON.parse(localStorage.getItem(SAVED));return Array.isArray(saved)?saved.filter(d=>typeof d.path==='string'&&Array.isArray(d.entries)&&d.entries.length):[];}catch{return [];}}
 export function clearSavedResults(){try{localStorage.removeItem(SAVED);}catch{}}
 function saveResult(question,rawAnswer,ms){
  const all=savedResults(),mine=all.find(d=>d.path===state.path)?.entries??[];
@@ -415,27 +492,53 @@ function saveResult(question,rawAnswer,ms){
 }
 
 // ───────── opening a drawing ─────────
+const workspaceStorage=createWorkspaceStorage(),ACTIVE='blueprints-active-drawing';
+let saveTimer,opening=false;
+function storageWarning(error){
+ $('persistence-status').textContent=error?'Browser storage is unavailable or full. This workspace may not survive a reload.':'';
+}
+function persistWorkspace(){
+ clearTimeout(saveTimer);
+ if(opening||!state.path)return;
+ const snapshot={path:state.path,name:state.name,raw:state.raw,rawAnswer:state.rawAnswer,question:state.question,ms:state.ms,
+  draft:$('question').value,page:state.page,view:{...view},layers:[...state.layers],generalView:state.generalView,
+  selected:state.selected,edited:state.edited,corrected:state.corrected,entries:historyStore.list('drawing:'+state.path).reverse()};
+ workspaceStorage.save(snapshot).then(()=>storageWarning(null),storageWarning);
+}
+function scheduleSave(){clearTimeout(saveTimer);if(!opening&&state.path)saveTimer=setTimeout(persistWorkspace,180);}
+window.addEventListener('pagehide',persistWorkspace);
+document.addEventListener('visibilitychange',()=>{if(document.hidden)persistWorkspace();});
+historyStore.subscribe(scheduleSave);
 let generation=0,reading=null;
 function resetDrawing(){
- abortAsk();generation++;previewLoader.cancel();
- Object.assign(state,{raw:null,scene:null,page:0,rawAnswer:null,result:null,question:'',ms:null,preview:null,selected:null,readError:null,generalView:true,editing:false,corrected:null});
+ persistWorkspace();clearTimeout(saveTimer);abortAsk();generation++;previewLoader.cancel();
+ Object.assign(state,{raw:null,scene:null,page:0,rawAnswer:null,result:null,question:'',ms:null,preview:null,selected:null,readError:null,generalView:true,editing:false,edited:false,corrected:null});
  state.layers.clear();shownHistory=null;
  $('overlays').replaceChildren();$('inspector').hidden=true;$('page-rail').hidden=true;
  $('working').hidden=true;
  window.dispatchEvent(new Event('stoa:drawing-reset'));
 }
 export function showStart(){
- resetDrawing();state.path=null;stageStatus(null);
+ resetDrawing();opening=false;state.path=null;stageStatus(null);
+ try{localStorage.removeItem(ACTIVE);}catch(error){storageWarning(error);}
  $('workspace').hidden=true;$('start').hidden=false;$('open-another').hidden=true;
  history.replaceState(null,'',location.pathname+'#ask');showPanel('ask');
 }
 $('open-another').onclick=showStart;
 /** Open a dataset or uploaded drawing: show it at once, then outline what its reader finds. */
 export async function openDrawing(path,{name,question='',preview=null,restore=false}={}){
- resetDrawing();const id=generation,key='drawing:'+path,saved=savedResults().find(d=>d.path===path);
+ resetDrawing();opening=true;const id=generation,key='drawing:'+path,saved=savedResults().find(d=>d.path===path);
+ let snapshot=null;
+ if(restore)try{snapshot=await workspaceStorage.load(path);}catch(error){storageWarning(error);}
+ if(id!==generation)return;
+ try{localStorage.setItem(ACTIVE,path);}catch(error){storageWarning(error);}
+ const url=new URL(location.href);url.searchParams.set('path',path);url.searchParams.delete('question');history.replaceState(null,'',url);
  name??=saved?.name??path.split('/').pop();
  Object.assign(state,{path,name,preview});
+ name=snapshot?.name??name;
+ state.name=name;
  historyStore.setDrawing(key,name);
+ if(snapshot&&!historyStore.list(key).length)for(const entry of snapshot.entries??[])historyStore.add(key,name,entry);
  // Answers saved in an earlier visit come back as this drawing's earlier questions.
  if(saved&&!historyStore.list(key).length)for(const entry of saved.entries)historyStore.add(key,name,{question:entry.question,payload:{rawAnswer:entry.rawAnswer,ms:entry.ms}});
  $('start').hidden=true;$('workspace').hidden=false;$('open-another').hidden=false;
@@ -451,7 +554,7 @@ export async function openDrawing(path,{name,question='',preview=null,restore=fa
  steps([{state:'done',text:'Drawing opened'},{state:'active',text:'Finding rooms, doors, windows and fixtures'}]);
  stageStatus('Reading the drawing');
  try{
-  const raw=await (reading=track(getDrawingScene(path)));
+  const raw=snapshot?.raw??await (reading=track(getDrawingScene(path)));
   if(id!==generation)return;
   setScene(raw);steps(null);
  }catch(error){
@@ -467,6 +570,17 @@ export async function openDrawing(path,{name,question='',preview=null,restore=fa
  if(id!==generation)return;
  const last=restore?historyStore.list(key)[0]:null;
  if(last){shownHistory=last.id;showAnswer(last.payload.rawAnswer,last.question,last.payload.ms);frameEvidence();}
+ if(snapshot){
+  if(snapshot.rawAnswer)showAnswer(snapshot.rawAnswer,snapshot.question,snapshot.ms);
+  state.edited=!!snapshot.edited;state.corrected=snapshot.corrected??null;
+  state.generalView=snapshot.generalView!==false;state.layers=new Set(snapshot.layers??[]);
+  if(state.scene)setPage(Math.max(0,Math.min(snapshot.page??0,state.raw.pages.length-1)));
+  renderDrawingSide();renderAnswer();drawMarks();
+  select(snapshot.selected??null);
+  if(snapshot.view&&['x','y','w','h'].every(k=>Number.isFinite(snapshot.view[k]))&&snapshot.view.w>0&&snapshot.view.h>0){view={...snapshot.view};updateView();}
+  $('question').value=snapshot.draft??'';autosize();
+ }
+ opening=false;persistWorkspace();
  $('question').focus({preventScroll:true});
 }
 $('reading-retry').onclick=()=>openDrawing(state.path,{name:state.name,question:$('question').value,preview:state.preview});
@@ -504,10 +618,46 @@ function abortAsk(){if(askAbort){askAbort.abort();askAbort=null;}if(asking)setAs
 $('cancel-request').onclick=()=>{abortAsk();renderAnswer();$('question').value=state.lastAsked??'';autosize();$('question').focus();};
 $('retry-request').onclick=()=>ask(state.question);
 const plans=new Map();
-/** Answer on the scene as it is in this browser (after corrections): the question's plan, run by the server's executor. */
-export async function answerFromScene(question,signal){
+async function planFor(question,signal){
  if(!plans.has(question))plans.set(question,await requestJSON('/api/plan?'+new URLSearchParams({question}),{signal}));
- return requestJSON('/api/recompute',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scene:state.raw,plan:plans.get(question)}),signal});
+ return plans.get(question);
+}
+const runPlan=(plan,signal)=>requestJSON('/api/recompute',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scene:state.raw,plan}),signal});
+/** Answer on the scene as it is in this browser (after corrections): the question's plan, run by the server's executor. */
+export async function answerFromScene(question,signal){return runPlan(await planFor(question,signal),signal);}
+
+// ───────── one word, two readings: "toilets" are bowls or rooms ─────────
+// The planner picks one silently. The card says which was counted and offers the other, run by the same executor
+// with no model call. The reading comes from the plan itself, so it is there for cached plans too.
+const READINGS=[
+ {type:'fixture',subtype:'toilet',counted:'toilet bowls',other:'toilet rooms',to:{type:'room',subtype:'wc_room'}},
+ {type:'room',subtype:'wc_room',counted:'toilet rooms',other:'toilet bowls',to:{type:'fixture',subtype:'toilet'}}];
+const READING_SUFFIX=/ \((toilet bowls|toilet rooms)\)$/;
+let readingToken=0;
+async function renderReading(){
+ const box=$('other-reading'),raw=state.rawAnswer,question=state.question,token=++readingToken;
+ box.hidden=true;
+ // An agent's answer did not come from the plan, and a drawing with no scene has nothing to recount.
+ if(!state.raw||!raw||!question||!['parse','detect'].includes(raw.tier))return;
+ let plan;try{plan=await planFor(question);}catch{return;}
+ if(token!==readingToken)return;
+ const names=Object.keys(plan.queries),query=plan.queries[names[0]];
+ const reading=names.length===1&&query.op==='count'?READINGS.find(r=>r.type===query.type&&r.subtype===query.subtype):null;
+ if(!reading)return;
+ const covered=state.raw.covers.includes(`${reading.to.type}:${reading.to.subtype}`);
+ box.replaceChildren(`Read as ${reading.counted}, not ${reading.other}. `,covered?el('button',{class:'btn',type:'button',onclick:async()=>{
+  // The other reading is its own question, so history, corrections and a reload all keep the two apart.
+  const asked=`${question.replace(READING_SUFFIX,'')} (${reading.other})`,started=performance.now();
+  plans.set(asked,{...plan,queries:{[names[0]]:{...query,...reading.to}},interpretation:null});
+  try{
+   const answer=await track(runPlan(plans.get(asked)));
+   if(state.question!==question)return;
+   state.corrected=null;
+   shownHistory=historyStore.add('drawing:'+state.path,state.name,{question:asked,payload:{rawAnswer:answer,ms:performance.now()-started}});
+   showAnswer(answer,asked,performance.now()-started);frameEvidence();
+  }catch(error){box.textContent=recoveryMessage(error);}
+ }},`Count ${reading.other} instead`):`This drawing's reader does not find ${reading.other}.`);
+ box.hidden=false;
 }
 export async function ask(text){
  const question=text.trim(),path=state.path;
@@ -547,7 +697,7 @@ export async function ask(text){
 }
 function autosize(){const box=$('question');box.style.height='auto';box.style.overflowY=box.scrollHeight>158?'auto':'hidden';box.style.height=Math.min(box.scrollHeight+2,160)+'px';}
 autosize();
-$('question').addEventListener('input',autosize);
+$('question').addEventListener('input',()=>{autosize();scheduleSave();});
 $('question').addEventListener('keydown',event=>{if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing){event.preventDefault();$('ask-form').requestSubmit();}});
 $('ask-form').addEventListener('submit',async event=>{
  event.preventDefault();if(asking)return;
@@ -599,4 +749,5 @@ window.addEventListener('stoa:theme-change',syncTheme);syncTheme();
 window.addEventListener('stoa:open-case',event=>openDrawing(event.detail.path,event.detail));
 const query=new URLSearchParams(location.search);
 showPanel(location.hash.slice(1));
-if(query.has('path'))openDrawing(query.get('path'),{question:query.get('question')??''});
+if(query.has('path'))openDrawing(query.get('path'),{question:query.get('question')??'',restore:!query.has('question')});
+else {try{const active=localStorage.getItem(ACTIVE);if(active)openDrawing(active,{restore:true});}catch(error){storageWarning(error);}}
