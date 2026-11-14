@@ -32,9 +32,12 @@ MAX_TURNS = 8
 SYSTEM = """You answer a question about one construction drawing, using tools. The drawing has already been read into
 a scene: a list of entities (rooms, doors, windows, fixtures, apartments, levels) with ids, labels and quantities.
 - Use list_entities to see what is there, and run_plan for every count, sum or arithmetic: never compute numbers yourself.
+- Each entity is one room or object. For "the largest / smallest room" call list_entities with sort and limit 1 and
+  report that single entity; never combine rooms that share a label unless the question asks for a total.
 - Use look only when the scene lacks something you need; it asks a vision model about the page or a region of it.
 - Finish by calling answer with the value, its unit, the ids of the entities the answer rests on, and a one-sentence
-  explanation. If the question cannot be answered from this drawing, call answer with answer "cannot answer" and say why."""
+  explanation. When the question asks how many, how big or how much, the answer is that number and the names go in
+  the explanation (e.g. answer 31.05, unit m2, explanation "Reduit 2.30 is the largest room"). If the question cannot be answered from this drawing, call answer with answer "cannot answer" and say why."""
 
 TOOLS = [
     {"type": "function", "function": {
@@ -43,7 +46,9 @@ TOOLS = [
             "type": {"type": "string", "description": "room, apartment, level, door, window, fixture, wall, slab, column, row or other"},
             "subtype": {"type": "string"}, "label": {"type": "string", "description": "case-insensitive substring of the label"},
             "min_area_m2": {"type": "number", "description": "keep only entities with an area of at least this"},
-            "max_area_m2": {"type": "number", "description": "keep only entities with an area of at most this"}}}}},
+            "max_area_m2": {"type": "number", "description": "keep only entities with an area of at most this"},
+            "sort": {"type": "string", "enum": ["area_desc", "area_asc"], "description": "order by area, e.g. for the largest or smallest room"},
+            "limit": {"type": "integer", "description": "return at most this many entities"}}}}},
     {"type": "function", "function": {
         "name": "run_plan", "description": "Run a QueryPlan on the scene with the exact executor; returns the value, the formula and the evidence ids.",
         "parameters": {"type": "object", "required": ["plan"], "properties": {"plan": {"type": "string", "description":
@@ -130,10 +135,14 @@ def _tool(name: str, args: dict, scene: Scene) -> tuple[str, list[TraceStep]]:
                           and (not args.get("label") or args["label"].casefold() in (e.label or "").casefold())
                           and (lo is None or ("m2" in e.qty and e.qty["m2"] >= lo))
                           and (hi is None or ("m2" in e.qty and e.qty["m2"] <= hi)))
+        hits = [e for e in scene.entities if want(e)]
+        if args.get("sort") in ("area_desc", "area_asc"):  # entities without an area go last either way
+            hits = sorted(hits, key=lambda e: (("m2" not in e.qty), -e.qty.get("m2", 0) if args["sort"] == "area_desc" else e.qty.get("m2", 0)))
         rows = [{k: v for k, v in {"id": e.id, "type": e.type, "subtype": e.subtype, "label": e.label, "number": e.number,
                                    "apartment": e.apartment, "level": e.level, "area_m2": e.qty.get("m2"),
-                                   "conf": round(e.conf, 2)}.items() if v is not None} for e in scene.entities if want(e)]
-        return json.dumps({"count": len(rows), "entities": rows[:150]}, ensure_ascii=False), []
+                                   "conf": round(e.conf, 2)}.items() if v is not None} for e in hits]
+        limit = args.get("limit") if isinstance(args.get("limit"), int) and args["limit"] > 0 else 150
+        return json.dumps({"count": len(rows), "entities": rows[:min(limit, 150)]}, ensure_ascii=False), []
     if name == "run_plan":
         try:
             plan = QueryPlan.model_validate_json(args.get("plan", ""))
@@ -153,29 +162,65 @@ def _tool(name: str, args: dict, scene: Scene) -> tuple[str, list[TraceStep]]:
     return f"unknown tool {name}", []
 
 
+AGENT_FALLBACK_MODEL = "gemini-3.8-flash"  # runs the same loop when Nemotron does not answer in time
+CALL_TIMEOUT_S = 40
+AGENT_BUDGET_S = 120
+
+
+class _Unavailable(Exception):
+    """The agent's model did not answer in time or errored; the next provider takes over."""
+
+
+_down_until: dict[str, float] = {}  # model -> monotonic time until which it is skipped after failing
+SKIP_AFTER_FAILURE_S = 300  # ponytail: per-process memory; a shared health check if we ever run several workers
+
+
 def agent(question: str, scene: Scene, draft: Answer, inline_evidence: bool) -> Answer:
-    """Nemotron with scene tools. inline_evidence: return evidence as full entities (the viewer has no scene to look up)."""
-    key = os.environ.get(NEMOTRON_KEY_VAR)
-    if not key:
-        raise NotImplementedError(f"lane C: the Nemotron agent needs {NEMOTRON_KEY_VAR}")
+    """Nemotron with scene tools, falling back to Gemini with the same tools if Nemotron does not respond.
+    inline_evidence: return evidence as full entities (the viewer has no scene to look up)."""
+    providers = [(NEMOTRON_URL, os.environ.get(NEMOTRON_KEY_VAR), NEMOTRON_MODEL,
+                  {"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}}),
+                 (GEMINI_URL, os.environ.get("GEMINI_API_KEY"), AGENT_FALLBACK_MODEL, {})]
+    deadline = time.monotonic() + AGENT_BUDGET_S
+    failures = []
+    for url, key, model, extra in providers:
+        if not key:
+            failures.append(f"{model}: no key")
+            continue
+        if time.monotonic() < _down_until.get(model, 0):
+            failures.append(f"{model}: failed recently, skipped")
+            continue
+        try:
+            return _agent_loop(question, scene, draft, inline_evidence, url, key, model, extra, deadline, failures)
+        except _Unavailable as e:
+            _down_until[model] = time.monotonic() + SKIP_AFTER_FAILURE_S
+            failures.append(f"{model}: {e}")
+    raise NotImplementedError("lane C: no agent model answered (" + "; ".join(failures) + ")")
+
+
+def _agent_loop(question, scene, draft, inline_evidence, url, key, model, extra, deadline, failures) -> Answer:
     import openai
-    client = openai.OpenAI(api_key=key, base_url=NEMOTRON_URL, max_retries=2, timeout=90)
     kinds = Counter(f"{e.type}:{e.subtype}" if e.subtype else e.type for e in scene.entities)
     context = (f"Question: {question}\n\nScene from {scene.builder}: {dict(kinds)}.\n"
                f"The cheap path said: {draft.answer!r} (confidence {draft.confidence:.2f}){f'; error: {draft.error}' if draft.error else ''}.")
     messages = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": context}]
-    steps: list[TraceStep] = []
+    # A provider that failed first is still on the card: the failed attempt shows as a zero-cost step.
+    steps: list[TraceStep] = [TraceStep(step=f"escalate:unavailable {f.split(':')[0]}") for f in failures]
     force_answer = False
     for turn in range(MAX_TURNS):
+        remaining = deadline - time.monotonic()
+        if remaining < 5:
+            raise _Unavailable(f"out of the {AGENT_BUDGET_S} s budget")
         # A reply without a tool call, or the last turn, gets one more chance with the answer tool required.
         choice = {"type": "function", "function": {"name": "answer"}} if force_answer or turn == MAX_TURNS - 1 else "auto"
+        client = openai.OpenAI(api_key=key, base_url=url, max_retries=0, timeout=min(CALL_TIMEOUT_S, remaining))
         t0 = time.perf_counter()
         try:
-            reply = client.chat.completions.create(model=NEMOTRON_MODEL, messages=messages, tools=TOOLS, tool_choice=choice,
-                                                   max_tokens=4096, extra_body={"chat_template_kwargs": {"enable_thinking": False}})
+            reply = client.chat.completions.create(model=model, messages=messages, tools=TOOLS, tool_choice=choice,
+                                                   max_tokens=4096, **extra)
         except openai.OpenAIError as e:
-            raise NotImplementedError(f"lane C: Nemotron call failed: {type(e).__name__}: {e}") from None
-        steps.append(llm_step("escalate", NEMOTRON_MODEL, reply.usage.prompt_tokens, reply.usage.completion_tokens,
+            raise _Unavailable(type(e).__name__) from None
+        steps.append(llm_step("escalate", model, reply.usage.prompt_tokens, reply.usage.completion_tokens,
                               (time.perf_counter() - t0) * 1000))
         msg = reply.choices[0].message
         messages.append(msg.model_dump(exclude_none=True))
@@ -205,4 +250,4 @@ def agent(question: str, scene: Scene, draft: Answer, inline_evidence: bool) -> 
             steps.append(TraceStep(step=f"tool:{call.function.name}", ms=(time.perf_counter() - t1) * 1000))
             steps += costed
             messages.append({"role": "tool", "tool_call_id": call.id, "content": text[:8000]})
-    raise NotImplementedError(f"lane C: the Nemotron agent gave no answer in {MAX_TURNS} turns")
+    raise NotImplementedError(f"lane C: the agent ({model}) gave no answer in {MAX_TURNS} turns")

@@ -94,7 +94,7 @@ Example: [`fixtures/answer.example.json`](../../fixtures/answer.example.json).
 
 ## escalate
 
-It is called when the cheap path gave no answer or one below `pipeline.ESCALATE_BELOW`. `scene` is `None` for drawings with no builder, such as the scans: those are read by `vision.read_scene` and answered with the normal executor. If that gives no answer, or a builder's answer is low-confidence, the Nemotron agent reasons over the scene with `list_entities`, `run_plan` (the exact executor; it never does arithmetic itself) and `look` (Gemini on a crop), and finishes with `answer`. It returns a new `Answer` with `tier="llm"` and keeps `draft.trace`; raising `NotImplementedError` (no key, endpoint down, no answer in 8 turns) keeps the draft.
+It is called when the cheap path gave no answer or one below `pipeline.ESCALATE_BELOW`. `scene` is `None` for drawings with no builder, such as the scans: those are read by `vision.read_scene` and answered with the normal executor. If that gives no answer, or a builder's answer is low-confidence, the Nemotron agent reasons over the scene with `list_entities`, `run_plan` (the exact executor; it never does arithmetic itself) and `look` (Gemini on a crop), and finishes with `answer`. It returns a new `Answer` with `tier="llm"` and keeps `draft.trace`. If Nemotron does not answer within 40 s, the same loop runs on Gemini Flash (the trace starts with an `escalate:unavailable nemotron-...` step and the `escalate` steps name the model that answered), and Nemotron is skipped for 5 minutes. The whole agent has a 2-minute budget; raising `NotImplementedError` (no model answered, no answer in 8 turns) keeps the draft.
 
 ## Cost
 
