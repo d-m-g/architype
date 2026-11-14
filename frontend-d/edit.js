@@ -16,7 +16,7 @@ function paint(){
  const items=state.scene.entities.filter(e=>e.page===state.page&&e.polygon.length>=3&&!['apartment','level'].includes(e.type)).sort((a,b)=>area(b)-area(a));
  for(const entity of items)layer.append(el('g',{class:`edit-mark${entity.id.startsWith('user-')?' added':''}`,role:'button',tabindex:'0','aria-label':entity.label,'data-entity':entity.id,
   onclick:()=>{if(!drawing)select(entity.id);},onkeydown:event=>{if(event.key==='Enter'){event.preventDefault();select(entity.id);}}},
-  el('polygon',{points:entity.polygon.map(p=>p.join(',')).join(' ')})));
+  ...['halo-dark','halo-light','region-shape'].map(kind=>el('polygon',{class:kind,points:entity.polygon.map(p=>p.join(',')).join(' ')}))));
  if(first)layer.append(el('circle',{cx:first.x,cy:first.y,r:4,fill:'var(--accent)','vector-effect':'non-scaling-stroke'}));
 }
 function setEditing(on){
@@ -32,7 +32,7 @@ function stopDrawing(){drawing=false;first=null;svg.classList.remove('drawing-bo
 async function commit(entities,done){
  select(null);
  setScene({...state.raw,entities},{keepView:true});
- state.edited=undo.length>0;$('edit-undo').disabled=!undo.length;paint();
+ state.edited=true;$('edit-undo').disabled=!undo.length;paint();
  if(!state.rawAnswer||!state.question){hint(`${done}. Your next question uses the corrected drawing.`);return;}
  const before=state.rawAnswer.answer;
  hint(`${done}. Recalculating the answer`);
@@ -46,13 +46,13 @@ async function commit(entities,done){
  }
 }
 function change(entities,done){
- undo.push({entities:state.raw.entities,answer:state.rawAnswer,corrected:state.corrected,ms:state.ms});
+ undo.push({entities:state.raw.entities,answer:state.rawAnswer,corrected:state.corrected,ms:state.ms,edited:state.edited});
  return commit(entities,done);
 }
 $('edit-undo').onclick=()=>{
  const last=undo.pop();if(!last)return;
  select(null);setScene({...state.raw,entities:last.entities},{keepView:true});
- state.edited=undo.length>0;state.corrected=last.corrected;$('edit-undo').disabled=!undo.length;
+ state.edited=last.edited;state.corrected=last.corrected;$('edit-undo').disabled=!undo.length;
  if(last.answer)showAnswer(last.answer,state.question,last.ms);
  paint();hint('Undone.');
 };

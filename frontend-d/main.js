@@ -1,6 +1,6 @@
 /** The Ask view: drawing viewer, question flow, answer card, evidence and trace. */
 import {createSourcePreviewLoader,sourcePreviewKind,loadPDFPreview} from './local-file.js';
-import {historyStore} from './history-state.js';
+import {historyStore,createWorkspaceStorage} from './history-state.js';
 import {requestJSON,getDrawingScene,recoveryMessage,LIVE_REQUEST_TIMEOUT_MS} from './api-client.js';
 import {publishEditor,subscribeEditor,selectEditorEntity} from './editor-bridge.js';
 import {zoomAt} from './mock-scene.js';
@@ -65,6 +65,7 @@ const svg=$('drawing'),image=$('page-image');
 let view={x:0,y:0,w:1000,h:760};
 const pageSize=()=>state.scene?{w:state.scene.width,h:state.scene.height}:{w:state.preview?.width??1000,h:state.preview?.height??760};
 function publish(){
+ scheduleSave();
  publishEditor({wireScene:state.raw,answer:state.rawAnswer,entities:state.scene?.entities??[],selectedId:state.selected,pageIndex:state.page,
   viewport:{...view},sourcePreview:null,mode:state.raw?'shared':'pending'});
 }
@@ -162,7 +163,7 @@ function mark(entity,className,label){
  const group=el('g',{class:className+(entity.uncertain?' review':''),style:`--h:${hue(entity)}`,role:'button',tabindex:'0','aria-label':label,'data-entity':entity.id,
   onclick:()=>select(entity.id,{focusEvidence:true}),onmouseenter:()=>hover(entity.id,true),onmouseleave:()=>hover(entity.id,false),
   onkeydown:event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();event.stopPropagation();select(entity.id,{focusEvidence:true});}}},
-  el('polygon',{points:entity.polygon.map(p=>p.join(',')).join(' ')}));
+  ...['halo-dark','halo-light','region-shape'].map(kind=>el('polygon',{class:kind,points:entity.polygon.map(p=>p.join(',')).join(' ')})));
  group.append(el('title',{},label));
  return group;
 }
@@ -404,7 +405,7 @@ export function showAnswer(raw,question,ms=null){
 
 // ───────── saved results: the last drawings and their answers survive a reload ─────────
 const SAVED='blueprints-results';
-export function savedResults(){try{return JSON.parse(localStorage.getItem(SAVED))??[];}catch{return [];}}
+export function savedResults(){try{const saved=JSON.parse(localStorage.getItem(SAVED));return Array.isArray(saved)?saved.filter(d=>typeof d.path==='string'&&Array.isArray(d.entries)&&d.entries.length):[];}catch{return [];}}
 export function clearSavedResults(){try{localStorage.removeItem(SAVED);}catch{}}
 function saveResult(question,rawAnswer,ms){
  const all=savedResults(),mine=all.find(d=>d.path===state.path)?.entries??[];
@@ -414,27 +415,53 @@ function saveResult(question,rawAnswer,ms){
 }
 
 // ───────── opening a drawing ─────────
+const workspaceStorage=createWorkspaceStorage(),ACTIVE='blueprints-active-drawing';
+let saveTimer,opening=false;
+function storageWarning(error){
+ $('persistence-status').textContent=error?'Browser storage is unavailable or full. This workspace may not survive a reload.':'';
+}
+function persistWorkspace(){
+ clearTimeout(saveTimer);
+ if(opening||!state.path)return;
+ const snapshot={path:state.path,name:state.name,raw:state.raw,rawAnswer:state.rawAnswer,question:state.question,ms:state.ms,
+  draft:$('question').value,page:state.page,view:{...view},layers:[...state.layers],generalView:state.generalView,
+  selected:state.selected,edited:state.edited,corrected:state.corrected,entries:historyStore.list('drawing:'+state.path).reverse()};
+ workspaceStorage.save(snapshot).then(()=>storageWarning(null),storageWarning);
+}
+function scheduleSave(){clearTimeout(saveTimer);if(!opening&&state.path)saveTimer=setTimeout(persistWorkspace,180);}
+window.addEventListener('pagehide',persistWorkspace);
+document.addEventListener('visibilitychange',()=>{if(document.hidden)persistWorkspace();});
+historyStore.subscribe(scheduleSave);
 let generation=0,reading=null;
 function resetDrawing(){
- abortAsk();generation++;previewLoader.cancel();
- Object.assign(state,{raw:null,scene:null,page:0,rawAnswer:null,result:null,question:'',ms:null,preview:null,selected:null,readError:null,generalView:true,editing:false,corrected:null});
+ persistWorkspace();clearTimeout(saveTimer);abortAsk();generation++;previewLoader.cancel();
+ Object.assign(state,{raw:null,scene:null,page:0,rawAnswer:null,result:null,question:'',ms:null,preview:null,selected:null,readError:null,generalView:true,editing:false,edited:false,corrected:null});
  state.layers.clear();shownHistory=null;
  $('overlays').replaceChildren();$('inspector').hidden=true;$('page-rail').hidden=true;
  $('working').hidden=true;
  window.dispatchEvent(new Event('stoa:drawing-reset'));
 }
 export function showStart(){
- resetDrawing();state.path=null;stageStatus(null);
+ resetDrawing();opening=false;state.path=null;stageStatus(null);
+ try{localStorage.removeItem(ACTIVE);}catch(error){storageWarning(error);}
  $('workspace').hidden=true;$('start').hidden=false;$('open-another').hidden=true;
  history.replaceState(null,'',location.pathname+'#ask');showPanel('ask');
 }
 $('open-another').onclick=showStart;
 /** Open a dataset or uploaded drawing: show it at once, then outline what its reader finds. */
 export async function openDrawing(path,{name,question='',preview=null,restore=false}={}){
- resetDrawing();const id=generation,key='drawing:'+path,saved=savedResults().find(d=>d.path===path);
+ resetDrawing();opening=true;const id=generation,key='drawing:'+path,saved=savedResults().find(d=>d.path===path);
+ let snapshot=null;
+ if(restore)try{snapshot=await workspaceStorage.load(path);}catch(error){storageWarning(error);}
+ if(id!==generation)return;
+ try{localStorage.setItem(ACTIVE,path);}catch(error){storageWarning(error);}
+ const url=new URL(location.href);url.searchParams.set('path',path);url.searchParams.delete('question');history.replaceState(null,'',url);
  name??=saved?.name??path.split('/').pop();
  Object.assign(state,{path,name,preview});
+ name=snapshot?.name??name;
+ state.name=name;
  historyStore.setDrawing(key,name);
+ if(snapshot&&!historyStore.list(key).length)for(const entry of snapshot.entries??[])historyStore.add(key,name,entry);
  // Answers saved in an earlier visit come back as this drawing's earlier questions.
  if(saved&&!historyStore.list(key).length)for(const entry of saved.entries)historyStore.add(key,name,{question:entry.question,payload:{rawAnswer:entry.rawAnswer,ms:entry.ms}});
  $('start').hidden=true;$('workspace').hidden=false;$('open-another').hidden=false;
@@ -450,7 +477,7 @@ export async function openDrawing(path,{name,question='',preview=null,restore=fa
  steps([{state:'done',text:'Drawing opened'},{state:'active',text:'Finding rooms, doors, windows and fixtures'}]);
  stageStatus('Reading the drawing');
  try{
-  const raw=await (reading=track(getDrawingScene(path)));
+  const raw=snapshot?.raw??await (reading=track(getDrawingScene(path)));
   if(id!==generation)return;
   setScene(raw);steps(null);
  }catch(error){
@@ -466,6 +493,17 @@ export async function openDrawing(path,{name,question='',preview=null,restore=fa
  if(id!==generation)return;
  const last=restore?historyStore.list(key)[0]:null;
  if(last){shownHistory=last.id;showAnswer(last.payload.rawAnswer,last.question,last.payload.ms);frameEvidence();}
+ if(snapshot){
+  if(snapshot.rawAnswer)showAnswer(snapshot.rawAnswer,snapshot.question,snapshot.ms);
+  state.edited=!!snapshot.edited;state.corrected=snapshot.corrected??null;
+  state.generalView=snapshot.generalView!==false;state.layers=new Set(snapshot.layers??[]);
+  if(state.scene)setPage(Math.max(0,Math.min(snapshot.page??0,state.raw.pages.length-1)));
+  renderDrawingSide();renderAnswer();drawMarks();
+  select(snapshot.selected??null);
+  if(snapshot.view&&['x','y','w','h'].every(k=>Number.isFinite(snapshot.view[k]))&&snapshot.view.w>0&&snapshot.view.h>0){view={...snapshot.view};updateView();}
+  $('question').value=snapshot.draft??'';autosize();
+ }
+ opening=false;persistWorkspace();
  $('question').focus({preventScroll:true});
 }
 $('reading-retry').onclick=()=>openDrawing(state.path,{name:state.name,question:$('question').value,preview:state.preview});
@@ -546,7 +584,7 @@ export async function ask(text){
 }
 function autosize(){const box=$('question');box.style.height='auto';box.style.overflowY=box.scrollHeight>158?'auto':'hidden';box.style.height=Math.min(box.scrollHeight+2,160)+'px';}
 autosize();
-$('question').addEventListener('input',autosize);
+$('question').addEventListener('input',()=>{autosize();scheduleSave();});
 $('question').addEventListener('keydown',event=>{if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing){event.preventDefault();$('ask-form').requestSubmit();}});
 $('ask-form').addEventListener('submit',event=>{event.preventDefault();if(!asking)ask($('question').value);});
 
@@ -594,4 +632,5 @@ window.addEventListener('stoa:theme-change',syncTheme);syncTheme();
 window.addEventListener('stoa:open-case',event=>openDrawing(event.detail.path,event.detail));
 const query=new URLSearchParams(location.search);
 showPanel(location.hash.slice(1));
-if(query.has('path'))openDrawing(query.get('path'),{question:query.get('question')??''});
+if(query.has('path'))openDrawing(query.get('path'),{question:query.get('question')??'',restore:!query.has('question')});
+else {try{const active=localStorage.getItem(ACTIVE);if(active)openDrawing(active,{restore:true});}catch(error){storageWarning(error);}}

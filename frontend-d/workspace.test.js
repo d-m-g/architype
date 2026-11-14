@@ -1,5 +1,42 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';import {publishEditor,subscribeEditor,getEditorSnapshot} from './editor-bridge.js';
 import {runInNewContext} from 'node:vm';
+import {createHistoryStore} from './history-state.js';
+
+test('reopening a saved upload restores the displayed answer, corrections and camera without invoking a reader',async()=>{
+ const code=readFileSync(new URL('./main.js',import.meta.url),'utf8');
+ const open=code.slice(code.indexOf('export async function openDrawing'),code.indexOf("$('reading-retry').onclick")).replace('export ','');
+ const snapshot={name:'Uploaded plan',raw:{pages:[{},{}],entities:[{id:'user-door'}]},rawAnswer:{answer:2},question:'Count doors',ms:30,
+  entries:[{question:'Older answer',payload:{rawAnswer:{answer:7}}}],edited:true,corrected:'Corrected',page:1,
+  generalView:false,layers:['door'],selected:'user-door',view:{x:5,y:10,w:200,h:300},draft:'Next question'};
+ const nodes=new Map(),node=id=>{if(!nodes.has(id))nodes.set(id,{focus(){}});return nodes.get(id);};
+ const state={},context={state,URL,location:{href:'https://example.test/?path=old&question=old'},history:{replaceState(){}},
+  generation:0,opening:false,ACTIVE:'active',savedResults:()=>[],workspaceStorage:{load:async()=>snapshot},localStorage:{setItem(){}},
+  historyStore:createHistoryStore(),$:node,resetDrawing(){},storageWarning:assert.fail,
+  showPanel(){},setView(){},autosize(){},showImage(){},fit(){},renderDrawingSide(){},renderAnswer(){},sourcePreviewKind:()=>false,
+  steps(){},stageStatus(){},getDrawingScene:()=>assert.fail('reader must not run'),track:promise=>promise,
+  setScene(raw){state.raw=raw;state.scene={entities:raw.entities};},showAnswer(raw,question){state.rawAnswer=raw;state.question=question;},
+  frameEvidence(){},setPage(page){state.page=page;},drawMarks(){},select(id){state.selected=id;},updateView(){},persistWorkspace(){},view:null};
+ await runInNewContext(open+';openDrawing("uploads/plan.pdf",{restore:true})',context);
+ assert.equal(state.path,'uploads/plan.pdf');assert.equal(state.rawAnswer.answer,2);assert.equal(state.question,'Count doors');
+ assert.equal(state.edited,true);assert.equal(state.page,1);assert.equal(state.selected,'user-door');assert.equal(state.generalView,false);
+ assert.equal(node('question').value,'Next question');assert.deepEqual({...context.view},snapshot.view);
+ assert.equal(node('workspace').hidden,false);assert.equal(node('start').hidden,true);assert.equal(context.opening,false);
+});
+
+test('highlight backing follows the same geometry and leaves one clickable region',()=>{
+ const code=readFileSync(new URL('./main.js',import.meta.url),'utf8');
+ const mark=code.slice(code.indexOf('function mark('),code.indexOf('/** Switch the drawing overview'));
+ const result=runInNewContext(mark+';mark({id:"door",polygon:[[0,0],[30,0],[30,40]],conf:.8},"mark evidence","Door")',{
+  hue:()=>96,el:(tag,attrs,...children)=>({tag,attrs,children,append(child){this.children.push(child);}})
+ });
+ const polygons=result.children.filter(child=>child.tag==='polygon');
+ assert.deepEqual(polygons.map(p=>p.attrs.class),['halo-dark','halo-light','region-shape']);
+ assert.equal(new Set(polygons.map(p=>p.attrs.points)).size,1);assert.equal(result.attrs.role,'button');
+ const css=readFileSync(new URL('./app.css',import.meta.url),'utf8');
+ assert.match(css,/\.halo-dark\{fill:none;stroke:#101828;stroke-width:6;pointer-events:none\}/);
+ assert.match(css,/\.halo-light\{fill:none;stroke:#fff;stroke-width:4;pointer-events:none\}/);
+ assert.doesNotMatch(css,/mix-blend-mode:multiply/);
+});
 
 function themeHarness({saved=null,dark=false,blocked=false}={}){
  const html=readFileSync(new URL('./index.html',import.meta.url),'utf8');

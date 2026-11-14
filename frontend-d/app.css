@@ -128,17 +128,17 @@ main>section{height:100%}
 
 /* marks */
 .mark{cursor:pointer;outline:none}
-.mark polygon{vector-effect:non-scaling-stroke;stroke-linejoin:round}
-.mark.other polygon{fill:hsl(var(--h) 92% 50%);fill-opacity:.05;stroke:hsl(var(--h) 90% 38%);stroke-width:1.5}
-.mark.review polygon{stroke-dasharray:5 3}
-.mark.other:is(:hover,.hot,:focus-visible) polygon{fill-opacity:.18;stroke-width:2.5}
+.mark polygon.region-shape{vector-effect:non-scaling-stroke;stroke-linejoin:round}
+.mark.other polygon.region-shape{fill:hsl(var(--h) 92% 50%);fill-opacity:.05;stroke:hsl(var(--h) 90% 38%);stroke-width:1.5}
+.mark.review polygon.region-shape{stroke-dasharray:5 3}
+.mark.other:is(:hover,.hot,:focus-visible) polygon.region-shape{fill-opacity:.18;stroke-width:2.5}
 /* Apartment and floor outlines are groupings, not detections to doubt: neutral and long-dashed. */
-.mark.kind-apartment polygon,.mark.kind-level polygon{stroke:var(--zone);stroke-dasharray:8 5;fill-opacity:0}
+.mark.kind-apartment polygon.region-shape,.mark.kind-level polygon.region-shape{stroke:var(--zone);stroke-dasharray:8 5;fill-opacity:0}
 /* --h is the item's own confidence as a hue: red 0, amber 60, green 120. Under 80% the outline is also dashed.
    Counted items are filled like highlighter; everything else found is an outline in the same colour scale. */
-.mark.evidence polygon{fill:hsl(var(--h) 92% 58%);fill-opacity:.6;stroke:hsl(var(--h) 85% 30%);stroke-width:1.5;mix-blend-mode:multiply}
-.mark.evidence:is(:hover,.hot,:focus-visible) polygon{stroke-width:3;fill-opacity:.8}
-.mark.selected polygon{stroke:#141b24;stroke-width:3;fill-opacity:.8}
+.mark.evidence polygon.region-shape{fill:hsl(var(--h) 92% 58%);fill-opacity:.22;stroke:hsl(var(--h) 85% 30%);stroke-width:1.5;mix-blend-mode:normal}
+.mark.evidence:is(:hover,.hot,:focus-visible) polygon.region-shape{stroke-width:3;fill-opacity:.32}
+.mark.selected polygon.region-shape{stroke:#141b24;stroke-width:3;fill-opacity:.32}
 .badge{transform:translate(calc(var(--x)*1px),calc(var(--y)*1px)) scale(var(--u,1));pointer-events:none}
 .badge circle{fill:#141b24;stroke:#fff;stroke-width:1.5}
 .badge text{fill:#fff;font:600 10px var(--sans);text-anchor:middle}
@@ -147,9 +147,18 @@ main>section{height:100%}
 .dense .badge:not(.hot,.selected) text{display:none}
 .badge:is(.hot,.selected) circle{fill:#1f4fd8;r:11px}
 #overlays.stale{opacity:.35;transition:opacity .2s}
-.edit-mark polygon{fill:#1f4fd8;fill-opacity:.08;stroke:#1f4fd8;stroke-width:1.5;vector-effect:non-scaling-stroke;cursor:pointer}
-.edit-mark:hover polygon,.edit-mark.selected polygon{fill-opacity:.3;stroke-width:3}
-.edit-mark.added polygon{stroke:#157f3b;fill:#157f3b}
+.edit-mark polygon.region-shape{fill:#1f4fd8;fill-opacity:.08;stroke:#1f4fd8;stroke-width:1.5;vector-effect:non-scaling-stroke;cursor:pointer}
+.edit-mark:hover polygon.region-shape,.edit-mark.selected polygon.region-shape{fill-opacity:.3;stroke-width:3}
+.edit-mark.added polygon.region-shape{stroke:#157f3b;fill:#157f3b}
+
+/* Opaque light/dark backing strokes remain visible on any source colour. */
+.mark polygon,.edit-mark polygon{vector-effect:non-scaling-stroke;stroke-linejoin:round}
+.mark .halo-dark,.edit-mark .halo-dark{fill:none;stroke:#101828;stroke-width:6;pointer-events:none}
+.mark .halo-light,.edit-mark .halo-light{fill:none;stroke:#fff;stroke-width:4;pointer-events:none}
+.mark:is(.selected,.hot,:hover,:focus-visible) .halo-dark,.edit-mark:is(.selected,:hover,:focus-visible) .halo-dark{stroke-width:9}
+.mark:is(.selected,.hot,:hover,:focus-visible) .halo-light,.edit-mark:is(.selected,:hover,:focus-visible) .halo-light{stroke-width:6}
+.mark.review .halo-dark,.mark.review .halo-light{stroke-dasharray:5 3}
+.mark.selected polygon.region-shape{stroke:#1f4fd8}
 
 /* reading sweep: the one moving thing on the drawing */
 .scan{position:absolute;inset:0;pointer-events:none;overflow:hidden}
