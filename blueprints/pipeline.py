@@ -108,6 +108,8 @@ def get_scene(path: str) -> Scene:
         from .image_room_links import attach_room_links
         from .brain.vision import drawing_file
         metadata_changed = attach_room_links(scene, drawing_file(path))
+        from .brain.room_link_vision import apply_cached
+        metadata_changed = bool(apply_cached(scene)) or metadata_changed
     if fresh:
         _BUILT_NOW.add(path)
     if fresh or metadata_changed:
@@ -127,7 +129,8 @@ def answer(path: str, question: str) -> Answer:
         from .brain.plan import plan_with_trace
         plan, plan_steps = plan_with_trace(question, scene)
         steps += plan_steps
-        result = execute(plan, scene)
+        from .brain.room_link_vision import execute_with_links
+        result = execute_with_links(plan, scene)
         from .brain.vision import checked
         result = checked(result, plan, scene)  # rooms the vision reader added to an upload: no surer than the reader
     except Exception as e:  # a crashed builder (e.g. an undeployed Modal app) escalates instead of failing the answer

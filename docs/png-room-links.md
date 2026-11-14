@@ -40,3 +40,26 @@ uv run --extra brain python -m unittest blueprints.test_image_room_links
 
 Existing extraction/agent model costs still apply as before. Previously cached, filtered PNG object-question
 plans are refreshed once into a separate room-connection cache; unfiltered count caches are reused.
+
+## Vision fallback
+
+When unresolved connections block a room-filtered query, `execute_with_links` asks the existing vision model
+about uncertain objects of that type. The agent can also call `resolve_room_connections` before a ranking.
+Each call batches at most 24 objects and there are at most three attempts per drawing/geometry/model revision.
+Positive and negative decisions are cached; failed provider requests have a five-minute cooldown. A request
+has a 60-second timeout, no automatic retries, and a 4096-output-token cap. Costs and actual token usage appear
+in `resolve_room_connections` trace steps; provider failures without usage cannot be priced reliably.
+
+The model sees the original image and an annotated overview plus existing room ids and object boxes. Accepted
+links must reference actual rooms and provide nearby endpoint coordinates within the assigned room boxes.
+Ambiguous, unmapped, duplicate, missing or invalid model decisions leave the original uncertainty intact.
+These checks validate references/geometry, not the model's interpretation of a wall: model links are labelled
+as model-inferred and not independently verified. Original object scores are retained. Cached decisions are
+reapplied on scene loads without rebilling their original cost. `/api/recompute` remains model-free.
+
+The 12/26 result above is the **CPU baseline**, not a measured result for this fallback. Real-model results
+must be reported separately, including incorrect answers, abstentions and model/agent costs.
+
+`python tools/benchmark_room_link_vision_live.py <audit-directory>` runs one real pilot question per PNG,
+then scores all 26 room queries locally from the resulting scenes. It prompts for the demo password with
+`getpass`, keeps cookies in memory, writes no credentials, and stops at the first sample with wrong counts.
