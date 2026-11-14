@@ -101,7 +101,7 @@ Use **Start mock demo** above the workspace for ten manually controlled steps co
 
 ## Live judging alignment (14 November update)
 
-The editor prioritizes **Add a drawing**. PDF, PNG, JPEG, WebP, GIF, BMP and AVIF files up to 25 MB can be selected for a browser-local preview, with content-signature checks, an editable question draft, replacement and close. Bytes stay local until the explicit upload action. The prior viewer/answer is hidden during preview and restored on close; the question draft is retained. Native PDF preview availability depends on the browser.
+The editor prioritizes **Add a drawing**. PDF, PNG, JPEG, WebP, GIF, BMP and AVIF files up to 25 MB can be selected for a browser-local preview, with content-signature checks, an editable question draft, replacement and close. Bytes stay local until the explicit upload action. The prior viewer/answer is hidden during preview and restored on close; the question draft is retained. PDF page 1 is rendered locally without the browser PDF plugin; its original bytes remain the upload source.
 
 **Upload is connected to the team API:** the explicit upload action sends raw PDF/PNG/JPEG bytes to POST `/api/upload?filename=...`, preserves the returned `uploads/` identifier, and shows the reported reader. The UI input limit is 25 MiB (backend upload limit: 50 MiB). WebP, GIF, BMP and AVIF are decoded in the browser and converted to PNG before upload; animated images use their first frame. PNG/JPEG/PDF bytes are retained. Raster dimensions are limited to 32 megapixels and 16,384 pixels per side to bound browser processing. Asking a question then loads the scene and answer through the existing endpoints. Missing provider configuration is shown as an error/abstention, never mock evidence. The current reader uses the first PDF page; IFC/DXF, multi-page ingestion, stage events and scale calibration remain pending. A/C own ingestion and readers.
 
@@ -193,6 +193,20 @@ After pulling the updated agent budget, live question requests and the local pro
 
 After upload, the main viewer immediately loads the returned source through /api/image, independently of /api/scene and /api/ask. Source dimensions come from decoding the actual uploaded image, not invented scene data. The source stays visible while a question runs, after cancellation, and when model setup or analysis is unavailable. A received Scene replaces the preview with its own page image and verified coordinate mapping. Preview-only state supplies no extracted entities or fabricated overlays and does not enable geometry-dependent corrections or 3D.
 
-PDFs retain a native browser document preview until the reader provides a rendered page. The UI labels that as a PDF preview, without claiming a page count. Uploading from Sources or 3D returns to the 2D editor. Late image loads cannot replace a newer selected source; history reopens the matching source path without a model call.
+PDFs use a rendered first-page image in the same source viewer until the reader provides its own rendered page. The preview reports the actual PDF page count and clearly limits analysis to page 1. Uploading from Sources or 3D returns to the 2D editor. Late image loads cannot replace a newer selected source; history reopens the matching source path without a model call.
 
 Browser verification covered PNG, JPEG, WebP, animated GIF, BMP and AVIF uploads, PNG normalization, immediate display, missing-model-key recovery with the source retained, PDF previews, and switching back to a parsed Swiss Scene with all 26 window overlays. The animated GIF fixture's converted PNG was checked against its first frame. TIFF, HEIC, SVG and CAD uploads require export to a supported format; browser decoding failures are reported before upload.
+
+### Drawing navigation and detected regions
+
+Scroll over the drawing to zoom around the pointer; drag to pan, pinch on touch screens, or double-click to zoom in (Shift-double-click zooms out). Fit drawing restores the whole page. Camera updates are painted once per frame and shared editor updates are deferred during continuous movement.
+
+API scene regions on the current page are clickable even when not cited by the answer. Dashed blue outlines identify these other detections; numbered highlights remain answer evidence. Click or use Enter/Space on a region to inspect its label, type, available quantity and source reference. Clicking a region preserves the camera; selecting an evidence row centres that evidence. No new geometry or quantities are inferred. Correction and calibration tools retain their own gestures.
+
+Viewer status and navigation instructions are below the source in Drawing information & controls. The source canvas uses the available viewport size and centres the complete page with its original proportions; empty margins use the viewer background instead of extending the white drawing sheet. Source-embedded annotations are preserved.
+
+### Uploaded PDF previews
+
+Uploaded PDFs render page 1 as an image in the regular SVG drawing viewer instead of embedding the browser PDF plugin. The original PDF is uploaded unchanged. A server Scene replaces this preview with the server's own page raster before drawing normalized API geometry, so highlights use exactly the same coordinates as the detections. The current uploaded-PDF reader analyses page 1 only; the preview states the real PDF page count without suggesting other pages were analysed.
+
+PDF.js 5.4.624 is loaded lazily from jsDelivr (library, worker, fonts and decoder assets). PDF bytes are rendered locally and are not sent to the CDN. This network dependency is necessary within the frontend-only deployment scope because the backend's public asset allowlist does not yet include PDF.js vendor files. If it is unavailable, local preview explains the failure and still permits uploading the original PDF for server analysis. A future backend allowlist update can enable self-hosting these pinned assets. Raster uploads and dataset readers retain their existing paths.

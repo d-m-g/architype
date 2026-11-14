@@ -34,7 +34,7 @@ route();
 let pageRailSignature='';
 subscribeEditor(state=>{
  const preview=state.sourcePreview;
- const pages=state.wireScene?.pages??(preview?[{image:preview.image,pdf:preview.type==='pdf'}]:state.mode==='mock'?[{image:'plan.svg'}]:[]);
+ const pages=state.wireScene?.pages??(preview?[{image:preview.image,displayURL:preview.displayURL,pdf:false}]:state.mode==='mock'?[{image:'plan.svg'}]:[]);
  const signature=JSON.stringify([state.mode,state.wireScene?.path??preview?.path,pages.map(p=>[p.image,p.pdf])]);
  if(signature!==pageRailSignature){
   pageRailSignature=signature;
@@ -44,7 +44,7 @@ subscribeEditor(state=>{
    button.setAttribute('aria-label',page.pdf?'PDF source preview':`${state.mode==='mock'?'Mock drawing':preview?'Source preview':'Source page'} ${index+1}`);
    const image=document.createElement(page.pdf?'span':'img');
    if(page.pdf){image.className='source-file-badge';image.textContent='PDF';}
-   else{image.src=state.mode==='mock'?'plan.svg':imageURL(page.image);image.alt='';image.loading='lazy';image.addEventListener('error',()=>{image.hidden=true;button.classList.add('image-unavailable');});}
+   else{image.src=state.mode==='mock'?'plan.svg':page.displayURL??imageURL(page.image);image.alt='';image.loading='lazy';image.addEventListener('error',()=>{image.hidden=true;button.classList.add('image-unavailable');});}
    const title=document.createElement('strong');title.textContent=page.pdf?'Document':preview?'Source image':`Page ${index+1}`;
    const subtitle=document.createElement('span');subtitle.textContent=state.mode==='mock'?'Synthetic example':preview?'Preview only':'Source drawing';
    button.append(image,title,subtitle);
@@ -52,7 +52,7 @@ subscribeEditor(state=>{
    $('sheet-thumbnails').append(button);
   });
  }
- $('sheet-count').textContent=preview?(preview.type==='pdf'?'PDF source preview':'Image source preview'):pages.length?`Page ${state.pageIndex+1} of ${pages.length}`:'No loaded pages';
+ $('sheet-count').textContent=preview?(preview.type==='pdf'?`PDF page 1 of ${preview.pageCount} - preview`:'Image source preview'):pages.length?`Page ${state.pageIndex+1} of ${pages.length}`:'No loaded pages';
  document.querySelectorAll('.sheet-thumb').forEach(button=>button.setAttribute('aria-pressed',String(Number(button.dataset.page)===state.pageIndex)));
 });
 $('add-drawing-shortcut').onclick=()=>{const intake=document.querySelector('.drawing-intake');intake.open=true;intake.scrollIntoView({block:'nearest',behavior:'auto'});$('drawing-file').focus();};
