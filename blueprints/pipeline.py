@@ -81,6 +81,10 @@ def get_scene(path: str) -> Scene:
         scene = None if fresh else Scene.model_validate_json(cached.read_bytes())
     except ValueError:  # written before scenes were saved as UTF-8 (Windows wrote cp1252): build it again
         scene, fresh = None, True
+    if scene and scene.builder.startswith("ifc@"):  # an IFC scene from an older builder: build it again
+        from .parsers import ifc
+        if scene.builder != ifc.BUILDER:
+            scene, fresh = None, True
     scene = scene or build_scene(path)
     if path.startswith("uploads/") and scene.tier == "detect" and "room" not in scene.covers:
         # A PNG or JPG upload: the detector finds doors, windows and fixtures, and the vision reader adds rooms by
