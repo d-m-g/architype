@@ -31,8 +31,8 @@ app = FastAPI(title="Make Blueprints Talk")
 @app.get("/api/health")
 def health() -> dict:
     """Read-only deployment readiness; the usual sign-in middleware still applies."""
-    from .brain.room_link_vision import VERSION
-    return {"status": "ok", "room_link_refiner": VERSION}
+    from .brain.room_link_vision import VERSION, VALIDATION_VERSION
+    return {"status": "ok", "room_link_refiner": VERSION, "room_link_validator": VALIDATION_VERSION}
 
 PASSWORD_HASH = os.environ.get("BLUEPRINTS_PASSWORD_HASH")  # pbkdf2_sha256$<iterations>$<salt hex>$<hash hex>
 COOKIE = "blueprints_session"

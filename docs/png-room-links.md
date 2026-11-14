@@ -53,6 +53,9 @@ in `resolve_room_connections` trace steps; provider failures without usage canno
 The model sees the original image and an annotated overview plus existing room ids and object boxes. Accepted
 links must reference actual rooms and provide nearby endpoint coordinates within the assigned room boxes.
 Ambiguous, unmapped, duplicate, missing or invalid model decisions leave the original uncertainty intact.
+For a door/window, two endpoints assigned to the same room cannot remove uncertainty about another nearby
+room. Such decisions are rejected. Cached positive decisions are revalidated, so a stricter validation policy
+can restore the geometry's original uncertainty without making another model request.
 These checks validate references/geometry, not the model's interpretation of a wall: model links are labelled
 as model-inferred and not independently verified. Original object scores are retained. Cached decisions are
 reapplied on scene loads without rebilling their original cost. `/api/recompute` remains model-free.
@@ -66,6 +69,18 @@ paying for another agent to try the same unverifiable count. Unsupported questio
 
 The 12/26 result above is the **CPU baseline**, not a measured result for this fallback. Real-model results
 must be reported separately, including incorrect answers, abstentions and model/agent costs.
+
+## Real-model development result (two PNGs)
+
+Two live vision batches generated review records for the same saved images. Replaying those records through
+the final validator produced **19 correct counts, 0 incorrect counts, 7 abstentions** across 26 per-room tasks,
+compared with the CPU baseline's 12 correct / 14 abstentions. This is 73.1% answer coverage on development
+samples, not a held-out accuracy estimate or evidence that all PNG drawings work.
+
+Those two batches cost $0.011559 in the app's token-price accounting and took 7.45 / 5.32 seconds. A repeated
+successful question returned the same answer for $0, with no additional refinement call. An earlier validator
+accepted a same-room door assignment and caused one false zero; the stricter validator rejects that decision.
+The final policy was evaluated using cached real-model responses, avoiding another generation charge.
 
 `python tools/benchmark_room_link_vision_live.py <audit-directory>` runs one real pilot question per PNG,
 then scores all 26 room queries locally from the resulting scenes. It prompts for the demo password with

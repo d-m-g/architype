@@ -19,6 +19,7 @@ from .plan import GEMINI_URL
 from .vision import VISION_MODEL, drawing_file
 
 VERSION = "room-link-vision@4"
+VALIDATION_VERSION = "distinct-endpoints@1"
 MAX_OBJECTS = 24
 MAX_BATCHES = 3
 _lock = threading.RLock()
@@ -92,6 +93,10 @@ def _accept(scene, entity, decision):
             return False  # unmapped/uncertain endpoints do not prove a complete connection
     if not known:
         return False
+    if entity.type in ("door", "window") and len(set(known)) == 1 and all(e.kind == "room" for e in decision.endpoints):
+        # Overlapping/underbounded room boxes can make both sides look like one room. Such a decision
+        # cannot exclude another nearby room from the count; retain the geometry's uncertainty.
+        return False
     for key in ("room", "room2", "room_id", "room_id2", "room_label", "room_label2", "room_type", "room_type2"):
         entity.attrs.pop(key, None)
     for suffix, room_id in zip(("", "2"), sorted(set(known))):
@@ -113,19 +118,27 @@ def apply_cached(scene):
         return 0
     directory = _directory(scene)
     changed = 0
+    restore_geometry = False
     for entity in scene.entities:
-        if entity.attrs.get("room_link_status") not in ("partial", "uncertain"):
+        if entity.attrs.get("room_link_status") not in ("partial", "uncertain") and entity.attrs.get("room_link_origin") != "vision":
             continue
         cached = _file(directory, entity)
         if cached.exists():
             try:
                 decision = Link.model_validate_json(cached.read_text(encoding="utf-8"))
                 if decision.object_id == entity.id:
+                    before = entity.attrs.copy()
                     accepted = _accept(scene, entity, decision)
                     entity.attrs["room_link_review"] = decision.model_dump_json()
-                    changed += int(accepted)
+                    changed += int(entity.attrs != before)
+                    if not accepted and before.get("room_link_origin") == "vision":
+                        entity.attrs.pop("room_link_geometry", None)
+                        restore_geometry = True
             except ValueError:
                 pass  # an invalid cache is not evidence of a connection
+    if restore_geometry:
+        from ..image_room_links import attach_room_links
+        changed += int(attach_room_links(scene, drawing_file(scene.path)))
     return changed
 
 

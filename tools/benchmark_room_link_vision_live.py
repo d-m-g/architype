@@ -17,7 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from blueprints.executor import execute
 from blueprints.schemas import Query, QueryPlan, Scene
-from blueprints.brain.room_link_vision import VERSION
+from blueprints.brain.room_link_vision import VERSION, VALIDATION_VERSION
 from tools.compare_png_room_links import GOLD
 
 
@@ -54,7 +54,8 @@ def main():
     report = {"samples": [], "model_capable_requests": 0, "trace_cost_usd": 0, "refinement_cost_usd": 0}
     for attempt in range(48):
         try:
-            if request("/api/health").get("room_link_refiner") == VERSION:
+            health = request("/api/health")
+            if health.get("room_link_refiner") == VERSION and health.get("room_link_validator") == VALIDATION_VERSION:
                 break
         except urllib.error.HTTPError as error:
             if error.code not in (404, 502, 503, 504):

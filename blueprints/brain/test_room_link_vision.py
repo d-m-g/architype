@@ -169,6 +169,37 @@ class VisionRoomLinks(unittest.TestCase):
             self.assertIsNone(pipeline.answer(self.scene.path, "How many doors in room 1?").answer)
             self.assertEqual(request.call_count, 1)
 
+    def test_same_room_model_endpoints_cannot_turn_a_neighbours_uncertainty_into_zero(self):
+        self.scene.entities[-1].attrs.update(room_id="a", room_link_status="partial", room_link_candidates='["b"]')
+        record = decision()
+        record.endpoints = [links.Endpoint(kind="room", room_id="a", point=[.48, .48]),
+                            links.Endpoint(kind="room", room_id="a", point=[.48, .52])]
+        query = QueryPlan(queries={"n": Query(op="count", type="door", where={"connected_room_id": "b"})}, unit="count")
+        with self.mock_request([record]):
+            result = links.execute_with_links(query, self.scene)
+        self.assertIsNone(result.answer)
+        self.assertEqual(self.scene.entities[-1].attrs["room_link_candidates"], '["b"]')
+
+    def test_previously_cached_model_link_is_revalidated_after_a_policy_fix(self):
+        from PIL import Image, ImageDraw
+        file = self.root/"plan.png"
+        image = Image.new("RGB", (400, 400), "white")
+        draw = ImageDraw.Draw(image)
+        draw.line((200, 20, 200, 160), fill="black", width=5)
+        draw.line((200, 240, 200, 380), fill="black", width=5)
+        image.save(file)
+        record = decision()
+        record.endpoints = [links.Endpoint(kind="room", room_id="a", point=[.48, .48]),
+                            links.Endpoint(kind="room", room_id="a", point=[.48, .52])]
+        entity = self.scene.entities[-1]
+        entity.attrs.update(room_id="a", room_link_status="linked", room_link_origin="vision")
+        links._write(links._file(links._directory(self.scene), entity), record.model_dump())
+        with patch.object(links, "drawing_file", return_value=file), self.mock_request([]) as request:
+            links.apply_cached(self.scene)
+            request.assert_not_called()
+        self.assertNotEqual(entity.attrs.get("room_link_origin"), "vision")
+        self.assertEqual({entity.attrs.get("room_id"), entity.attrs.get("room_id2")}, {"a", "b"})
+
 
 if __name__ == "__main__":
     unittest.main()
