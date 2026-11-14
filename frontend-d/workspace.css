@@ -285,3 +285,14 @@ html{scroll-padding-top:88px}
 #drawing .entity.detected-area:hover polygon,#drawing .entity.detected-area.selected polygon,#drawing .entity.detected-area:focus-visible polygon{fill:#307cba30;stroke:#2068ad;stroke-width:3;stroke-dasharray:none}
 :root[data-theme=dark] #drawing .entity.detected-area polygon{fill:transparent;stroke:#597ca0}
 :root[data-theme=dark] #drawing .entity.detected-area:hover polygon,:root[data-theme=dark] #drawing .entity.detected-area.selected polygon{fill:#307cba30;stroke:#2068ad}
+
+/* Keep the canvas for the source and its geometry; explanations live below it. */
+.figma-workspace .canvas-wrap{padding:0;display:grid;min-width:0;height:clamp(280px,calc(100dvh - 310px),900px)}
+.figma-workspace #panel-editor #drawing{display:block;width:100%;height:100%;min-height:0;max-width:100%;background:transparent;box-shadow:none}
+.viewer-information{padding:8px 16px;border-top:1px solid var(--line);background:var(--paper);font-size:12px;color:var(--muted)}
+.viewer-information summary{font-weight:600;min-height:32px;align-content:center}
+.viewer-information p{margin:8px 0;line-height:1.6;overflow-wrap:anywhere}
+.viewer-information .viewer-message{position:static;max-width:none;padding:0;background:transparent;letter-spacing:normal;color:var(--muted);font:inherit}
+.figma-workspace #uploaded-pdf-preview{height:clamp(280px,calc(100dvh - 310px),900px)}
+@media(max-width:800px){.figma-workspace .canvas-wrap,.figma-workspace #uploaded-pdf-preview{height:clamp(280px,60dvh,650px)}}
+@media(max-height:600px) and (min-width:801px){.figma-workspace .canvas-wrap,.figma-workspace #uploaded-pdf-preview{height:65dvh;min-height:220px}}
