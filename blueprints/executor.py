@@ -73,7 +73,7 @@ def execute(plan: QueryPlan, scene: Scene) -> Answer:
             # A builder sets attrs.copies when one item is drawn several times on the same spot; we count it once.
             dupes = sum(int(e.attrs.get("copies", 1)) - 1 for e in hits)
             if dupes:
-                shown += f" (the file has {len(hits) + dupes} {key} objects; {dupes} are exact duplicates, counted once)"
+                shown += f" (the file has {len(hits) + dupes} {key} objects; {dupes} are duplicates drawn on the same spot, counted once)"
         else:
             if not hits:
                 return done(error=f"nothing matched the {name} query")  # a label mismatch, not a real zero

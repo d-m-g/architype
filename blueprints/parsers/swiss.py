@@ -3,7 +3,7 @@
 Questions name the .pdf. The same-name .dxf (file.with_suffix(".dxf")) has one layer per kind of thing:
 DOOR, WINDOW, FIXTURE, ROOM_OUTLINE, ROOM_TEXT, UNIT_OUTLINE, WALL. The same-name .png is the page image.
 
-Rooms, apartments, doors and windows. Fixtures are not covered yet, so those questions escalate.
+Rooms, apartments, doors, windows and sanitary fixtures (toilets, sinks, bathtubs, showers).
 Check:  uv run python -m blueprints.parsers.swiss
 """
 import re
@@ -12,6 +12,7 @@ from collections import Counter
 from pathlib import Path
 
 from ..schemas import Entity, Page, Scene
+from .swiss_fixtures import fixtures
 from .swiss_openings import openings
 
 NUMBER = re.compile(r"U?\d+\.\d+")
@@ -151,9 +152,16 @@ def build_scene(path: str, file: Path) -> Scene:
         found[kind] += 1
         entities.append(Entity(id=f"{kind}-{found[kind]}", type=kind, geom=[to_page(x, y) for x, y in pts], ref=ref,
                                attrs={"copies": copies} if copies > 1 else {}))
+    for sub, pts, ref, copies in fixtures(msp):
+        found[sub] += 1
+        entities.append(Entity(id=f"fixture-{sub}-{found[sub]}", type="fixture", subtype=sub,
+                               geom=[to_page(x, y) for x, y in pts], ref=ref,
+                               attrs={"copies": copies} if copies > 1 else {}))
     png = file.with_suffix(".png")
     width, height = _png_size(png)
-    return Scene(path=path, builder="swiss_dxf@4", tier="parse", covers=["room", "apartment", "door", "window"],
+    return Scene(path=path, builder="swiss_dxf@5", tier="parse",
+                 covers=["room", "apartment", "door", "window",
+                         "fixture:toilet", "fixture:sink", "fixture:bathtub", "fixture:shower"],
                  pages=[Page(image=path[:-4] + ".png", width=width, height=height)], entities=entities)
 
 
@@ -167,6 +175,7 @@ if __name__ == "__main__":
                                  if not e.outdoor and all(getattr(e, k) == v for k, v in f.items())), 2)
     assert (area(), area(apartment="A"), area(apartment="B")) == (212.4, 107.4, 80.2)  # gold 212.41: sum before rounding
     assert sorted(e.id for e in s.entities if e.type == "apartment") == ["apt-A", "apt-B"]
+    assert Counter(e.subtype for e in s.entities if e.type == "fixture") == {"toilet": 4, "sink": 4, "bathtub": 2, "shower": 1}
     room = lambda p, n: next(e for e in pipeline.build_scene(f"data/swiss_dwellings/{p}.pdf").entities if e.number == n)
     assert room("site2155_bldg3005_floor13704", "4.11").qty["m2"] == 14.7  # outline minus the hole outline inside it
     assert room("site2135_bldg2978_floor13581", "2.01").outdoor  # unlabelled balcony, known by its grey fill
