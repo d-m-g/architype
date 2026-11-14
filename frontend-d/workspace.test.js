@@ -2,6 +2,27 @@ import test from 'node:test';import assert from 'node:assert/strict';import {rea
 import {runInNewContext} from 'node:vm';
 import {createHistoryStore} from './history-state.js';
 
+test('object navigation frames symbols closely and keeps wide or tall geometry inside the real viewer',()=>{
+ const source=readFileSync(new URL('./main.js',import.meta.url),'utf8');
+ const code=source.slice(source.indexOf('export function objectFocusViewport'),source.indexOf('export function select(')).replace('export ','');
+ const frame=runInNewContext(code+';objectFocusViewport');
+ const page={w:1000,h:800},screen={width:900,height:600};
+ const small=frame([[100,100],[120,100],[120,120]],page,screen);
+ assert.ok(small.w<150,'small symbols should be much closer than the old 300-unit minimum');
+ assert.equal(small.x+small.w/2,110);assert.equal(small.y+small.h/2,110);
+ for(const [polygon,viewport] of [
+  [[[100,100],[700,100],[700,120]],{width:300,height:800}],
+  [[[100,100],[120,100],[120,700]],{width:1200,height:400}],
+  [[[0,0],[1000,0],[1000,800],[0,800]],screen]
+ ]){
+  const result=frame(polygon,page,viewport);
+  assert.equal(result.w/result.h,viewport.width/viewport.height);
+  for(const [x,y] of polygon){assert.ok(x>result.x&&x<result.x+result.w);assert.ok(y>result.y&&y<result.y+result.h);}
+ }
+ const fallback=frame([[100,100],[120,100],[120,120]],page,{width:0,height:0});
+ assert.ok(Number.isFinite(fallback.w)&&fallback.w>0);assert.equal(fallback.w/fallback.h,page.w/page.h);
+});
+
 test('General view groups all pages, loads collapsed groups on demand, and reveals hidden object layers on selection',()=>{
  const source=readFileSync(new URL('./main.js',import.meta.url),'utf8');
  const code=source.slice(source.indexOf('let objectListEntities='),source.indexOf('function renderDrawingSide()'));
@@ -215,5 +236,7 @@ test('selecting evidence on another page redraws its overlays and focuses the ma
  const entity={id:'page-two',label:'Kitchen',type:'room',page:1,polygon:[],conf:1},state={page:0,selected:null},calls={draw:0,render:0,focus:0,scroll:0},row={dataset:{entity:entity.id},scrollIntoView(){calls.scroll++;},focus(){calls.focus++;}},nodes={'inspector':{replaceChildren(){},append(){}},'evidence-list':{children:[row]},'evidence-navigation':{}};
  const context={state,entityById:()=>entity,setPage:p=>state.page=p,renderDrawingSide:()=>calls.render++,drawMarks:()=>calls.draw++,markSelection(){},$:id=>nodes[id],evidenceIds:()=>['first',entity.id],el:()=>({}),KINDS:{room:['Room']},inspectors:[],matchMedia:()=>({matches:true}),publish(){}};
  runInNewContext(code,context);context.select(entity.id,{focusEvidence:true});assert.equal(state.page,1);assert.equal(calls.draw,1);assert.equal(calls.render,1);assert.equal(calls.focus,1);assert.equal(calls.scroll,1);assert.match(nodes['evidence-navigation'].textContent,/2 of 2/);
- context.select(entity.id,{scrollEvidence:false});assert.equal(calls.scroll,1);assert.equal(calls.focus,1);
+ context.objectFocusViewport=runInNewContext(source.slice(source.indexOf('export function objectFocusViewport'),start).replace('export ','')+';objectFocusViewport');
+ entity.polygon=[[100,100],[120,100],[120,120]];context.pageSize=()=>({w:1000,h:800});context.svg={getBoundingClientRect:()=>({width:900,height:600})};context.updateView=()=>{};
+ context.select(entity.id,{scrollEvidence:false,zoomTo:true});assert.equal(calls.scroll,1);assert.equal(calls.focus,1);assert.ok(context.view.w<150);
 });
