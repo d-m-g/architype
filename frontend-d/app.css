@@ -110,6 +110,8 @@ main>section{height:100%}
 .seg button[aria-pressed=true]{background:var(--ink);color:var(--paper)}
 .zoom{display:flex;align-items:center;gap:2px}
 .zoom output{min-width:46px;text-align:center;font:12px var(--mono);color:var(--ink-2)}
+.confidence-control{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-2)}
+.confidence-control select{min-height:32px;padding:4px 6px;border:1px solid var(--line);border-radius:6px;background:var(--paper);color:var(--ink)}
 .edit-bar{background:var(--accent-soft);font-size:13px}
 .edit-bar label{display:flex;align-items:center;gap:6px;margin-left:auto}
 
@@ -128,18 +130,18 @@ main>section{height:100%}
 
 /* marks */
 .mark{cursor:pointer;outline:none}
-.mark polygon{vector-effect:non-scaling-stroke;stroke-linejoin:round}
-.mark.other polygon{fill:hsl(var(--h) 92% 50%);fill-opacity:.05;stroke:hsl(var(--h) 90% 38%);stroke-width:1.5}
-.mark.review polygon{stroke-dasharray:5 3}
-.mark.other:is(:hover,.hot,:focus-visible) polygon{fill-opacity:.18;stroke-width:2.5}
+.mark polygon.region-shape{vector-effect:non-scaling-stroke;stroke-linejoin:round}
+.mark.other polygon.region-shape{fill:var(--type);fill-opacity:.05;stroke:var(--type);stroke-width:1.5}
+.mark.review polygon.region-shape{stroke-dasharray:5 3}
+.mark.other:is(:hover,.hot,:focus-visible) polygon.region-shape{fill-opacity:.18;stroke-width:2.5}
 /* Apartment and floor outlines are groupings, not detections to doubt: neutral and long-dashed. */
-.mark.kind-apartment polygon,.mark.kind-level polygon{stroke:var(--zone);stroke-dasharray:8 5;fill-opacity:0}
-/* --h is the item's own confidence as a hue: red 0, amber 60, green 120. Under 80% the outline is also dashed.
-   Counted items are filled like highlighter; everything else found is an outline in the same colour scale. */
-.mark.evidence polygon{fill:hsl(var(--h) 92% 58%);fill-opacity:.6;stroke:hsl(var(--h) 85% 30%);stroke-width:1.5;mix-blend-mode:multiply}
-.mark.evidence:is(:hover,.hot,:focus-visible) polygon{stroke-width:3;fill-opacity:.8}
-.mark.selected polygon{stroke:#141b24;stroke-width:3;fill-opacity:.8}
-.badge{transform:translate(calc(var(--x)*1px),calc(var(--y)*1px)) scale(var(--u,1));pointer-events:none}
+.mark.kind-apartment polygon.region-shape,.mark.kind-level polygon.region-shape{stroke:var(--zone);stroke-dasharray:8 5;fill-opacity:0}
+/* Colour identifies object type. Answer evidence adds a translucent fill; doubtful outlines stay dashed. */
+.mark.evidence polygon.region-shape{fill:var(--type);fill-opacity:.22;stroke:var(--type);stroke-width:1.5;mix-blend-mode:normal}
+.mark.evidence:is(:hover,.hot,:focus-visible) polygon.region-shape{stroke-width:3;fill-opacity:.32}
+.mark.selected polygon.region-shape{stroke:#141b24;stroke-width:3;fill-opacity:.32}
+/* --turn undoes the drawing's rotation, so numbers and scores read upright on a turned drawing. */
+.badge{transform:translate(calc(var(--x)*1px),calc(var(--y)*1px)) scale(var(--u,1)) rotate(calc(var(--turn,0)*1deg));pointer-events:none}
 .badge circle{fill:#141b24;stroke:#fff;stroke-width:1.5}
 .badge text{fill:#fff;font:600 10px var(--sans);text-anchor:middle}
 /* Many marks on a zoomed-out page: numbers shrink to dots until you zoom in or point at one. */
@@ -147,9 +149,41 @@ main>section{height:100%}
 .dense .badge:not(.hot,.selected) text{display:none}
 .badge:is(.hot,.selected) circle{fill:#1f4fd8;r:11px}
 #overlays.stale{opacity:.35;transition:opacity .2s}
-.edit-mark polygon{fill:#1f4fd8;fill-opacity:.08;stroke:#1f4fd8;stroke-width:1.5;vector-effect:non-scaling-stroke;cursor:pointer}
-.edit-mark:hover polygon,.edit-mark.selected polygon{fill-opacity:.3;stroke-width:3}
-.edit-mark.added polygon{stroke:#157f3b;fill:#157f3b}
+.edit-mark polygon.region-shape{fill:#1f4fd8;fill-opacity:.08;stroke:#1f4fd8;stroke-width:1.5;vector-effect:non-scaling-stroke;cursor:pointer}
+.edit-mark:hover polygon.region-shape,.edit-mark.selected polygon.region-shape{fill-opacity:.3;stroke-width:3}
+.edit-mark.added polygon.region-shape{stroke:#157f3b;fill:#157f3b}
+.draw-preview{pointer-events:none}
+.draw-preview polygon.region-shape{stroke-dasharray:6 3;fill-opacity:.18}
+/* The items that show the same symbol as the selected one, offered for removal together. */
+.edit-mark.alike polygon.region-shape{stroke:#c2410c;fill:#c2410c;fill-opacity:.3;stroke-width:3;stroke-dasharray:5 3}
+/* The look-alike a crop in the inspector points at. */
+.edit-mark.hot polygon.region-shape{fill-opacity:.55;stroke-width:5}
+/* The look-alikes as crops of the drawing: orange ones go with the selected item, faded ones are kept. */
+.alike-list{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;max-height:150px;overflow:auto}
+.alike-crop{width:44px;height:44px;padding:0;border:2px solid #c2410c;border-radius:6px;background:#fff;cursor:pointer;overflow:hidden}
+.alike-crop svg{display:block;width:100%;height:100%}
+.alike-crop[aria-pressed=false]{border-color:var(--line);opacity:.4}
+/* Corner handles of the selected box; --u keeps them one size on screen at every zoom, like the number badges. */
+.edit-handle{transform:translate(calc(var(--x)*1px),calc(var(--y)*1px)) scale(var(--u,1));fill:#fff;stroke:#1f4fd8;stroke-width:2;cursor:nwse-resize}
+.edit-handle:is([data-corner="1"],[data-corner="3"]){cursor:nesw-resize}
+
+/* Opaque light/dark backing strokes remain visible on any source colour. */
+.mark polygon,.edit-mark polygon{vector-effect:non-scaling-stroke;stroke-linejoin:round}
+.mark .halo-dark,.edit-mark .halo-dark{fill:none;stroke:#101828;stroke-width:6;pointer-events:none}
+.mark .halo-light,.edit-mark .halo-light{fill:none;stroke:#fff;stroke-width:4;pointer-events:none}
+.mark:is(.selected,.hot,:hover,:focus-visible) .halo-dark,.edit-mark:is(.selected,:hover,:focus-visible) .halo-dark{stroke-width:9}
+.mark:is(.selected,.hot,:hover,:focus-visible) .halo-light,.edit-mark:is(.selected,:hover,:focus-visible) .halo-light{stroke-width:6}
+.mark.review .halo-dark,.mark.review .halo-light{stroke-dasharray:5 3}
+.mark.selected polygon.region-shape{stroke:var(--type)}
+.type-key{display:inline-block;width:9px;height:9px;flex:none;border-radius:2px;background:var(--type)}
+/* Counter-scale the ring with the same drawing-units/pixel ratio as evidence numbers. */
+.confidence-ring{transform:translate(calc(var(--x)*1px),calc(var(--y)*1px)) scale(var(--u,1)) rotate(calc(var(--turn,0)*1deg));pointer-events:none;opacity:0;transition:opacity .12s}
+.confidence-ring.is-readable{opacity:1}
+.confidence-ring .confidence-disc{fill:#fff;stroke:#141b24;stroke-width:1}
+.confidence-ring .confidence-track{fill:none;stroke:hsl(var(--confidence-h) 85% 38%);stroke-opacity:.2;stroke-width:3}
+.confidence-ring .confidence-progress{fill:none;stroke:hsl(var(--confidence-h) 85% 38%);stroke-width:3}
+.confidence-ring text{fill:#141b24;font:600 10px var(--sans)}
+@media(prefers-reduced-motion:reduce){.confidence-ring{transition:none}}
 
 /* reading sweep: the one moving thing on the drawing */
 .scan{position:absolute;inset:0;pointer-events:none;overflow:hidden}
@@ -159,15 +193,15 @@ main>section{height:100%}
 .stage-status .time{color:#aab4c1;margin-left:4px}
 .inspector{position:absolute;left:14px;bottom:14px;width:min(300px,calc(100% - 28px));padding:12px 36px 12px 14px;border:1px solid var(--line);border-radius:10px;background:var(--paper);box-shadow:0 8px 28px #0b122026;display:grid;gap:3px;font-size:13px}
 .inspector .close{position:absolute;top:4px;right:4px;border:0;background:none}
-.inspector .actions{display:flex;gap:6px;margin-top:8px}
+.inspector .actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 
 .legend{display:flex;flex-wrap:wrap;gap:6px 18px;align-items:center;padding:8px 14px;background:var(--paper);border-top:1px solid var(--line);font-size:12px;color:var(--ink-2)}
 .legend span{display:flex;align-items:center;gap:7px}
 .key{width:18px;height:11px;border-radius:2px;border:1.5px solid}
 .key-scale{width:54px;border:0;background:linear-gradient(90deg,hsl(0 92% 58%),hsl(60 92% 58%),hsl(120 92% 58%))}
 .key-review{background:transparent;border-color:var(--ink-2);border-style:dashed}
-.key-counted{background:hsl(120 92% 58%);border-color:hsl(120 85% 30%)}
-.key-other{background:transparent;border-color:hsl(120 90% 38%)}
+.key-counted{background:color-mix(in srgb,var(--ink) 22%,transparent);border-color:var(--ink-2)}
+.key-other{background:transparent;border-color:var(--ink-2)}
 .legend-hint{margin-left:auto;color:var(--ink-3)}
 
 /* 3D (room-renderer.js and floor-stack.js build their own markup) */
@@ -219,6 +253,19 @@ main>section{height:100%}
 .thread>:not([hidden])~*{padding-top:18px;border-top:1px solid var(--line)}
 .thread h2{font-size:13px;font-weight:600;margin-bottom:8px;display:flex;align-items:baseline;gap:8px}
 .count{font-weight:400;color:var(--ink-3);font-size:12px}
+.object-browser>summary{font-size:13px;font-weight:600;cursor:pointer;padding:4px 0}
+.object-browser .count{margin-left:7px}
+.object-browser-hint{margin:7px 0 10px}
+.object-group{border-top:1px solid var(--line)}
+.object-group>summary{padding:10px 2px;font-size:13px;font-weight:500;cursor:pointer;overflow-wrap:anywhere}
+.object-group>summary .type-key{margin:0 7px 0 3px}
+.object-rows{display:grid;gap:2px;padding:0 0 8px 15px}
+.object-row{display:grid;gap:2px;width:100%;min-height:44px;padding:7px 9px;border:1px solid transparent;border-radius:6px;background:transparent;text-align:left;cursor:pointer}
+.object-row:is(:hover,.hot){background:var(--surface)}
+.object-row.selected{background:var(--accent-soft);border-color:var(--accent)}
+.object-row .object-name{font-size:13px;font-weight:500;overflow-wrap:anywhere}
+.object-row small{font-size:12px;color:var(--ink-2);overflow-wrap:anywhere}
+.object-row:disabled{cursor:default;opacity:.65}
 .overview h1{font-size:15px;font-weight:600;overflow-wrap:anywhere;outline:none}
 .overview .muted{font-size:13px;margin-top:2px}
 .steps{display:grid;gap:6px;margin-top:12px;font-size:13px}
@@ -253,6 +300,7 @@ main>section{height:100%}
 .explanation{margin-top:10px;max-width:60ch}
 .formula{margin-top:10px;padding:9px 11px;border-radius:7px;background:var(--surface);border:1px solid var(--line);font:12.5px/1.55 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere}
 .edit-note{margin-top:10px;padding:8px 11px;border-radius:7px;background:var(--accent-soft);font-size:13px}
+.other-reading:not([hidden]){display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}
 .drop-veil{position:fixed;inset:var(--bar) 0 0;z-index:15;display:grid;place-items:center;background:color-mix(in srgb,var(--accent) 16%,var(--paper) 78%);border:2px dashed var(--accent);font-size:20px;font-weight:600;pointer-events:none}
 .facts{display:grid;gap:7px;margin-top:16px;font-size:13px}
 .facts div{display:grid;grid-template-columns:86px 1fr;align-items:center}
@@ -270,7 +318,7 @@ main>section{height:100%}
 .evidence-row{display:grid;grid-template-columns:24px 1fr;gap:10px;align-items:start;width:100%;padding:7px 8px;border:0;border-radius:7px;background:transparent;text-align:left;cursor:pointer;font-size:13px}
 .evidence-row:is(:hover,.hot){background:var(--surface)}
 .evidence-row.selected{background:var(--accent-soft)}
-.evidence-row .n{display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:hsl(var(--h) 92% 62%);border:1.5px solid hsl(var(--h) 85% 30%);color:#141b24;font:600 11px var(--sans)}
+.evidence-row .n{display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:color-mix(in srgb,var(--type) 16%,#fff);border:1.5px solid var(--type);color:#141b24;font:600 11px var(--sans)}
 .evidence-row.review .n{border-style:dashed}
 .evidence-row .what{display:grid;font-weight:500;overflow-wrap:anywhere}
 .evidence-row small{font-weight:400;font-size:12px;color:var(--ink-2)}
@@ -297,11 +345,15 @@ main>section{height:100%}
 .composer textarea{display:block;width:100%;resize:none;height:42px;min-height:42px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface);line-height:1.45}
 .composer textarea:focus{outline:2px solid var(--accent);outline-offset:-1px;background:var(--paper)}
 .composer-row{display:flex;align-items:center;gap:6px;margin-top:8px}
-.mic{font-size:0!important;border-color:transparent;background:transparent}
-.mic::before{content:"";width:17px;height:17px;background:currentColor;
+.mic{position:relative;font-size:0!important;border-color:transparent;background:transparent;gap:0;line-height:0}
+.mic::before{content:"";position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:17px;height:17px;background:currentColor;
  -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round'%3E%3Crect x='9' y='3' width='6' height='11' rx='3'/%3E%3Cpath d='M5 11a7 7 0 0 0 14 0M12 18v3'/%3E%3C/svg%3E") center/contain no-repeat;
  mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round'%3E%3Crect x='9' y='3' width='6' height='11' rx='3'/%3E%3Cpath d='M5 11a7 7 0 0 0 14 0M12 18v3'/%3E%3C/svg%3E") center/contain no-repeat}
 .mic[aria-pressed=true]{color:var(--bad);background:color-mix(in srgb,var(--bad) 12%,transparent);animation:pulse 1.2s ease-in-out infinite}
+.mic[data-state=starting]{color:var(--ink-2);animation:none}
+.mic[data-state=starting]::before{opacity:.35}
+.mic[data-state=starting]::after{content:"";position:absolute;left:50%;top:50%;width:23px;height:23px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;transform:translate(-50%,-50%);animation:mic-starting 1s linear infinite}
+@keyframes mic-starting{to{transform:translate(-50%,-50%) rotate(360deg)}}
 @keyframes pulse{50%{opacity:.55}}
 .mic:disabled,.mic:disabled~.lang{display:none}
 .lang{height:28px;padding:0 4px;border-color:transparent;background:transparent;font-size:12px;color:var(--ink-2)}
@@ -371,11 +423,15 @@ td .q{display:block;max-width:60ch} td small{color:var(--ink-3);font:11.5px var(
 .voice-state{flex-shrink:0;font-size:12px;color:var(--ink-2);min-width:38px}
 .voice-state[data-state=listening]{color:var(--bad);font-weight:600}
 .voice-state[data-state=transcribing]{color:var(--warn);font-weight:600}
+.voice-state[data-state=starting]{color:var(--ink-2);font-variant-numeric:tabular-nums}
 .voice-state[data-state=review]{color:var(--good);font-weight:600}
 .voice-preview{padding:10px 12px;margin-top:8px;border:1px solid var(--line);border-radius:8px;background:var(--surface);max-height:160px;overflow:auto}
 .voice-preview>strong{font-size:12px;color:var(--ink-2)}
 .voice-preview #voice-transcript{font-size:14px;line-height:1.5;margin:5px 0;overflow-wrap:anywhere;white-space:pre-wrap}
 .composer>.voice-status{display:block;margin-top:6px;font-size:12px;white-space:normal;overflow:visible;line-height:1.45;color:var(--ink-2)}
 .composer>.voice-status:empty{display:none}
-.composer .mic{width:40px;min-height:40px}
+.composer .mic{width:40px;height:40px;min-height:40px;flex:0 0 40px;padding:0}
 @media(max-width:480px){.voice-state{font-size:11px}.composer-row{gap:4px}.general-view{padding-inline:8px}.zoom{gap:2px}}
+
+.evidence-navigation{margin:4px 0 10px;line-height:1.5;overflow-wrap:anywhere}
+.evidence-row:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;background:var(--accent-soft)}

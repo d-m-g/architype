@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test viewer.test.js dashboard.test.js contracts.test.js workspace.test.js geometry-3d.test.js proxy.test.js voice.test.js intake.test.js corrections.test.js history.test.js calibration.test.js floor-stack.test.js",
+    "test": "node --test viewer.test.js dashboard.test.js contracts.test.js workspace.test.js geometry-3d.test.js proxy.test.js voice.test.js voice-live.test.js intake.test.js corrections.test.js history.test.js calibration.test.js floor-stack.test.js",
     "dev": "node dev-server.js"
   }
 }

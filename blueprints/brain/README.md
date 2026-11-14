@@ -15,6 +15,55 @@ You turn a question into a `QueryPlan`, handle what the cheap path cannot, and o
 
 ## What lane C provides to the other lanes
 
+### Google voice: push-to-talk and spoken answers
+
+With `GEMINI_API_KEY` configured on the server, the site's existing Dictate question
+streams microphone audio to Google's Live transcription model. Draft words appear
+in the transcript preview as the user speaks; finalized text goes into the composer
+after recording finishes. Pressing Ask finishes recording, waits for the finalized
+transcript, and submits the question. A timed Starting/Connecting indicator stays
+visible until the audio stream is ready; Ask is disabled during setup. Each recording is limited to 30
+seconds. Read aloud sends
+the exact displayed answer summary to `/api/voice/speak`, which returns WAV audio.
+The drawing detector remains responsible for counting. No Google key is sent to
+the browser; the same login middleware protects voice requests. The backend issues
+a single-use, two-minute ephemeral token locked to the transcription model and
+language configuration. The browser sends 100 ms chunks of 16 kHz mono PCM over
+Google's constrained Live WebSocket endpoint. No WebSocket forwarding is needed
+on the app host. This server does not save recordings. Interactions requests
+disable storage (`store: false`). Google voice requires HTTPS or localhost access.
+
+Defaults: `gemini-3.5-transcribe-live`, `gemini-3.5-transcribe` for recorded fallback,
+and `gemini-3.8-flash-tts`, with voice `Kore`.
+Override via `BLUEPRINTS_TRANSCRIBE_MODEL`, `BLUEPRINTS_TTS_MODEL`, and
+`BLUEPRINTS_TTS_VOICE`. The key's project must have access/quota for these models.
+`BLUEPRINTS_LIVE_TRANSCRIBE_MODEL` selects the live model; setting
+`BLUEPRINTS_LIVE_TRANSCRIPTION=0` keeps recorded dictation instead. If the live
+connection fails, the UI offers recorded dictation on the next attempt. Browsers
+without Web Audio worklets use recorded dictation. No new SDK dependency is
+required. Restart the API after setting its key.
+
+The picker offers English, Finnish, Swedish, German, French, Italian and Spanish,
+plus automatic input-language detection. Answer-summary templates follow the
+selected language; raw answer text/provider errors are not translated. Auto uses
+the English summary template. If server voice is unconfigured or the browser lacks
+recording support, existing browser dictation/read-aloud remain available where
+supported. Continuous Gemini Live conversations are not part of this feature.
+
+API: `GET /api/voice/config`, `POST /api/voice/live-token {language}` (never cache),
+`POST /api/voice/transcribe?language=fi-FI` (raw audio,
+8 MiB limit), `POST /api/voice/speak {text}` (4,000-character limit). Input formats
+include WebM/Opus, OGG and M4A. Provider errors are surfaced with API keys redacted.
+Cancellation discards late replies and releases microphone tracks. Development
+proxy routes preserve audio bodies and content types. A cancelled or unfinalized
+live transcript never overwrites the question. AudioWorklet and live-connection
+modules are in the public asset allowlist.
+
+Offline checks: `python -m unittest blueprints.brain.test_voice` (needs httpx as a
+test dependency), and `node --test frontend-d/voice.test.js frontend-d/voice-live.test.js`. Provider calls are
+mocked; actual transcription/speech quality must be checked with event credentials.
+
+
 **HTTP API** (`blueprints/api.py`; the demo serves it with the UI on one origin):
 
 | Endpoint | Use |

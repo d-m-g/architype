@@ -22,6 +22,10 @@ After a question, General view fits the full source page and shows every detecte
 
 The microphone shows Ready, Listening, Transcribing and Review question states. Interim speech appears in a separate Live transcript panel. Only a completed transcript replaces the question draft, and the user still chooses Ask. Cancellation, speech errors, manual typing or switching drawings discard pending recognition without overwriting the typed draft. Browser speech APIs and playback remain unchanged.
 
+### Keyboard evidence browsing
+
+Select a numbered region or focus the answer evidence list, then use Right/Down for the next item and Left/Up for the previous one. Home and End select the first and last items. Navigation follows the answer's displayed evidence order, stops at the ends, centres the item on its source page and keeps the evidence row focused and in view. It returns General view to answer highlights without changing the reported answer or history. Typed inputs, editable controls, modified shortcuts, correction mode and pending questions retain their own keyboard behaviour. With the drawing focused, Alt+arrows retain panning; ordinary arrows also pan when no answer evidence exists.
+
 ## The previous page
 
 All implementation stays in `frontend-d/`. Shared Python schemas, API, parsers, detectors, evaluation code and fixtures are unchanged.

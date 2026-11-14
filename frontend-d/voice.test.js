@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {spokenAnswer, mountVoice} from './voice.js';
+import {spokenAnswer, mountVoice, mountGoogleVoice} from './voice.js';
+import {publishEditor} from './editor-bridge.js';
+import {finishVoiceInput} from './voice-input.js';
 test('speech distinguishes mock results, zero answers, uncertainty and abstention', () => {
  assert.match(spokenAnswer({mode:'mock',answer:{answer:0,evidence:['a']},entities:[{id:'a',uncertain:true}]}), /Mock demonstration. 0.*1 evidence items/);
  assert.match(spokenAnswer({mode:'shared',answer:{answer:null,error:'Parser unavailable'}}), /No verified answer. Parser unavailable/);
@@ -48,6 +50,158 @@ test('cancelled playback callbacks cannot overwrite stop status or a newer playb
  assert.equal(get('voice-stop').disabled,true);
  assert.equal(get('voice-status').textContent,'Finished reading.');
  unsubscribe();
+});
+
+const tick=()=>new Promise(resolve=>setImmediate(resolve));
+function googleHarness(fetcher,overrides={}){
+ const elements=new Map(),recorders=[],audios=[],revoked=[];
+ const get=id=>{
+  if(!elements.has(id))elements.set(id,{value:id==='voice-language'?'fi-FI':'',textContent:'',
+   setAttribute(){},addEventListener(){},removeEventListener(){},dispatchEvent(){}});
+  return elements.get(id);
+ };
+ const track={stopped:false,stop(){this.stopped=true;}};
+ class Recorder{
+  static isTypeSupported(type){return type.startsWith('audio/webm');}
+  constructor(stream,options){this.mimeType=options.mimeType;this.state='inactive';recorders.push(this);}
+  start(){this.state='recording';}
+  stop(){this.state='inactive';this.ondataavailable({data:new Blob(['recording'])});this.done=this.onstop();}
+ }
+ class Audio{
+  constructor(url){this.url=url;audios.push(this);}
+  play(){return Promise.resolve();}
+  pause(){this.paused=true;}
+ }
+ const root={getElementById:get,addEventListener(){},removeEventListener(){}};
+ const host={fetch:fetcher,MediaRecorder:Recorder,Audio,Blob,setTimeout,clearTimeout,
+  navigator:{mediaDevices:{getUserMedia:async()=>({getTracks:()=>[track]})}},
+  URL:{createObjectURL:()=>`blob:${audios.length}`,revokeObjectURL:url=>revoked.push(url)},
+  addEventListener(){},removeEventListener(){}};
+ Object.assign(host,overrides);
+ const stop=mountGoogleVoice(root,host);
+ return {get,recorders,audios,revoked,track,stop,host};
+}
+const configResponse=()=>new Response(JSON.stringify({configured:true,max_record_seconds:30,max_audio_bytes:8388608}));
+test('Google dictation sends recorded audio and preserves edits made during transcription',async()=>{
+ let resolveTranscript,request;
+ const h=googleHarness(async(url,options)=>{
+  if(url.endsWith('config'))return configResponse();
+  request={url,options};return new Promise(resolve=>{resolveTranscript=resolve;});
+ });
+ try{
+  await tick();h.get('question').value='Original';await h.get('voice-dictate').onclick();
+  await h.get('voice-dictate').onclick();
+  assert.match(request.url,/language=fi-FI/);assert.ok(request.options.body instanceof Blob);
+  assert.equal(h.track.stopped,true);
+  h.get('question').value='My typed edit';
+  resolveTranscript(new Response(JSON.stringify({text:'Kuinka monta ovea?'})));
+  await h.recorders[0].done;
+  assert.equal(h.get('question').value,'My typed edit');assert.match(h.get('voice-status').textContent,/discarded/);
+ }finally{h.stop();}
+});
+test('Google dictation inserts text for review and ignores late cancelled replies',async()=>{
+ let resolveTranscript;
+ const h=googleHarness(async url=>url.endsWith('config')?configResponse():new Promise(resolve=>{resolveTranscript=resolve;}));
+ try{
+  await tick();await h.get('voice-dictate').onclick();await h.get('voice-dictate').onclick();
+  resolveTranscript(new Response(JSON.stringify({text:'Kuinka monta ovea?'})));await h.recorders[0].done;
+  assert.equal(h.get('question').value,'Kuinka monta ovea?');assert.match(h.get('voice-status').textContent,/Review/);
+  await h.get('voice-dictate').onclick();await h.get('voice-dictate').onclick();
+  await h.get('voice-dictate').onclick();
+  resolveTranscript(new Response(JSON.stringify({text:'Stale reply'})));await h.recorders[1].done;
+  assert.equal(h.get('question').value,'Kuinka monta ovea?');
+ }finally{h.stop();}
+});
+test('Google playback speaks current answer and stop revokes its audio URL',async()=>{
+ let sent;
+ const h=googleHarness(async(url,options)=>{
+  if(url.endsWith('config'))return configResponse();
+  sent=JSON.parse(options.body);return new Response(new Blob(['wav'],{type:'audio/wav'}));
+ });
+ try{
+  publishEditor({wireScene:{path:'uploads/test.png'},mode:'shared',answer:{answer:19,unit:'count',confidence:.7,evidence:[]}});
+  await tick();await h.get('voice-read').onclick();
+  assert.match(sent.text,/Raportoitu vastaus\. 19/);
+  assert.equal(h.audios.length,1);assert.equal(h.get('voice-stop').disabled,false);
+  h.get('voice-stop').onclick();assert.equal(h.audios[0].paused,true);assert.equal(h.revoked.length,1);
+ }finally{h.stop();publishEditor({wireScene:null,answer:null});}
+});
+test('changing drawings cancels recording and releases microphone tracks',async()=>{
+ const h=googleHarness(async()=>configResponse());
+ try{
+  await tick();
+  // Recording starts normally; changing source cancels it before any transcript is applied.
+  publishEditor({wireScene:{path:'uploads/a.png'},answer:null});
+  await h.get('voice-dictate').onclick();
+  publishEditor({wireScene:{path:'uploads/b.png'},answer:null});
+  assert.equal(h.recorders[0].state,'inactive');assert.equal(h.track.stopped,true);
+  assert.match(h.get('voice-status').textContent,/Drawing or answer changed/);
+ }finally{h.stop();publishEditor({wireScene:null,answer:null});}
+});
+
+test('Google streaming waits for readiness and Ask finalizes the transcript without another microphone click',async()=>{
+ let socket;
+ class Context{
+  constructor(){this.sampleRate=16000;this.destination={};this.audioWorklet={addModule:async()=>{}};}
+  resume(){return Promise.resolve();}close(){return Promise.resolve();}
+  createMediaStreamSource(){return {connect(){},disconnect(){}};}
+ }
+ class Worklet{
+  constructor(){this.port={postMessage:()=>this.port.onmessage({data:{type:'flushed'}})};}
+  connect(){}disconnect(){}
+ }
+ class Socket{
+  constructor(){socket=this;this.readyState=0;this.bufferedAmount=0;}
+  send(){}close(){this.readyState=3;this.onclose?.();}
+  receive(content){this.onmessage({data:JSON.stringify(content)});}
+ }
+ const h=googleHarness(async url=>new Response(JSON.stringify(url.endsWith('config')?{
+  configured:true,live_transcription:true,max_record_seconds:30,
+ }:{token:'auth_tokens/test',setup:{model:'models/gemini-3.5-transcribe-live'}})),{
+  AudioContext:Context,AudioWorkletNode:Worklet,WebSocket:Socket,
+ });
+ try{
+  await tick();h.get('question').value='My original draft';
+  const recording=h.get('voice-dictate').onclick();
+  for(let n=0;n<10&&!socket;n++)await tick();
+  assert.match(h.get('voice-state').textContent,/Connecting/);
+  assert.equal(h.get('ask-submit').disabled,true);
+  assert.equal(h.get('voice-preview').hidden,true);
+  assert.ok(socket);socket.readyState=1;socket.onopen();socket.receive({setupComplete:{}});await recording;
+  assert.equal(h.get('voice-state').textContent,'Listening');assert.equal(h.get('ask-submit').disabled,false);
+  socket.receive({serverContent:{interimInputTranscription:{text:'Kuinka monta'}}});
+  assert.equal(h.get('voice-transcript').textContent,'Kuinka monta');
+  assert.equal(h.get('voice-preview').hidden,false);assert.equal(h.get('question').value,'My original draft');
+  socket.receive({serverContent:{inputTranscription:{text:'Kuinka monta ovea?'}}});
+  assert.equal(h.get('question').value,'My original draft');
+  const finished=finishVoiceInput();socket.receive({serverContent:{turnComplete:true}});assert.equal(await finished,true);
+  assert.equal(h.get('question').value,'Kuinka monta ovea?');assert.equal(h.get('voice-state').textContent,'Review question');
+  assert.equal(h.get('voice-preview').hidden,true);assert.equal(h.track.stopped,true);
+ }finally{h.stop();}
+});
+
+test('Ask waits for recorded transcription and cannot submit a stale draft',async()=>{
+ let resolveTranscript;
+ const h=googleHarness(async url=>url.endsWith('config')?configResponse():new Promise(resolve=>{resolveTranscript=resolve;}));
+ try{
+  await tick();h.get('question').value='Old typed question';await h.get('voice-dictate').onclick();
+  let submitted=false;
+  const submission=finishVoiceInput().then(ready=>{if(ready)submitted=h.get('question').value;});
+  await tick();assert.equal(submitted,false);assert.equal(h.get('ask-submit').disabled,true);
+  resolveTranscript(new Response(JSON.stringify({text:'How many doors are there?'})));
+  await submission;assert.equal(submitted,'How many doors are there?');
+ }finally{h.stop();}
+});
+
+test('cancelling transcription while Ask waits prevents submission',async()=>{
+ let resolveTranscript;
+ const h=googleHarness(async url=>url.endsWith('config')?configResponse():new Promise(resolve=>{resolveTranscript=resolve;}));
+ try{
+  await tick();await h.get('voice-dictate').onclick();const submission=finishVoiceInput();
+  await tick();await h.get('voice-dictate').onclick();
+  resolveTranscript(new Response(JSON.stringify({text:'Stale words'})));
+  assert.equal(await submission,false);assert.equal(h.get('question').value,'');
+ }finally{h.stop();}
 });
 
 function voiceHarness(){
