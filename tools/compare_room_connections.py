@@ -28,6 +28,7 @@ def main():
     parser.add_argument("--live-baseline", type=Path, default=ROOT/".cache/room-ranking-comparison/live-main.json")
     parser.add_argument("--main-root", type=Path, default=ROOT.parent/"room-ranking-main-baseline")
     parser.add_argument("--audit-root", type=Path, default=ROOT.parent/"dataset-review/audit-2026-11-14")
+    parser.add_argument("--control-main-root", type=Path, help="Optional newer main checkout for compatibility checks; the paid live capture stays pinned")
     args = parser.parse_args()
     expected = json.loads((ROOT/"benchmarks/room_connections/expected.json").read_text(encoding="utf-8"))
     baseline = json.loads(args.live_baseline.read_text(encoding="utf-8"))
@@ -68,7 +69,8 @@ def main():
                      "correct_count_winners_and_evidence": correct, "evidence_located": located,
                      "branch_median_ms": statistics.median(timings), "branch_incremental_model_cost_usd": answer.cost_usd})
     controls = []
-    for name, cwd in [("main", args.main_root), ("feature", ROOT)]:
+    control_main = args.control_main_root or args.main_root
+    for name, cwd in [("main", control_main), ("feature", ROOT)]:
         check = subprocess.run([sys.executable, "test_contract.py"], cwd=cwd, capture_output=True, text=True)
         controls.append({"branch": name, "passed": check.returncode == 0, "output": (check.stdout+check.stderr).strip()})
     safety = []
@@ -87,6 +89,7 @@ def main():
         digest.update((ROOT/name).read_bytes())
     result = {"label": args.label, "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
               "main_commit": expected["main_baseline_commit"], "feature_head": git("rev-parse", "HEAD"), "feature_files_sha256": digest.hexdigest(),
+              "contract_main_commit": git("rev-parse", "HEAD", cwd=control_main),
               "reference_kind": expected["reference_kind"], "cases": rows, "contract_controls": controls,
               "unsuitable_scene_safety_checks": safety,
               "main_count_correct": sum(r["main_count_correct"] for r in rows), "feature_fully_correct": sum(r["correct_count_winners_and_evidence"] for r in rows),

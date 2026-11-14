@@ -203,6 +203,10 @@ and a detached main checkout at `fb610664e8b4f1dbd325085cc367dd15db488000` (`--m
 ground truth**. Four captured main answers abstained; the branch matches all four reviewed counts, winning-room
 sets, ties and evidence sets. Three unsuitable-scene checks abstain without model calls. Normal contract checks
 pass on main and feature. Checkpoints are recorded in `benchmarks/room_connections/checkpoints.json`.
+The final compatibility run also tested newer main `0765eb1` via `--control-main-root`; its latest 3D changes
+were merged into the feature branch only. Final checks: 41 backend tests, 116 feature frontend tests, 115 latest-main
+frontend tests, 11 contract checks on each branch and the static-serving/security suite passed. Four recorded
+accuracy checkpoints matched all four reviewed room-count, winner and evidence references, without new paid calls.
 
 The zero-call phrasing, corrected-scene endpoint and agent result binding are tested offline. Browser interaction
 and model selection of the new tool for arbitrary wording still need a staging run; this branch is not deployed
