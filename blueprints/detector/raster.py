@@ -25,15 +25,24 @@ KINDS = {
     "floor": ("level", None, None),
 }
 COVERS = sorted({f"{t}:{s}" if s else t for t, s, _ in KINDS.values()})
+# Uploads: only what transfers beyond Finnish homes. Room types and floors stay uncovered, so those questions
+# escalate instead of trusting a "bedroom" found in a school.
+UPLOAD_CLASSES = ("door", "window", "toilet", "sink", "bathtub", "shower")
+UPLOAD_COVERS = ["door", "window", "fixture:toilet", "fixture:sink", "fixture:bathtub", "fixture:shower"]
 
 
-def build_scene(path: str, file: Path) -> Scene:
+def build_scene(path: str, file: Path, upload: bool = False) -> Scene:
     """The live path: one call to the deployed Detector. Dataset plans are usually prebuilt into the scene cache
-    (modal run blueprints/detector/train.py::prebuild), so this runs on a cache miss."""
+    (modal run blueprints/detector/train.py::prebuild), so this runs on a cache miss. upload=True tiles large
+    sheets and covers only doors, windows and fixtures."""
     import modal
 
     detect = modal.Cls.from_name("blueprints-detector", "Detector")().detect
-    return scene_from(path, detect.remote(file.read_bytes()))
+    out = detect.remote(file.read_bytes(), tile=upload)
+    if upload:
+        out["boxes"] = [b for b in out["boxes"] if b["cls"] in UPLOAD_CLASSES]
+        return scene_from(path, out, covers=UPLOAD_COVERS, merge=False)
+    return scene_from(path, out)
 
 
 def merge_windows(boxes: list[dict], width: int, height: int, gap_px: float = 0) -> list[dict]:
@@ -70,11 +79,13 @@ def merge_windows(boxes: list[dict], width: int, height: int, gap_px: float = 0)
     return [b for b in boxes if b["cls"] != "window"] + merged
 
 
-def scene_from(path: str, out: dict) -> Scene:
-    """Detector output -> Scene. Shared by the live path and the prebuild."""
+def scene_from(path: str, out: dict, covers: list[str] | None = None, merge: bool = True) -> Scene:
+    """Detector output -> Scene. Shared by the live path and the prebuild. merge: join touching window panes, a
+    CubiCasa labelling habit; CAD sheets draw each window unit, so uploads keep them apart."""
     entities = []
     floors = 0
-    for i, b in enumerate(merge_windows(out["boxes"], out["width"], out["height"])):
+    boxes = merge_windows(out["boxes"], out["width"], out["height"]) if merge else out["boxes"]
+    for i, b in enumerate(boxes):
         x0, y0, x1, y1 = (min(max(v, 0.0), 1.0) for v in b["box"])
         kind, subtype, label = KINDS[b["cls"]]
         if kind == "level":
@@ -94,7 +105,7 @@ def scene_from(path: str, out: dict) -> Scene:
         path=path,
         builder=f"{out['model']}@2",
         tier="detect",
-        covers=COVERS,
+        covers=covers or COVERS,
         pages=[Page(image=path, width=out["width"], height=out["height"])],
         entities=entities,
         trace=[costs.gpu_step("scene", out["gpu"], out["seconds"])],

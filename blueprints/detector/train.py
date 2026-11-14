@@ -15,10 +15,12 @@ vol = modal.Volume.from_name("cubicasa5k", create_if_missing=True)
 ZIP_URL = "https://zenodo.org/api/records/2613548/files/cubicasa5k.zip/content"  # CC BY-NC-SA 4.0
 ZIP_MD5 = "0ce0b203d1e3c125b51087b219bd23b9"
 RAW = "/vol/raw/cubicasa5k"
-YOLO_DIR = "/vol/yolo"
+CHUNKS = "/vol/chunks"  # labels() writes the YOLO dataset here as one tar per worker; train/tune unpack them
 CLASSES = ["door", "window", "toilet", "sink", "bathtub", "shower",  # 0-5: the fixtures-only model trains these
-           "sauna_stove", "bedroom", "kitchen", "bathroom", "wc_room", "balcony", "floor"]
+           "sauna_stove", "bedroom", "kitchen", "bathroom", "wc_room", "balcony", "floor",
+           "doorway"]  # 13: open doorway without a leaf; trained so the model tells it from a door, never counted
 ROOMS = 7  # first room class id
+FIXTURES = "0,1,2,3,4,5,13"  # classes the fixtures models train on
 
 cpu = modal.Image.debian_slim().apt_install("curl", "unzip")
 conv = modal.Image.debian_slim().pip_install("svgelements", "pillow", "pydantic").add_local_python_source("blueprints")
@@ -38,7 +40,7 @@ def class_of(svg_class: str, label: str = "") -> int | None:
     if not words:
         return None
     if words[0] == "Door":  # "Doors" is the container group; "Door None" is an open doorway without a leaf
-        return None if "None" in words else 0
+        return 13 if "None" in words else 0
     if words[0] == "Window":
         return 1
     if svg_class.startswith("Floorplan Floor-"):
@@ -147,11 +149,14 @@ def fetch():
 
 
 @app.function(image=conv, volumes={"/vol": vol}, timeout=3600)
-def convert(folders: list[str]) -> list[tuple[str, str]]:
-    """Write F1_original.png + YOLO labels for each train plan. Returns (stem, split) for what was written."""
+def convert(folders: list[str], chunk: int) -> list[tuple[str, str]]:
+    """F1_original.png + YOLO labels for each train plan, as one tar in CHUNKS. Returns (stem, split) per plan.
+    Built on local disk and written as one file: reading thousands of small files back off the volume took 25 min."""
     import hashlib
     import os
     import shutil
+
+    YOLO_DIR = "/tmp/yolo"
 
     from PIL import Image
 
@@ -187,6 +192,9 @@ def convert(folders: list[str]) -> list[tuple[str, str]]:
         with open(f"{YOLO_DIR}/labels/{split}/{stem}.txt", "w") as f:
             f.write("\n".join(lines))
         done.append((stem, split))
+    os.makedirs(CHUNKS, exist_ok=True)
+    if done:
+        shutil.make_archive(f"{CHUNKS}/{chunk:03d}", "tar", YOLO_DIR)
     vol.commit()
     return done
 
@@ -194,51 +202,55 @@ def convert(folders: list[str]) -> list[tuple[str, str]]:
 @app.function(image=conv, volumes={"/vol": vol}, timeout=3600)
 def labels():
     import glob
-    import os
     import shutil
 
     vol.reload()
-    shutil.rmtree(YOLO_DIR, ignore_errors=True)
-    if os.path.exists("/vol/yolo.tar"):
-        os.remove("/vol/yolo.tar")  # train's cached copy of the old labels
+    shutil.rmtree(CHUNKS, ignore_errors=True)
+    vol.commit()
     folders = sorted(p[len(RAW) + 1 : -len("/model.svg")] for p in glob.glob(f"{RAW}/*/*/model.svg"))
     chunks = [folders[i : i + 100] for i in range(0, len(folders), 100)]
     done = []
-    for i, part in enumerate(convert.map(chunks), 1):
+    for i, part in enumerate(convert.map(chunks, range(len(chunks))), 1):
         done += part
         print(f"converted {i}/{len(chunks)} chunks, {len(done)} plans written", flush=True)
     n_val = sum(s == "val" for _, s in done)
     print(f"{len(folders)} plans, {len(done) - n_val} train, {n_val} val, {len(folders) - len(done)} test skipped")
-    vol.reload()  # see the workers' files
-    shutil.make_archive("/vol/yolo", "tar", YOLO_DIR)  # one file: train unpacks it in seconds, not 9 min
-    vol.commit()
-    print("tar written", flush=True)
+
+
+def unpack_dataset() -> str:
+    """The YOLO dataset on local disk (the dataloader is much faster there than on the volume)."""
+    import glob
+    import shutil
+
+    vol.reload()
+    for t in sorted(glob.glob(f"{CHUNKS}/*.tar")):
+        shutil.unpack_archive(t, "/tmp/yolo")
+    open("/tmp/yolo/data.yaml", "w").write(f"path: /tmp/yolo\ntrain: images/train\nval: images/val\nnames: {CLASSES}\n")
+    return "/tmp/yolo"
 
 
 @app.function(image=gpu, volumes={"/vol": vol}, gpu="L40S", timeout=6 * 3600, cpu=8, memory=32768)
-def train(name: str = "all-13", n_classes: int = 13, model: str = "yolo11s.pt", epochs: int = 80, imgsz: int = 1024):
-    """n_classes=6 trains the fixtures-only model on the same labels (the other classes are filtered out)."""
+def train(name: str, classes: str = FIXTURES, model: str = "yolo11s.pt", epochs: int = 80, imgsz: int = 1024,
+          batch: int = 16):
+    """classes: comma-separated class ids to train on (the others are filtered out of the same labels)."""
     import os
-    import shutil
 
     from ultralytics import YOLO
 
-    # Local disk: the dataloader is much faster than on the volume. labels() writes the tar.
-    shutil.unpack_archive("/vol/yolo.tar", "/tmp/yolo")
-    open("/tmp/yolo/data.yaml", "w").write(f"path: /tmp/yolo\ntrain: images/train\nval: images/val\nnames: {CLASSES}\n")
-    print({s: len(os.listdir(f"/tmp/yolo/images/{s}")) for s in ("train", "val")}, flush=True)
+    root = unpack_dataset()
+    print({s: len(os.listdir(f"{root}/images/{s}")) for s in ("train", "val")}, flush=True)
     YOLO(model).train(
-        data="/tmp/yolo/data.yaml", imgsz=imgsz, epochs=epochs, batch=16, workers=8, patience=20,
+        data=f"{root}/data.yaml", imgsz=imgsz, epochs=epochs, batch=batch, workers=8, patience=20,
         fliplr=0.5, flipud=0.5,  # both together give the 180° rotation seen in the dataset
         degrees=0, scale=0.5, mosaic=1.0, close_mosaic=10,
-        classes=list(range(n_classes)) if n_classes < len(CLASSES) else None,
+        classes=[int(c) for c in classes.split(",")],
         project="/vol/runs", name=name, exist_ok=True,
     )
     vol.commit()
 
 
 @app.function(image=gpu, volumes={"/vol": vol}, gpu="L40S", timeout=3600)
-def tune(name: str = "all-13", n_classes: int = 13, imgsz: int = 1024):
+def tune(name: str, classes: str = FIXTURES, imgsz: int = 1024):
     """Per-class score threshold that maximises exact-count accuracy on val (a slice of train: no test plans)."""
     import glob
     import json
@@ -246,9 +258,8 @@ def tune(name: str = "all-13", n_classes: int = 13, imgsz: int = 1024):
 
     from ultralytics import YOLO
 
-    vol.reload()
     m = YOLO(f"/vol/runs/{name}/weights/best.pt")
-    imgs = sorted(glob.glob(f"{YOLO_DIR}/images/val/*.png"))
+    imgs = sorted(glob.glob(f"{unpack_dataset()}/images/val/*.png"))
     scores, gold = [], []
     for i in range(0, len(imgs), 32):
         for r in m.predict(imgs[i : i + 32], imgsz=imgsz, conf=0.05, verbose=False):
@@ -256,7 +267,8 @@ def tune(name: str = "all-13", n_classes: int = 13, imgsz: int = 1024):
             txt = r.path.replace("/images/", "/labels/").replace(".png", ".txt")
             gold.append(Counter(int(l.split()[0]) for l in open(txt).read().splitlines() if l))
     best = {}
-    for k, cls in enumerate(CLASSES[:n_classes]):
+    for k in (int(c) for c in classes.split(",")):
+        cls = CLASSES[k]
         acc = {
             t / 100: sum(sum(c == k and s >= t / 100 for c, s in sc) == g[k] for sc, g in zip(scores, gold)) / len(gold)
             for t in range(5, 96)
@@ -270,7 +282,33 @@ def tune(name: str = "all-13", n_classes: int = 13, imgsz: int = 1024):
 
 # The run each class is served from. On val, fixtures-6 counts windows 4 points better; all-13 is the only one
 # with rooms, saunas and floors. Fixture counts are otherwise within noise of each other.
-SERVE = {"fixtures-6": CLASSES[:ROOMS - 1], "all-13": CLASSES[ROOMS - 1:]}
+SERVE = {"fixtures-6": (CLASSES[:ROOMS - 1], 1024), "all-13": (CLASSES[ROOMS - 1:13], 1024)}  # run: (classes, imgsz)
+
+# Tiled inference for uploads. ponytail: one fixed working size; it puts doors on a 14,000 px A2 school sheet at
+# roughly CubiCasa size (~30-50 px). A drawing scale read from the sheet (1:100, 1:200) would set it per drawing.
+TILE, TILE_OVERLAP, TILE_LONG_SIDE = 1024, 256, 3072
+
+
+def merge_tiles(boxes: list[dict], iou: float = 0.5, inside: float = 0.6) -> list[dict]:
+    """Per class, keep the best box and drop any box that overlaps it (IoU) or lies mostly inside it: the same
+    door seen whole in one tile and cut off at the edge of the next."""
+    kept: list[dict] = []
+    for b in sorted(boxes, key=lambda b: -b["score"]):
+        x0, y0, x1, y1 = b["box"]
+        area = max((x1 - x0) * (y1 - y0), 1e-9)
+        dup = False
+        for k in kept:
+            if k["cls"] != b["cls"]:
+                continue
+            kx0, ky0, kx1, ky1 = k["box"]
+            inter = max(0, min(x1, kx1) - max(x0, kx0)) * max(0, min(y1, ky1) - max(y0, ky0))
+            karea = (kx1 - kx0) * (ky1 - ky0)
+            if inter / (area + karea - inter) > iou or inter / area > inside or inter / max(karea, 1e-9) > inside:
+                dup = True
+                break
+        if not dup:
+            kept.append(b)
+    return kept
 
 
 # A cold start is ~3.5 min (image pull + two models); warm calls take seconds. For a live demo deploy with
@@ -288,13 +326,61 @@ class Detector:
         self.thresholds = {run: json.load(open(f"/vol/runs/{run}/thresholds.json")) for run in SERVE}
 
     @modal.method()
-    def detect(self, png: bytes) -> dict:
-        """Boxes above each class's tuned threshold, normalised 0..1, plus the GPU seconds spent."""
+    def detect(self, png: bytes, tile: bool = False) -> dict:
+        """Boxes above each class's tuned threshold, normalised 0..1, plus the GPU seconds spent.
+        tile=True for uploads: large sheets are scaled and cut into tiles so symbols reach the size trained on."""
         import io
 
         from PIL import Image
 
-        return self._run(Image.open(io.BytesIO(png)))
+        Image.MAX_IMAGE_PIXELS = 300_000_000  # an A1 scan at 600 dpi is ~250 MP; above that, refuse
+        im = Image.open(io.BytesIO(png))
+        return self._tiled(im) if tile else self._run(im)
+
+    def _tiled(self, im) -> dict:
+        """Fixtures model only (the room classes are Finnish-residential). Scale the long side to TILE_LONG_SIDE,
+        run 1024 px tiles with overlap, drop blank tiles, merge duplicates across tile edges."""
+        import time
+
+        import numpy as np
+
+        t = time.perf_counter()
+        im = im.convert("RGB")
+        W, H = im.size
+        s = min(1.0, TILE_LONG_SIDE / max(W, H))
+        if max(W, H) * s <= 1280:  # small enough for one pass, as on CubiCasa
+            out = self._run(im, runs=["fixtures-6"])
+            out["seconds"] = time.perf_counter() - t
+            return out
+        small = im.resize((round(W * s), round(H * s)), resample=1)  # LANCZOS
+        w, h = small.size
+        step = TILE - TILE_OVERLAP
+        xs = sorted({*range(0, max(w - TILE, 0) + 1, step), max(w - TILE, 0)})
+        ys = sorted({*range(0, max(h - TILE, 0) + 1, step), max(h - TILE, 0)})
+        tiles, offsets = [], []
+        for y in ys:
+            for x in xs:
+                crop = small.crop((x, y, x + TILE, y + TILE))
+                if np.asarray(crop.convert("L")).min() < 200:  # skip blank paper
+                    tiles.append(crop)
+                    offsets.append((x, y))
+        classes, imgsz = SERVE["fixtures-6"]
+        th = {c: self.thresholds["fixtures-6"][c] for c in classes}
+        found = []
+        for i in range(0, len(tiles), 16):
+            results = self.models["fixtures-6"].predict(tiles[i:i + 16], imgsz=imgsz, conf=min(th.values()),
+                                                        classes=[CLASSES.index(c) for c in classes], verbose=False)
+            for (ox, oy), r in zip(offsets[i:i + 16], results):
+                for (x0, y0, x1, y1), c, sc in zip(r.boxes.xyxy.tolist(), r.boxes.cls.tolist(), r.boxes.conf.tolist()):
+                    cls = CLASSES[int(c)]
+                    if sc >= th[cls]:
+                        found.append({"cls": cls, "score": sc, "box": [x0 + ox, y0 + oy, x1 + ox, y1 + oy]})
+        boxes = []
+        for b in merge_tiles(found):
+            x0, y0, x1, y1 = b["box"]
+            boxes.append({**b, "box": [x0 / w, y0 / h, x1 / w, y1 / h]})
+        return {"model": "fixtures-6:tiled", "gpu": "T4", "seconds": time.perf_counter() - t, "width": W,
+                "height": H, "boxes": boxes, "tiles": len(tiles)}
 
     @modal.method()
     def detect_raw(self, folder: str) -> dict:
@@ -304,16 +390,18 @@ class Detector:
 
         return self._run(Image.open(f"{RAW}/{folder}/F1_original.png"))
 
-    def _run(self, im) -> dict:
+    def _run(self, im, runs: list[str] | None = None) -> dict:
         import time
 
         t = time.perf_counter()
         im = im.convert("RGB")
         boxes = []
-        for run, classes in SERVE.items():
+        for run, (classes, imgsz) in SERVE.items():
+            if runs and run not in runs:
+                continue
             th = {c: self.thresholds[run][c] for c in classes}
             ids = [CLASSES.index(c) for c in classes]
-            r = self.models[run].predict(im, imgsz=1024, conf=min(th.values()), classes=ids, verbose=False)[0]
+            r = self.models[run].predict(im, imgsz=imgsz, conf=min(th.values()), classes=ids, verbose=False)[0]
             for (x0, y0, x1, y1), c, s in zip(r.boxes.xyxyn.tolist(), r.boxes.cls.tolist(), r.boxes.conf.tolist()):
                 cls = CLASSES[int(c)]
                 if s >= th[cls]:
@@ -349,7 +437,7 @@ def prebuild(limit: int = 0):
 
 
 if __name__ == "__main__":
-    assert class_of("Door Swing Beside") == 0 and class_of("Door None Beside") is None and class_of("Doors") is None
+    assert class_of("Door Swing Beside") == 0 and class_of("Door None Beside") == 13 and class_of("Doors") is None
     assert class_of("Window Regular") == 1 and class_of("FixedFurniture DoubleSinkRight") == 3
     assert class_of("FixedFurniture ShowerCab") is None and class_of("FixedFurniture ShowerScreen") is None
     assert class_of("FixedFurniture Jacuzzi") == 4 and class_of("FixedFurniture Shower") == 5
@@ -359,4 +447,8 @@ if __name__ == "__main__":
     assert class_of("Space Bedroom", "MH") == 7 and class_of("Space Kitchen Kitchenette", "KK") == 8
     assert class_of("Space Outdoor Balcony Glazed", "PARVEKE") == 11 and class_of("Space Outdoor Terrace") is None
     assert class_of("Floorplan Floor-2") == 12 and class_of("Floor") is None
+    door = lambda x0, x1, s=0.9: {"cls": "door", "score": s, "box": [x0, 0, x1, 10]}
+    # the same door whole in one tile and cut in half in the next -> one; a door further along stays
+    assert len(merge_tiles([door(0, 10), door(5, 10, 0.6), door(50, 60)])) == 2
+    assert len(merge_tiles([door(0, 10), {"cls": "window", "score": 0.5, "box": [0, 0, 10, 10]}])) == 2
     print("ok")

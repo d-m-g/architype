@@ -166,8 +166,9 @@ def _drawing(path: str):
 
 
 def _parsed(path: str) -> bool:
-    """Uploads with a structured parser go through the pipeline like dataset drawings; the rest to the vision reader."""
-    return path.lower().endswith(".dxf")
+    """Uploads with a scene builder go through the pipeline like dataset drawings (DXF parser, raster detector,
+    escalating to the vision reader and agent when it cannot answer); the rest (PDFs) go to the vision reader."""
+    return path.lower().endswith((".dxf", ".png", ".jpg", ".jpeg"))
 
 
 @app.post("/api/ask")
@@ -211,7 +212,8 @@ async def upload(request: Request, filename: str) -> dict:
     name = hashlib.sha256(data).hexdigest()[:20] + suffix  # content-addressed: the user's filename never touches the disk
     UPLOADS.mkdir(parents=True, exist_ok=True)
     (UPLOADS / name).write_bytes(data)
-    return {"path": f"uploads/{name}", "reader": "swiss_dxf_upload@1" if _parsed(name) else BUILDER}
+    reader = "swiss_dxf_upload@1" if name.endswith(".dxf") else "fixtures-6:tiled" if _parsed(name) else BUILDER
+    return {"path": f"uploads/{name}", "reader": reader}
 
 
 @app.get("/api/scene")

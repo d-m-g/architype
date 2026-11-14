@@ -34,12 +34,15 @@ def source_of(path: str) -> str:
 
 def build_scene(path: str) -> Scene:
     """Pick the builder for a drawing. Each builder is build_scene(path, file) -> Scene."""
-    if path.startswith("uploads/"):  # only DXF uploads have a parser; the API sends the rest to the vision reader
-        if not path.lower().endswith(".dxf"):
-            raise NotImplementedError("no parser for this upload type")
+    if path.startswith("uploads/"):  # DXF uploads are parsed, raster images detected; the API sends the rest to vision
         from .brain.vision import drawing_file
-        from .parsers import swiss
-        return swiss.build_scene(path, drawing_file(path))
+        if path.lower().endswith(".dxf"):
+            from .parsers import swiss
+            return swiss.build_scene(path, drawing_file(path))
+        if path.lower().endswith((".png", ".jpg", ".jpeg")):
+            from .detector import raster
+            return raster.build_scene(path, drawing_file(path), upload=True)
+        raise NotImplementedError("no parser for this upload type")
     file, source = dataset_file(path), source_of(path)
     if source == "swiss_dwellings":
         from .parsers import swiss
