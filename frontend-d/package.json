@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test viewer.test.js dashboard.test.js contracts.test.js workspace.test.js geometry-3d.test.js proxy.test.js voice.test.js",
+    "test": "node --test viewer.test.js dashboard.test.js contracts.test.js workspace.test.js geometry-3d.test.js proxy.test.js voice.test.js intake.test.js",
     "dev": "node dev-server.js"
   }
 }

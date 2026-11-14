@@ -13,7 +13,7 @@ try{
  $env:BLUEPRINTS_CACHE=Join-Path $PSScriptRoot '.cache'
  $env:PYTHONDONTWRITEBYTECODE='1'
  Push-Location $repoRoot
- & $runtimePython -m uvicorn blueprints.api:app --host 127.0.0.1 --port $Port
+ & $runtimePython -m uvicorn serve:app --app-dir frontend-d --host 127.0.0.1 --port $Port
 }finally{
  Pop-Location
  $env:BLUEPRINTS_DATA=$previousData

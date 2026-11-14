@@ -94,3 +94,33 @@ The Editor now has language-selected dictation (English, Finnish, German, French
 Recognition requires browser support and microphone permission, and may use the browser vendor's remote speech service. No audio is stored or sent to our backend. Read-aloud identifies mock data, reported confidence and uncertain evidence; null answers remain abstentions. Reading stops when the answer changes. Actual microphone/service accuracy must be checked on the demo machine.
 
 Validation: 21 Node tests, including cancelled recognition, concurrent edits, zero answers and spoken abstention.
+
+## Guided mock demo
+
+Use **Start mock demo** above the workspace for seven manually controlled steps covering evidence, quantities, uncertainty, abstention, 3D, voice and dashboard. The guide makes no API calls. Starting replaces the active viewer example; exiting leaves the current demo state. See DEMO.md for presenter cues, honest limitations and the live-data handoff.
+
+## Live judging alignment (14 November update)
+
+The editor now prioritizes **Bring your drawing**. PDF, PNG, JPEG and WebP files up to 25 MB can be selected for a browser-local preview, with content-signature checks, an editable question draft, replacement and close. No bytes are uploaded. The prior viewer/answer is hidden during preview and restored on close; the question draft is retained. Native PDF preview availability depends on the browser.
+
+**Upload analysis is blocked by the current team API contract:** blueprints/api.py exposes ask, scene and image only, and ask validates dataset paths. The disabled analysis action states this limitation. We have not invented an upload route or changed backend/schema code. To connect it, C must provide the multipart request contract, accepted formats/limits, returned drawing identifier, how that identifier is used for ask/scene/image, processing status and error shape. A/C own file ingestion and drawing readers.
+
+For existing server drawings, expand **Use a drawing already on the team server**, enter its data/ path and select **Use live drawing**. The question button switches to **Ask live drawing** and sends arbitrary text verbatim, including Finnish and multi-step questions. It does not imply that the current backend can answer them. Progress distinguishes scene loading and question answering. Cancel rejects late responses; retry restores the last submitted path/question. Missing source scenes never inherit mock evidence. Typed and dictated text use the same API.
+
+Mocks, local Scene/Answer import, illustrative 3D, dashboard and guided mock demo remain available. Use the mock demo as a labelled fallback, not as a substitute for live judging. The API still has no assumptions-override contract; assumptions remain read-only.
+
+## One-origin FastAPI hosting
+
+Run the team environment from the repository root:
+
+    python -m uvicorn serve:app --app-dir frontend-d --host 127.0.0.1 --port 8000
+
+Or use frontend-d/start-api.ps1 with your dataset root. The D entry point imports the unchanged blueprints.api app and serves the UI at / after registering API routes. Only explicitly listed browser assets are public; Python helpers, tests, environments and caches return 404. The existing Node proxy remains optional for separate frontend development.
+
+For a deployment, point the hosting service's ASGI command at this same entry point and supply the team dependencies/dataset/cache configuration. A public deployment URL has not been provisioned by this change.
+
+Live check (this makes a real ask request; configured providers may incur normal query costs):
+
+    node frontend-d/live-smoke.js http://127.0.0.1:8001 data/swiss_dwellings/site1000_bldg2082_floor9385.pdf "How many windows are on this floor?"
+
+Exit 0 verifies a returned answer, scene, evidence IDs and images; exit 2 means a missing reader/API or abstention. Overlay alignment still requires visual checking on real scenes. See PRIORITIES.md for the correction/recompute, upload and floor-stack sequence and required contracts.
