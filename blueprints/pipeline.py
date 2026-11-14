@@ -15,6 +15,7 @@ DATA_ROOT = Path(os.environ.get("BLUEPRINTS_DATA", "junction-dataset")).resolve(
 CACHE = Path(os.environ.get("BLUEPRINTS_CACHE", ".cache")).resolve()
 READ_CACHE = True  # eval.py --fresh turns this off while you iterate on a builder
 ESCALATE_BELOW = 0.5  # ponytail: one fixed threshold; tune it on the eval's cost-against-accuracy curve
+_BUILT_NOW: set[str] = set()  # scenes built in this process; the next answer on that drawing pays their cost
 
 
 def dataset_file(path: str) -> Path:
@@ -59,6 +60,7 @@ def get_scene(path: str) -> Scene:
     if READ_CACHE and cached.exists():
         return Scene.model_validate_json(cached.read_text())
     scene = build_scene(path)
+    _BUILT_NOW.add(path)
     cached.parent.mkdir(parents=True, exist_ok=True)
     cached.write_text(scene.model_dump_json())
     return scene
@@ -66,12 +68,20 @@ def get_scene(path: str) -> Scene:
 
 def answer(path: str, question: str) -> Answer:
     scene = None
+    steps = []
     try:
         scene = get_scene(path)
-        from .brain.plan import make_plan
-        result = execute(make_plan(question, scene), scene)
-    except NotImplementedError as e:
-        result = Answer(error=str(e))
+        if path in _BUILT_NOW:  # the first question on a drawing carries the scene's build cost
+            _BUILT_NOW.discard(path)
+            steps += scene.trace
+        from .brain.plan import plan_with_trace
+        plan, plan_steps = plan_with_trace(question, scene)
+        steps += plan_steps
+        result = execute(plan, scene)
+    except Exception as e:  # a crashed builder (e.g. an undeployed Modal app) escalates instead of failing the answer
+        steps += getattr(e, "steps", [])  # the planner's cost when it judged the question unsupported
+        result = Answer(error=str(e) if isinstance(e, NotImplementedError) else f"{type(e).__name__}: {e}")
+    result.trace = steps + result.trace
     if result.answer is None or result.confidence < ESCALATE_BELOW:
         try:
             from .brain.escalate import escalate
