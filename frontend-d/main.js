@@ -42,6 +42,8 @@ function stageStatus(text){
 }
 
 // ───────── words ─────────
+const ROOM_TYPE={bedroom:'bedroom',kitchen:'kitchen',bathroom:'bathroom',wc_room:'toilet room',sauna:'sauna',balcony:'balcony',living:'living room',
+ corridor:'corridor',storage:'storage',other:'other (none of the counted types)'};
 const KINDS={room:['Room','Rooms'],door:['Door','Doors'],window:['Window','Windows'],fixture:['Fixture','Fixtures'],apartment:['Apartment','Apartments'],
  level:['Floor','Floors'],wall:['Wall','Walls'],slab:['Slab','Slabs'],column:['Column','Columns'],row:['Schedule row','Schedule rows'],other:['Other item','Other items']};
 const UNIT={count:'',m2:'m²',ft2:'ft²',m:'m',m3:'m³'};
@@ -251,7 +253,8 @@ export function select(id,{zoomTo=false,focusEvidence=false,scrollEvidence=true}
  box.append(
   el('button',{class:'btn icon close',type:'button','aria-label':'Close',onclick:()=>select(null)},'×'),
   el('strong',{},entity.label),
-  el('p',{},[KINDS[entity.type]?.[0]??entity.type,entity.quantityText,entity.context].filter(Boolean).join(', ')),
+  // A room's name is what the drawing says; its type is what "how many bedrooms" counts, so show it to be checked.
+  el('p',{},[entity.type==='room'?`Room, type: ${ROOM_TYPE[entity.subtype]??'not known'}`:KINDS[entity.type]?.[0]??entity.type,entity.quantityText,entity.context].filter(Boolean).join(', ')),
   el('p',{class:'muted small'},[n>=0?`Counted in the answer as number ${n+1}`:'Not part of this answer',
    Number.isFinite(entity.conf)?`Model score ${Math.round(entity.conf*100)}/100 (uncalibrated)`:'Model score unavailable',entity.ref?`source ${entity.ref}`:null].filter(Boolean).join(' · ')));
  for(const fn of inspectors)fn(entity,box);
@@ -617,8 +620,10 @@ function abortAsk(){if(askAbort){askAbort.abort();askAbort=null;}if(asking)setAs
 $('cancel-request').onclick=()=>{abortAsk();renderAnswer();$('question').value=state.lastAsked??'';autosize();$('question').focus();};
 $('retry-request').onclick=()=>ask(state.question);
 const plans=new Map();
-async function planFor(question,signal){
- if(!plans.has(question))plans.set(question,await requestJSON('/api/plan?'+new URLSearchParams({question}),{signal}));
+/** The question's plan, asked for once: the request itself is kept, so callers that arrive while it is in flight share it. */
+function planFor(question,signal){
+ if(!plans.has(question))plans.set(question,requestJSON('/api/plan?'+new URLSearchParams({question}),{signal})
+  .catch(error=>{plans.delete(question);throw error;}));  // a failed or cancelled request is asked again next time
  return plans.get(question);
 }
 const runPlan=(plan,signal)=>requestJSON('/api/recompute',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scene:state.raw,plan}),signal});
