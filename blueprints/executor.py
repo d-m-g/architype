@@ -55,13 +55,15 @@ def execute(plan: QueryPlan, scene: Scene) -> Answer:
     t0 = time.perf_counter()
 
     def done(**fields) -> Answer:
-        step = TraceStep(step="execute", ms=(time.perf_counter() - t0) * 1000)
+        step = TraceStep(step="execute", ms=(time.perf_counter() - t0) * 1000, detail=fields.get("formula") or fields.get("error"))
+        if "confidence" in fields:
+            fields["confidence_note"] = " ".join(why)
         return Answer(tier=scene.tier, interpretation=plan.interpretation, assumptions=plan.assumptions,
                       trace=[step], **fields)
 
     values: dict[str, float] = {}
     evidence: list[str] = []
-    confidence, shown = 1.0, ""
+    confidence, shown, why = 1.0, "", []
     for name, q in plan.queries.items():
         key = f"{q.type}:{q.subtype}" if q.subtype else q.type
         if key not in scene.covers:
@@ -90,7 +92,15 @@ def execute(plan: QueryPlan, scene: Scene) -> Answer:
         # even when the count was right. ponytail: a heuristic, not a calibrated probability; replace with the count
         # accuracy measured per class on val (isotonic) once the confidence score is judged.
         if hits:
-            confidence = min(confidence, math.exp(sum(math.log(max(e.conf, 1e-9)) for e in hits) / len(hits)))
+            typical = math.exp(sum(math.log(max(e.conf, 1e-9)) for e in hits) / len(hits))
+            confidence = min(confidence, typical)
+            lowest = min(e.conf for e in hits)
+            why.append(f"{len(hits)} x {key}: every item read from the file, score 100 each." if lowest >= 1 else
+                       f"{len(hits)} x {key}: typical item score {typical:.0%} (geometric mean; lowest {lowest:.0%}).")
+        else:
+            why.append(f"No {key} matched; a zero is only as sure as the reader's search for {key}, which no item score lowers.")
+    if len(why) > 1:
+        why.append("The weakest of these sets the answer's confidence.")
 
     if plan.formula is None:
         value = next(iter(values.values()))

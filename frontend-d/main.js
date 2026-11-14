@@ -445,7 +445,7 @@ function suggest(){
 // ───────── right side: the answer ─────────
 const TIER={parse:'Read from the CAD geometry',detect:'Counted from detections',llm:'Vision model and agent',none:'No route answered'};
 const STEP={scene:'Read the drawing',room_types:'Named the room types',plan:'Understood the question',execute:'Counted and measured',escalate:'Agent reasoning',
- look:'Vision model looked at the drawing','tool:list_entities':'Agent listed what is on the drawing','tool:run_plan':'Agent ran a calculation','tool:look':'Agent asked for a closer look'};
+ look:'Vision model looked at the drawing',verify_answer:'Verified the final calculation','tool:list_entities':'Agent listed what is on the drawing','tool:run_plan':'Agent ran a calculation','tool:look':'Agent asked for a closer look'};
 function renderAnswer(){
  const result=state.result,raw=state.rawAnswer;
  $('answer-card').hidden=$('working').hidden===false||!result;
@@ -466,9 +466,13 @@ function renderAnswer(){
  $('retry-request').hidden=!failed;
 
  const confidence=Math.round(raw.confidence*100),level=raw.confidence>=.8?'high':raw.confidence>=.5?'medium':'low';
+ const verifiedCalculation=typeof raw.answer==='number'&&Number.isFinite(raw.answer)&&Boolean(raw.formula)&&(raw.trace??[]).some(step=>step.step==='execute');
+ const sourceDerived=verifiedCalculation&&(raw.tier!=='llm'||raw.trace.some(step=>step.step==='verify_answer'));
  const models=[...new Set((raw.trace??[]).filter(step=>step.model&&!step.cached&&step.usd).map(step=>step.model))];
  $('facts').replaceChildren(...[
-  failed?null:['Confidence',el('span',{class:'meter'},el('i',{style:`width:${confidence}%;--c:${confidence}`})),`${confidence}%, ${level}`],
+  failed?null:[sourceDerived?'Source score':'Confidence',el('span',{class:'meter'},el('i',{style:`width:${confidence}%;--c:${confidence}`})),sourceDerived?`${confidence}%`:`${confidence}%, ${level}`],
+  failed||!verifiedCalculation?null:['Calculation',null,'Verified arithmetic'],
+  failed||!raw.confidence_note?null:['How scored',null,raw.confidence_note],
   ['Route',null,TIER[raw.tier]],
   ['Models',null,models.join(', ')||'none needed'],
   ['Cost',null,money(raw.cost_usd)],
@@ -498,7 +502,8 @@ function renderAnswer(){
   return el('li',{class:skipped?'skipped':step.model?'model':''},
    el('span',{class:'step-name'},skipped?`${step.step.split(' ')[1]} did not respond, skipped`:STEP[step.step]??step.step),
    el('span',{class:'step-meta'},[step.model,tokens,step.gpu_s?`${step.gpu_s.toFixed(1)} GPU s`:null,step.cached?'cached':null,step.ms?seconds(step.ms):null].filter(Boolean).join(' · ')),
-   el('span',{class:'step-cost'},step.usd?money(step.usd):'free'));
+   el('span',{class:'step-cost'},step.usd?money(step.usd):'free'),
+   step.detail?el('span',{class:'step-detail'},step.detail):'');
  }));
  const reading=(state.raw?.trace??[]).reduce((sum,step)=>sum+(step.usd??0),0);
  $('trace-note').textContent=reading?`Reading this drawing cost ${money(reading)} once; every later question reuses it.`:'';
