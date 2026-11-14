@@ -7,7 +7,9 @@
    with the entities it used. Its tool calls are logged as trace steps, for the answer card.
 """
 import base64
+import ast
 import json
+import math
 import os
 import time
 from collections import Counter
@@ -37,7 +39,12 @@ a scene: a list of entities (rooms, doors, windows, fixtures, apartments, levels
 - Use look only when the scene lacks something you need; it asks a vision model about the page or a region of it.
 - Finish by calling answer with the value, its unit, the ids of the entities the answer rests on, and a one-sentence
   explanation. When the question asks how many, how big or how much, the answer is that number and the names go in
-  the explanation (e.g. answer 31.05, unit m2, explanation "Reduit 2.30 is the largest room"). If the question cannot be answered from this drawing, call answer with answer "cannot answer" and say why."""
+  the explanation (e.g. answer 31.05, unit m2, explanation "Reduit 2.30 is the largest room").
+- For EVERY numeric final answer, include plan: the complete QueryPlan JSON that computes the FINAL requested value,
+  including tile size, waste and rounding when requested. The server executes this plan and uses its result, formula
+  and evidence, not your proposed number or arithmetic in the explanation. Select a single room by its number and
+  apartment when appropriate; do not sum every bathroom for a question about the largest bathroom.
+- If the question cannot be answered from this drawing, call answer with answer "cannot answer" and say why."""
 
 TOOLS = [
     {"type": "function", "function": {
@@ -64,7 +71,8 @@ TOOLS = [
         "name": "answer", "description": "Give the final answer.",
         "parameters": {"type": "object", "required": ["answer", "explanation"], "properties": {
             "answer": {"type": ["number", "string"]}, "unit": {"type": "string", "enum": ["count", "m2", "m", "m3", "ft2"]},
-            "evidence": {"type": "array", "items": {"type": "string"}}, "explanation": {"type": "string"}}}}},
+            "evidence": {"type": "array", "items": {"type": "string"}}, "explanation": {"type": "string"},
+            "plan": {"type": "string", "description": "Required for numeric answers: complete QueryPlan JSON computing the final requested value, including all arithmetic and rounding. The server uses this calculation as the answer."}}}}},
 ]
 
 
@@ -165,6 +173,47 @@ def _tool(name: str, args: dict, scene: Scene) -> tuple[str, list[TraceStep]]:
     return f"unknown tool {name}", []
 
 
+def _verified_plan(text: str, scene: Scene) -> Answer:
+    """Bind a numeric final answer to scene queries and the exact arithmetic executor."""
+    if not isinstance(text, str) or not text.strip():
+        raise ValueError("include plan with the complete final QueryPlan JSON")
+    plan = QueryPlan.model_validate_json(text)
+    if not plan.queries:
+        raise ValueError("the final calculation needs at least one scene query")
+    if plan.formula:
+        if len(plan.formula) > 200:
+            raise ValueError("formula too long")
+        names = {node.id for node in ast.walk(ast.parse(plan.formula, mode="eval")) if isinstance(node, ast.Name)}
+        if not names.intersection(plan.queries):
+            raise ValueError("the final formula must use a scene query")
+    known = {k for e in scene.entities for k in e.attrs}
+    unknown = sorted({k for q in plan.queries.values() for k in q.where} - known)
+    if unknown:
+        raise ValueError(f"no entity has the attribute(s) {unknown} for `where`")
+    result = execute(plan, scene)
+    if result.answer is None:
+        raise ValueError(result.error or "the scene cannot support this calculation")
+    if not math.isfinite(float(result.answer)):
+        raise ValueError("the calculation did not produce a finite number")
+    return result
+
+
+def _calculation_sources(result: Answer, scene: Scene) -> str:
+    """Generate the caption from the verified evidence, without repeating model-written arithmetic."""
+    evidence = set(result.evidence)
+    hits = [e for e in scene.entities if e.id in evidence]
+    if not hits:
+        return "Calculated from the covered scene; no matching objects were found."
+
+    def label(entity):
+        return " · ".join(str(part) for part in (entity.label or entity.type, entity.number,
+                                                   f"apartment {entity.apartment}" if entity.apartment else None) if part)
+
+    names = "; ".join(label(e) for e in hits[:6])
+    more = f"; and {len(hits) - 6} more objects" if len(hits) > 6 else ""
+    return f"Calculated from {names}{more}. See the formula and highlighted source evidence."
+
+
 AGENT_FALLBACK_MODEL = "gemini-3.8-flash"  # runs the same loop when Nemotron does not answer in time
 CALL_TIMEOUT_S = 40
 AGENT_BUDGET_S = 120
@@ -252,6 +301,27 @@ def _agent_loop(question, scene, draft, inline_evidence, url, key, model, extra,
                 value = args.get("answer")
                 if isinstance(value, str) and value.strip().lower() == "cannot answer":
                     value = None
+                numeric = isinstance(value, (int, float))
+                if isinstance(value, str):
+                    try:
+                        float(value)
+                        numeric = True
+                    except ValueError:
+                        pass
+                if value is not None and (numeric or args.get("unit") is not None):
+                    try:
+                        verified = _verified_plan(args.get("plan", ""), scene)
+                    except (ValueError, TypeError, ArithmeticError, SyntaxError) as error:
+                        messages.append({"role": "tool", "tool_call_id": call.id,
+                                         "content": f"Final answer not verified: {error}. Call answer again with plan containing the complete final QueryPlan JSON, or answer 'cannot answer'."})
+                        force_answer = True
+                        continue
+                    return verified.model_copy(update={
+                        "tier": "llm", "confidence": min(AGENT_CONFIDENCE, verified.confidence),
+                        "interpretation": _calculation_sources(verified, scene),
+                        "extra_entities": [e for e in scene.entities if e.id in set(verified.evidence)] if inline_evidence else [],
+                        "trace": draft.trace + steps + verified.trace,
+                    })
                 if _same_value(value, draft.answer) and draft.evidence:
                     # The agent confirmed the cheap path's number: keep its full evidence. Models trim long id
                     # lists (99 of 124 doors cited), which left counted items marked "not cited" in the viewer.
@@ -267,4 +337,5 @@ def _agent_loop(question, scene, draft, inline_evidence, url, key, model, extra,
             steps.append(TraceStep(step=f"tool:{call.function.name}", ms=(time.perf_counter() - t1) * 1000))
             steps += costed
             messages.append({"role": "tool", "tool_call_id": call.id, "content": text[:8000]})
-    raise NotImplementedError(f"lane C: the agent ({model}) gave no answer in {MAX_TURNS} turns")
+    return Answer(tier="llm", error="Could not verify a final answer against the drawing. No unverified number is shown.",
+                  trace=draft.trace + steps)
