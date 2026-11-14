@@ -120,5 +120,85 @@ class VerifiedAgentAnswers(unittest.TestCase):
         self.assertEqual(result.evidence, ["bath"])
 
 
+def measured_scene(tier="parse"):
+    """A parsed plan as the parsers record it: a room's perimeter and a door's width in qty.m, the rest in attrs."""
+    return Scene(path="uploads/plan.dxf", builder="test", tier=tier, covers=["room", "door", "window"],
+                 pages=[Page(image="pages/plan.png", width=1000, height=800)], entities=[
+                     Entity(id="bed", type="room", label="Schlafzimmer", number="7.08", qty={"m2": 15.66, "m": 15.926},
+                            attrs={"width_m": 3.545, "length_m": 4.418}),
+                     Entity(id="door-1", type="door", qty={"m": 0.878}, attrs={"thickness_m": 0.151, "room": "7.08"}),
+                     Entity(id="window-1", type="window", attrs={"room": "7.08"}),  # a box the parser could not size
+                     Entity(id="level-1", type="level", attrs={"elevation_m": 0.0, "frame_x_m": -3.2, "frame_w_m": 40.0}),
+                 ])
+
+
+class ParsedFilesAreNeverMeasuredFromThePicture(unittest.TestCase):
+    run_agent = VerifiedAgentAnswers.run_agent
+
+    def tool_names(self, source):
+        _, client = self.run_agent([{"answer": "cannot answer", "explanation": "x"}], source=source)
+        sent = client.chat.completions.create.call_args.kwargs
+        return [t["function"]["name"] for t in sent["tools"]], sent["messages"][0]["content"]
+
+    def test_a_parsed_scene_offers_no_look_tool_and_says_where_sizes_come_from(self):
+        names, system = self.tool_names(measured_scene())
+        self.assertEqual(names, ["list_entities", "run_plan", "answer"])
+        self.assertNotIn("Use look", system)
+        self.assertIn("Sizes come only from the scene's\n  recorded quantities", system)
+        self.assertIn('"cannot answer" and say which measurement is missing', system)
+
+    def test_an_image_scene_keeps_look(self):
+        names, system = self.tool_names(measured_scene(tier="detect"))
+        self.assertEqual(names, ["list_entities", "run_plan", "look", "answer"])
+        self.assertEqual(system, escalate.SYSTEM)
+        self.assertIn("Use look only when the scene lacks something you need", system)
+
+    def test_look_is_refused_on_a_parsed_scene_even_if_a_model_calls_it(self):
+        with patch.object(escalate, "_look", side_effect=AssertionError("no picture-reading on a parsed file")) as look:
+            text, steps = escalate._tool("look", {"question": "How wide is the bedroom?"}, measured_scene())
+        look.assert_not_called()
+        self.assertIn("not available", text)
+        self.assertEqual(steps, [])
+        with patch.object(escalate, "_look", return_value=("about 3.5 m", TraceStep(step="look"))):
+            self.assertEqual(escalate._tool("look", {"question": "?"}, measured_scene(tier="detect"))[0], "about 3.5 m")
+
+    def test_list_entities_shows_every_recorded_size(self):
+        rows = {r["id"]: r for r in json.loads(escalate._tool("list_entities", {}, measured_scene())[0])["entities"]}
+        self.assertEqual((rows["bed"]["area_m2"], rows["bed"]["qty"], rows["bed"]["sizes"]),
+                         (15.66, {"m": 15.926}, {"width_m": 3.545, "length_m": 4.418}))
+        self.assertEqual((rows["door-1"]["qty"], rows["door-1"]["sizes"]), ({"m": 0.878}, {"thickness_m": 0.151}))
+        self.assertEqual(rows["door-1"]["connections"], {"room": "7.08"})
+        self.assertNotIn("qty", rows["window-1"])
+        self.assertEqual(rows["level-1"]["sizes"], {"elevation_m": 0.0})  # the page frame is for the viewer
+
+    def test_list_entities_stays_within_what_the_agent_is_shown(self):
+        source = measured_scene()
+        source.entities = [Entity(id=f"wall-{i:04d}-{'x' * 22}", type="wall", label="Basic Wall:Interior - Partition",
+                                  qty={"m": 4.16, "m2": 10.7952, "m3": 1.64}, level="Level 1",
+                                  attrs={"height_m": 2.595, "thickness_m": 0.152, "size_source": "geometry"}) for i in range(400)]
+        text = escalate._tool("list_entities", {"type": "wall"}, source)[0]
+        said = json.loads(text)  # whole rows: valid JSON, not cut off mid-entity
+        self.assertLessEqual(len(text), escalate.TOOL_REPLY_CHARS)
+        self.assertEqual((said["count"], said["shown"]), (400, len(said["entities"])))
+        self.assertGreater(said["shown"], 20)
+
+    def test_a_recorded_length_answers_through_the_executor(self):
+        plan = {"queries": {"skirting": {"op": "sum", "type": "room", "number": "7.08", "qty": "m"}}, "unit": "m"}
+        result, _ = self.run_agent([{"answer": 16, "unit": "m", "explanation": "about 16 m", "plan": json.dumps(plan)}],
+                                   source=measured_scene())
+        self.assertEqual((result.answer, result.unit, result.evidence), (15.926, "m", ["bed"]))
+
+    def test_an_unrecorded_measurement_is_not_answered(self):
+        plan = {"queries": {"w": {"op": "sum", "type": "window", "qty": "m"}}, "unit": "m"}
+        result, client = self.run_agent([  # a guessed width cannot be published: the window has no recorded width
+            {"answer": 1.2, "unit": "m", "explanation": "It looks about 1.2 m wide.", "plan": json.dumps(plan)},
+            {"answer": "cannot answer", "explanation": "The window's width is not recorded in the scene."},
+        ], source=measured_scene())
+        self.assertIsNone(result.answer)
+        self.assertEqual(result.error, "The window's width is not recorded in the scene.")
+        refusal = [m["content"] for m in client.chat.completions.create.call_args.kwargs["messages"] if m.get("role") == "tool"]
+        self.assertTrue(any("no m on window-1" in text for text in refusal))
+
+
 if __name__ == "__main__":
     unittest.main()

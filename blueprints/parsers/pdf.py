@@ -8,6 +8,7 @@ stroke and fill, so a path's style and shape say what it is (checked against the
   door       a stroke-only quad in grey 0.27 (the door box; swing arcs and leaves are drawn separately)
   window     a white box with a black stroke, standing in a wall gap (its centre in no room)
   fixture    a white box with a black stroke inside a room, named by the symbol drawn in it (as swiss_fixtures.py)
+With a scale, sizes are measured on the paths as swiss.py measures them on the DXF (README.md, "Sizes").
 Room labels, numbers and apartment markers are real text, in drawing order: [marker] label number [area].
 Anything else raises NotImplementedError, so the upload falls back to the vision reader.
 
@@ -19,12 +20,13 @@ from collections import Counter
 from pathlib import Path
 
 from ..schemas import Entity, Page, Scene
-from .swiss import AREA, MARKER, NUMBER, OUTDOOR, OUTDOOR_GREY, SHARED_GREY, label_units, located, unit_index
+from .swiss import (AREA, MARKER, NUMBER, OUTDOOR, OUTDOOR_GREY, ROOM_EDGE, SHARED_GREY, WALL_EDGE, label_units,
+                    located, room_dims, sized, unit_index)
 
 M_PER_PT = 0.0254 / 72  # one point on paper, in metres, at 1:1
 SCALE = re.compile(r"\b1\s*:\s*(\d{2,4})\b")  # "Massstab 1:100 (A3)", "Echelle 1:200"
 PRINTED = re.compile(r"(\d+(?:[.,]\d+)?)\s*m(?:²|2)")  # "15.61 m²", next to a room number
-BUILDER = "pdf_vector@1"
+BUILDER = "pdf_vector@2"  # @2: perimeters, room and opening sizes; pipeline.get_scene rebuilds older cached scenes
 
 
 def _grey(rgb) -> float | None:
@@ -194,6 +196,8 @@ def build_scene(path: str, file: Path) -> Scene:
             ref=f"pdf:text{num}"))
         if poly:
             placed.append((poly, room))
+            if m_per_pt:
+                room.qty["m"], room.attrs["width_m"], room.attrs["length_m"] = room_dims(poly, m_per_pt)
 
     # Each symbol primitive belongs to the smallest white box around it; plain lines to every box they lie in
     # (tested against the box itself: a rotated box's bounding rectangle catches door leaves beside it).
@@ -219,14 +223,23 @@ def build_scene(path: str, file: Path) -> Scene:
         if inplan(Polygon(pts).bounds):
             found.setdefault(("door", *(round(v, 2) for p in pts for v in p)), ["door", pts, 0])[2] += 1
 
+    # Door and window widths need the scale. The PDF draws each wall as one outline running across its openings, so
+    # only the room outlines tell an opening's width from the wall's thickness (swiss.py's tolerance, in points).
+    # In a thin partition that reach also catches the jambs, so a box it cannot place is tried once more at 5 mm.
+    room_edges = unary_union([p.boundary for p, _ in outlines])
+    zones = [(room_edges.buffer(t / m_per_pt), False) for t in (ROOM_EDGE, WALL_EDGE)] if m_per_pt else []
+
     n = Counter()
     for kind, pts, copies in found.values():
         n[kind] += 1
         fixture = kind not in ("door", "window")
+        where = located("fixture" if fixture else kind, pts, copies, placed, near)
+        dims = sized(pts, zones, m_per_pt) if m_per_pt and not fixture else {}
+        where["attrs"] |= dims.get("more", {})
         entities.append(Entity(
             id=f"fixture-{kind}-{n[kind]}" if fixture else f"{kind}-{n[kind]}", type="fixture" if fixture else kind,
             subtype=kind if fixture else None, geom=[(min(max(x / W, 0), 1), min(max(y / H, 0), 1)) for x, y in pts],
-            ref=f"pdf:{kind}{n[kind]}", **located("fixture" if fixture else kind, pts, copies, placed, near)))
+            ref=f"pdf:{kind}{n[kind]}", qty=dims.get("qty", {}), **where))
 
     # Found the renderer's rooms and their texts, so its doors, windows and fixtures are drawn its way too: none
     # drawn means none. Areas are left out without a scale, so area questions are refused rather than guessed.
@@ -248,6 +261,12 @@ if __name__ == "__main__":
     assert [count("fixture", k) for k in ("toilet", "sink", "bathtub", "shower")] == [4, 4, 2, 1]
     room = lambda p, n: next(e for e in build_scene("uploads/c.pdf", root / f"{p}.pdf").entities if e.number == n)
     assert room("site2155_bldg3005_floor13704", "4.11").qty["m2"] == 14.7  # outline minus the hole inside it
+    # Sizes agree with the DXF's to the PDF's coordinate precision (2 cm), and every door and window gets one.
+    bed = rooms["7.08"]  # a plain rectangle; the DXF gives 15.926, 3.545, 4.418
+    assert max(abs(a - b) for a, b in zip((bed.qty["m"], bed.attrs["width_m"], bed.attrs["length_m"]), (15.926, 3.545, 4.418))) <= 0.02
+    widths = sorted(e.qty["m"] for e in s.entities if e.type in ("door", "window"))
+    assert len(widths) == 29 and 0.5 <= widths[0] and widths[-1] <= 3.5, widths
+    assert abs(sorted(e.qty["m"] for e in s.entities if e.type == "door")[9] - 0.878) <= 0.02  # the plan's usual door
     assert room("site2135_bldg2978_floor13581", "2.01").outdoor  # unlabelled balcony, known by its grey fill
 
     # No scale text: calibrate from printed areas ("15.61 m²"); with neither, no areas, so area questions are refused.
@@ -259,4 +278,5 @@ if __name__ == "__main__":
     s = build_scene("uploads/c.pdf", root / "site3387_bldg5238_floor23498.pdf")
     plan = QueryPlan(queries={"a": Query(op="sum", type="room", number="7.01", qty="m2")}, unit="m2")
     assert execute(plan, s).answer is None and len([e for e in s.entities if e.type == "room"]) == 24
+    assert not any(e.qty for e in s.entities), "no scale, so nothing in metres"
     print("ok")

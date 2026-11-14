@@ -33,8 +33,8 @@ Each `Entity`:
 | `level`, `apartment` | Labels as drawn: `"4.korrus"`, `"A"`. |
 | `outdoor` | `true` for balconies, loggias and terraces. The area questions exclude them. |
 | `geom` | Polygon in page coordinates, each value 0..1 of the page image, origin top-left. Pixels are rejected. |
-| `qty` | Quantities keyed by unit: `{"m2": 4.49}`. Units are `m2`, `m`, `m3`, `ft2`. |
-| `attrs` | Anything else a question may filter on, such as schedule columns. |
+| `qty` | Quantities keyed by unit: `{"m2": 4.49}`. Units are `m2`, `m`, `m3`, `ft2`. One value per unit: see Sizes. |
+| `attrs` | Anything else a question may filter on, such as schedule columns, and the sizes that do not fit `qty`. |
 | `conf` | Leave at 1.0 for parsed entities. |
 | `ref` | Where it came from: `dxf:<handle>`, `ifc:<GlobalId>`. |
 
@@ -43,6 +43,35 @@ Each `Entity`:
 A count of zero only means "none" if you looked. List a key in `covers` when your parser finds every entity of that kind, including when this drawing happens to have none. The executor refuses to answer about a key that is not covered, so the question escalates and never comes back as a confident zero.
 
 A query with a subtype needs `type:subtype` covered; a query without one needs `type`.
+
+### Sizes
+
+A parser records every dimension it knows. For a format with hard measurements (DXF, vector PDF, IFC) no model ever resolves an area or a dimension: the parser does, and a model only chooses which entities and which recorded quantity to use. A size the parser did not record is not answered; the escalation agent has no picture-reading tool on a parsed scene.
+
+A query sums one `qty` unit, and an entity holds one value per unit, so each unit means one thing per entity type:
+
+| Type | `qty.m2` | `qty.m` | `qty.m3` | `attrs`, in metres |
+|---|---|---|---|---|
+| `room` | net floor area | perimeter of its outer outline | | `width_m`, `length_m`, `height_m` |
+| `door`, `window` | | width: the opening's length along the wall | | `height_m`, `thickness_m` (the wall's, at the opening) |
+| `wall` | net side area: one face, less openings | length | net volume | `height_m`, `thickness_m` |
+| `slab` | top area | | net volume | `thickness_m` |
+
+- Everything in `attrs` is a number in metres with the unit in its name. Do not repeat a `qty` value there.
+- A room's `width_m` and `length_m` are its extent across and along its own longest wall, not the page axes, so a room drawn at an angle measures the same. `length_m` is the larger. For an L-shaped room they are the box around it, so `width_m * length_m` is more than its area.
+- A door's width is its opening in the wall. Never take it from the bounding box of its footprint, which may hold the swing arc, nor from which side of its frame is longer: `swiss_openings.size` reads it from where the frame meets the wall ends and the room outlines.
+- Leave a size out when it cannot be determined. No width is better than a guessed one: the question is then refused instead of answered wrongly.
+- Say how a size was obtained when it was not read from the file as stated. The IFC parser sets `attrs.size_source` to `quantity set` or `attributes` (the model states it), `geometry` (measured on the element's body), or `quantity set; geometry: height_m, thickness_m` when only the named ones were measured; rooms keep `attrs.area_source` for the area. DXF and PDF sizes are all measured on the drawn geometry, so those parsers set no source.
+
+What each parser records:
+
+| Parser | Sizes | From |
+|---|---|---|
+| `swiss.py` (`swiss_dxf@7`, `swiss_dxf_upload@2`) | room area, perimeter, width, length; door and window width and wall thickness | The DXF geometry, which is in metres. |
+| `pdf.py` (`pdf_vector@2`) | the same | The PDF paths times the scale (the title block's `1:100`, else calibrated on printed room areas). With no scale nothing is in metres, so nothing is recorded. |
+| `ifc.py` (`ifc@3`) | room area, perimeter, width, length, height; wall length, net side area, volume, height, thickness; door and window width and height; slab top area, volume, thickness | Quantity sets and `OverallWidth` / `OverallHeight` first, converted to metres; else the element's body. Volumes are only ever the model's own. Measured on the body, a wall's length and thickness come from its footprint and its side area is volume over thickness less its openings; a slab's top area is its plan area over the cosine of its slope. A slab's stated thickness (`Depth` or `Width`, which exporters use differently) and net area are checked against the body before use. |
+
+When a builder's entities change, bump its version string. `pipeline.get_scene` rebuilds a cached parsed scene whose builder is not the current one, so nobody has to delete `.cache/scenes/`.
 
 ## What the Swiss questions need
 
@@ -68,6 +97,6 @@ uv run python eval.py --source swiss_dwellings --limit 200 --fresh
 uv run python test_contract.py
 ```
 
-`--fresh` rebuilds scenes; without it you read the cache in `.cache/scenes/swiss_dwellings/`. Delete that folder when your builder changes.
+`--fresh` rebuilds scenes; without it you read the cache in `.cache/scenes/swiss_dwellings/`. Bump your builder's version string when its entities change, and the cached scenes rebuild on their next read.
 
 The question rules in `brain/plan.py` already cover every English Swiss question, so your accuracy shows up as soon as the scenes are right. Questions in other languages stay unanswered until lane C's parser exists.
