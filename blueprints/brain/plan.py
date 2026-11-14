@@ -61,11 +61,15 @@ or sums one quantity over them (op "sum" with qty). Filters are exact text match
   identifies (room 7.01, apartment B) are filters; abbreviations or examples in parentheses just explain the
   question. When a room is given by its number and its name, as in room 7.01 ({{label}}), filter on number "7.01"
   and leave the name out. Apartments are identified by the apartment filter.
+- A room has three quantities: m2 is its net floor area (floors, ceilings), m the perimeter of its outline (skirting
+  boards) and wall_m2 its wall area net of doors and windows (paint, wallpaper, wall tiles), at the room's height
+  where the drawing gives one and an assumed 2.5 m otherwise.
 - outdoor: false when the question excludes balconies, loggias, terraces or other outdoor spaces; otherwise leave it out.
 - formula: arithmetic over query names and numeric assumptions, with + - * / // ( ) ceil floor round min max abs.
   Required when there are several queries ("how many A and B" is two counts added). Never compute numbers yourself.
 - assumptions: values the user may want to change (tile size in m2, waste). interpretation: the reading you chose, if ambiguous.
-- unit of the final answer: count, m2, m, m3 or ft2.
+- unit of the final answer: count, m2, m, m3 or ft2. A wall area is m2. Litres of paint have no unit of their own:
+  use count and say "Litres of paint" in interpretation.
 - Quoted names in the question are replaced by placeholders such as {{label}}. Copy a placeholder verbatim into
   the filter it belongs to.
 - A plan can only count or sum entities chosen by exact filters, then do arithmetic. It cannot pick the largest or
@@ -79,6 +83,16 @@ Examples:
 {{"queries": {{"area": {{"op": "sum", "type": "room", "label": "{{label}}", "qty": "m2"}}}},
  "formula": "ceil(area * (1 + waste) / tile_m2)", "unit": "count",
  "interpretation": "Floor tiles only.", "assumptions": {{"tile": "40 x 40 cm", "tile_m2": 0.16, "waste": 0.1}}}}
+"What is the perimeter of room 3.02 ({{label}})?" ->
+{{"queries": {{"perimeter": {{"op": "sum", "type": "room", "number": "3.02", "qty": "m"}}}}, "unit": "m"}}
+"What is the wall area of the bedrooms?" ->
+{{"queries": {{"walls": {{"op": "sum", "type": "room", "subtype": "bedroom", "qty": "wall_m2"}}}}, "unit": "m2",
+ "interpretation": "Wall area net of doors and windows; room height from the drawing, else 2.5 m."}}
+"How much paint do I need for the walls of apartment A?" ->
+{{"queries": {{"walls": {{"op": "sum", "type": "room", "apartment": "A", "outdoor": false, "qty": "wall_m2"}}}},
+ "formula": "ceil(walls * coats / m2_per_litre)", "unit": "count",
+ "interpretation": "Litres of paint for the walls, net of doors and windows; ceilings not included; room height from the drawing, else 2.5 m.",
+ "assumptions": {{"coats": 2, "m2_per_litre": 10}}}}
 Reply with the JSON only."""
 
 
@@ -276,6 +290,10 @@ def _self_check() -> None:
     assert _canon(_rule("How many showers and bathtubs are drawn on this floor plan?")) == _canon(QueryPlan.model_validate(
         {"queries": {"b": {"op": "count", "type": "fixture", "subtype": "bathtub"}, "s": {"op": "count", "type": "fixture", "subtype": "shower"}},
          "formula": "b + s", "unit": "count"}))
+    # every example in the prompt is a valid plan, the perimeter, wall-area and paint ones included
+    examples = [QueryPlan.model_validate_json(e) for e in re.findall(r"->\n(\{.*?\})\n(?=\"|Reply)", _PROMPT, re.S)]
+    assert [next(iter(p.queries.values())).qty for p in examples] == ["m2", "m2", "m", "wall_m2", "wall_m2"]
+    assert describe(examples[-1]) == "walls = sum wall_m2 of room where apartment A, indoor; ceil(walls * coats / m2_per_litre)"
 
     file = pipeline.DATA_ROOT / "questions.jsonl"
     if not file.exists():

@@ -85,7 +85,7 @@ def execute(plan: QueryPlan, scene: Scene) -> Answer:
                 return done(error=f"no {q.qty} on {', '.join(missing[:3])}")
             terms = [e.qty[q.qty] for e in hits]
             values[name] = round(sum(terms), 6)
-            shown = (" + ".join(f"{t:g}" for t in terms) if len(terms) <= 12 else f"sum of {len(terms)} {key}") + f" = {values[name]:g} {q.qty}"
+            shown = (" + ".join(f"{t:g}" for t in terms) if len(terms) <= 12 else f"sum of {len(terms)} {key}") + f" = {values[name]:g} {q.qty.replace('wall_m2', 'm2 of wall')}"
         evidence += [e.id for e in hits]
         # The typical (geometric mean) confidence of the matched items; the weakest query sets the answer's.
         # A product over the items fell to ~0 for any large count (124 doors at 0.9 each) and escalated every one,

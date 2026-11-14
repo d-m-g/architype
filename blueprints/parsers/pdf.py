@@ -18,13 +18,14 @@ import re
 from collections import Counter
 from pathlib import Path
 
+from ..outlines import DOOR_H_M, WINDOW_H_M, measure
 from ..schemas import Entity, Page, Scene
 from .swiss import AREA, MARKER, NUMBER, OUTDOOR, OUTDOOR_GREY, SHARED_GREY, label_units, located, unit_index
 
 M_PER_PT = 0.0254 / 72  # one point on paper, in metres, at 1:1
 SCALE = re.compile(r"\b1\s*:\s*(\d{2,4})\b")  # "Massstab 1:100 (A3)", "Echelle 1:200"
 PRINTED = re.compile(r"(\d+(?:[.,]\d+)?)\s*m(?:²|2)")  # "15.61 m²", next to a room number
-BUILDER = "pdf_vector@1"
+BUILDER = "pdf_vector@2"  # @2: rooms carry their perimeter and net wall area
 
 
 def _grey(rgb) -> float | None:
@@ -165,7 +166,8 @@ def build_scene(path: str, file: Path) -> Scene:
     scales = Counter(int(m[1]) for text, _ in spans for m in SCALE.finditer(text) if 20 <= int(m[1]) <= 1000)
     rooms_at = [min((p for p, _ in outlines if p.contains(Point(at))), key=lambda p: p.area, default=None)
                 for _, _, at in rooms]
-    net = lambda poly: poly.difference(unary_union([p for p, _ in outlines if p is not poly and p.within(poly)])).area
+    hollow = lambda poly: poly.difference(unary_union([p for p, _ in outlines if p is not poly and p.within(poly)]))
+    net = lambda poly: hollow(poly).area
     if scales:
         scale = scales.most_common(1)[0][0]
     else:
@@ -219,6 +221,11 @@ def build_scene(path: str, file: Path) -> Scene:
         if inplan(Polygon(pts).bounds):
             found.setdefault(("door", *(round(v, 2) for p in pts for v in p)), ["door", pts, 0])[2] += 1
 
+    if m_per_pt:  # each room's perimeter (qty m) and wall area net of the doors and windows on its outline (qty wall_m2)
+        cuts = [(Polygon(pts), DOOR_H_M if kind == "door" else WINDOW_H_M) for kind, pts, _ in found.values() if kind in ("door", "window")]
+        for poly, room in placed:
+            measure(room, hollow(poly), m_per_pt, cuts)
+
     n = Counter()
     for kind, pts, copies in found.values():
         n[kind] += 1
@@ -242,6 +249,7 @@ if __name__ == "__main__":
     rooms = {e.number: e for e in s.entities if e.type == "room"}
     count = lambda t, sub=None: sum(e.type == t and e.subtype == sub for e in s.entities)
     assert len(rooms) == 24 and (rooms["7.01"].qty["m2"], rooms["7.16"].qty["m2"]) == (15.47, 5.63), rooms["7.01"]
+    assert rooms["7.05"].qty == {"m2": 6.01, "m": 11.57, "wall_m2": 27.17}  # perimeter and net wall area, as the DXF reader
     assert sorted(e.label for e in s.entities if e.type == "apartment") == ["A", "B"]
     assert (rooms["7.03"].apartment, rooms["7.24"].apartment, rooms["7.01"].outdoor) == ("A", None, True)
     assert (count("door"), count("window")) == (18, 11)  # the DXF's 20 door boxes hold 2 exact copies
@@ -259,4 +267,5 @@ if __name__ == "__main__":
     s = build_scene("uploads/c.pdf", root / "site3387_bldg5238_floor23498.pdf")
     plan = QueryPlan(queries={"a": Query(op="sum", type="room", number="7.01", qty="m2")}, unit="m2")
     assert execute(plan, s).answer is None and len([e for e in s.entities if e.type == "room"]) == 24
+    assert not any(e.qty for e in s.entities)  # no scale: no perimeter or wall area either
     print("ok")
