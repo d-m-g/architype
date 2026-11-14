@@ -46,6 +46,16 @@ def test_confidence_and_evidence_come_from_the_entities():
     assert (bathtubs.answer, bathtubs.confidence, bathtubs.evidence) == (1, 0.9, ["fix-bathtub-1"])
 
 
+def test_large_count_keeps_a_usable_confidence():
+    # 124 doors at 0.9 used to multiply to ~0 and escalate every large count; the typical confidence stays 0.9
+    scene = Scene(path="uploads/x.png", builder="test", tier="detect", covers=["door"],
+                  entities=[Entity(id=f"d{i}", type="door", conf=0.9) for i in range(124)])
+    doors = execute(QueryPlan(queries={"n": Query(op="count", type="door")}, unit="count"), scene)
+    assert doors.answer == 124 and abs(doors.confidence - 0.9) < 1e-9 and len(doors.evidence) == 124
+    from blueprints.brain.escalate import _same_value  # the agent confirming 124 keeps all 124 cited
+    assert _same_value("124", 124) and not _same_value(99, 124) and not _same_value(None, 124)
+
+
 def test_uncovered_or_unmatched_is_refused_not_zero():
     doors = ask("How many doors (interior doors and entrance doors together) are drawn on this floor plan?")
     assert doors.answer is None and "does not cover door" in doors.error

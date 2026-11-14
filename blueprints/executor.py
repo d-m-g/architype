@@ -85,9 +85,12 @@ def execute(plan: QueryPlan, scene: Scene) -> Answer:
             values[name] = round(sum(terms), 6)
             shown = (" + ".join(f"{t:g}" for t in terms) if len(terms) <= 12 else f"sum of {len(terms)} {key}") + f" = {values[name]:g} {q.qty}"
         evidence += [e.id for e in hits]
-        # ponytail: product of entity confidences, blind to missed detections. Replace with the count
-        # distribution over near-threshold candidates (Poisson-binomial) once the detector reports them.
-        confidence *= math.prod(e.conf for e in hits)
+        # The typical (geometric mean) confidence of the matched items; the weakest query sets the answer's.
+        # A product over the items fell to ~0 for any large count (124 doors at 0.9 each) and escalated every one,
+        # even when the count was right. ponytail: a heuristic, not a calibrated probability; replace with the count
+        # accuracy measured per class on val (isotonic) once the confidence score is judged.
+        if hits:
+            confidence = min(confidence, math.exp(sum(math.log(max(e.conf, 1e-9)) for e in hits) / len(hits)))
 
     if plan.formula is None:
         value = next(iter(values.values()))

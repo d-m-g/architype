@@ -201,6 +201,16 @@ def agent(question: str, scene: Scene, draft: Answer, inline_evidence: bool) -> 
     raise NotImplementedError("lane C: no agent model answered (" + "; ".join(failures) + ")")
 
 
+def _same_value(a, b) -> bool:
+    """The same number (an agent may return "124" for 124), or the same text."""
+    if a is None or b is None:
+        return False
+    try:
+        return float(a) == float(b)
+    except (TypeError, ValueError):
+        return str(a).strip().casefold() == str(b).strip().casefold()
+
+
 def _agent_loop(question, scene, draft, inline_evidence, url, key, model, extra, deadline, failures) -> Answer:
     import openai
     kinds = Counter(f"{e.type}:{e.subtype}" if e.subtype else e.type for e in scene.entities)
@@ -242,6 +252,10 @@ def _agent_loop(question, scene, draft, inline_evidence, url, key, model, extra,
                 value = args.get("answer")
                 if isinstance(value, str) and value.strip().lower() == "cannot answer":
                     value = None
+                if _same_value(value, draft.answer) and draft.evidence:
+                    # The agent confirmed the cheap path's number: keep its full evidence. Models trim long id
+                    # lists (99 of 124 doors cited), which left counted items marked "not cited" in the viewer.
+                    evidence = draft.evidence + [i for i in evidence if i not in set(draft.evidence)]
                 return Answer(
                     answer=value, unit=args.get("unit") if value is not None else None,
                     confidence=AGENT_CONFIDENCE if value is not None else 0.0, tier="llm", evidence=evidence,
