@@ -28,6 +28,30 @@ def openings(msp) -> list[tuple[str, list[tuple[float, float]], str, int]]:
     return [tuple(v) for v in found.values()]
 
 
+def size(pts, zones) -> tuple[float, float] | None:
+    """(width, thickness) of a door or window box in the units of pts: the opening's length along the wall, and the
+    wall's thickness there. The box is the frame alone (swing arcs and leaves are separate primitives), a rectangle
+    standing in a wall gap: its two jambs lie on the wall ends, its other two sides run along the outlines of the
+    rooms either side. Which pair is which is read from that, never from which side is longer.
+    zones: (geometry, lies_on_jambs) tried in turn: the wall solids (True) or the room outline lines (False), each
+    as one geometry grown by its tolerance. Only the middle half of a side is tested, because every side meets the walls and outlines at its corners.
+    None when neither tells the pairs apart (a box drawn clear of every wall and room): no width is better than a guess."""
+    from shapely.geometry import LineString
+    from shapely.ops import substring
+
+    sides = [LineString([pts[i], pts[(i + 1) % 4]]) for i in range(4)]
+    if not all(s.length for s in sides):
+        return None
+    middles = [substring(s, 0.25, 0.75, normalized=True) for s in sides]
+    for zone, touches_jambs in zones:
+        on = [m.intersection(zone).length / m.length for m in middles]
+        a, b = max(on[0], on[2]), max(on[1], on[3])  # the two pairs of opposite sides
+        if max(a, b) >= 0.9 and min(a, b) <= 0.1:  # a side of one pair lies on it, the other pair stands clear
+            jamb = (a < b) if touches_jambs else (a > b)  # index of the jamb pair
+            return sides[not jamb].length, sides[jamb].length
+    return None
+
+
 if __name__ == "__main__":
     import ezdxf
 

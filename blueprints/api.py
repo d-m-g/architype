@@ -269,8 +269,9 @@ async def upload(request: Request, filename: str) -> dict:
     (UPLOADS / name).write_bytes(data)
     from .parsers.ifc import BUILDER as IFC_BUILDER
     from .parsers.pdf import BUILDER as PDF_BUILDER
+    from .parsers.swiss import UPLOAD_BUILDER as DXF_BUILDER
     path = f"uploads/{name}"
-    reader = (BUILDER if _vision_only(path) else "swiss_dxf_upload@1" if suffix == ".dxf" else IFC_BUILDER if suffix == ".ifc"
+    reader = (BUILDER if _vision_only(path) else DXF_BUILDER if suffix == ".dxf" else IFC_BUILDER if suffix == ".ifc"
               else "fixtures-6:tiled" if suffix in (".png", ".jpg", ".jpeg") else PDF_BUILDER)
     return {"path": path, "reader": reader}
 

@@ -5,7 +5,8 @@ same model, and some PDF questions ask about the whole model, so always build fr
 
 One page per storey, drawn here from the model's own footprints (spaces, walls, doors, windows seen from above), so
 an uploaded model with no plan beside it shows the same way as a dataset one. Quantities come from the model's
-quantity sets; a room without an area quantity gets the area of its footprint.
+quantity sets; a room without an area quantity gets the area of its footprint, and a wall, slab, door, window or
+room without a size gets it measured on its body (`sizes`; README.md, "Sizes"). attrs.size_source says which.
 
 Check:  uv run --extra parsers python -m blueprints.parsers.ifc
 """
@@ -16,7 +17,9 @@ from pathlib import Path
 
 from ..schemas import Entity, Page, Scene
 
-BUILDER = "ifc@2"  # @2: each level carries its page frame in metres, so the 3D view can stack the storeys
+# @2: each level carries its page frame in metres, so the 3D view can stack the storeys
+# @3: wall, slab, door, window and room sizes, from the quantity sets or else measured on the geometry
+BUILDER = "ifc@3"
 SIDE = 2048  # long side of a storey page, pixels
 # IFC class -> entity type. Stairs, beams and light fixtures are "other", told apart by attrs.category.
 TYPES = {"IfcSpace": "room", "IfcDoor": "door", "IfcWindow": "window", "IfcWall": "wall", "IfcSlab": "slab",
@@ -25,8 +28,14 @@ FIXTURE_TYPES = {"TOILETPAN": "toilet", "WCSEAT": "toilet", "URINAL": "toilet", 
                  "BATH": "bathtub", "SHOWER": "shower"}
 FIXTURE_NAMES = [(re.compile(r"toilet|\bwc\b|closet|urinal", re.I), "toilet"), (re.compile(r"shower", re.I), "shower"),
                  (re.compile(r"bath ?tub|\bbath\b", re.I), "bathtub"), (re.compile(r"sink|basin|lavatory|lavabo", re.I), "sink")]
-QTY = {"wall": [("m", ("Length",)), ("m2", ("NetSideArea",)), ("m3", ("NetVolume",))],
-       "slab": [("m3", ("NetVolume",))]}  # rooms: see room_area
+# Per entity type: where a size goes (a qty unit, or an attr in metres) and the quantities it is read from, first
+# match wins. Rooms' areas: see room_area. Doors and windows take OverallWidth / OverallHeight, see sizes.
+QTY = {"wall": [("m", ("Length",)), ("m2", ("NetSideArea",)), ("m3", ("NetVolume",)),
+                ("height_m", ("Height",)), ("thickness_m", ("Width",))],
+       "slab": [("m3", ("NetVolume",)), ("m2", ("NetArea", "GrossArea")), ("thickness_m", ("Thickness",))],  # see sizes
+       "room": [("m", ("NetPerimeter", "GrossPerimeter"))],
+       "door": [("m", ("OverallWidth",)), ("height_m", ("OverallHeight",))],
+       "window": [("m", ("OverallWidth",)), ("height_m", ("OverallHeight",))]}
 
 
 def room_area(qtos: dict[str, dict], footprint: float | None) -> tuple[float | None, str]:
@@ -42,6 +51,91 @@ def room_area(qtos: dict[str, dict], footprint: float | None) -> tuple[float | N
     areas = sorted((k for k in values if k.endswith("Area") and "Wall" not in k and "Ceiling" not in k and values[k] > 0),
                    key=lambda k: (k != "GrossFloorArea", "Floor" not in k, k))
     return (values[areas[0]], areas[0]) if areas else (None, "none")
+
+
+def strip(footprint) -> tuple[float, float] | None:
+    """(length, thickness) of one piece of wall from its footprint, in the footprint's units.
+    A straight wall, square or mitred at its ends: the thickness is the short side of the tightest box around it and
+    the length its area over that, the mean of its two faces. A bent or curved wall: the strip with the footprint's
+    area and perimeter, which is its length along the middle.
+    ponytail: a stub shorter than it is thick reads the wrong way round; the wall's Axis curve would tell them apart."""
+    import math
+
+    area = footprint.area
+    if area <= 0:
+        return None
+    if area > 0.99 * footprint.convex_hull.area:
+        ring = list(footprint.minimum_rotated_rectangle.exterior.coords)
+        thickness = min(math.dist(ring[0], ring[1]), math.dist(ring[1], ring[2]))
+        return (area / thickness, thickness) if thickness > 0 else None
+    p = footprint.exterior.length
+    d = p * p - 16 * area
+    if d < 0:  # rounder than a square: not a strip
+        return None
+    length = (p + d ** 0.5) / 4
+    return length, area / length
+
+
+def sizes(kind: str, values: dict, unit: dict, footprint=None, solid=None, cuts=()) -> tuple[dict, dict]:
+    """(qty, attrs) of one element: each size from the model's own quantities when it has them, else measured on its
+    geometry. values: its quantities by name, in model units (for a door or window OverallWidth and OverallHeight);
+    unit: metres per model unit by qty unit; footprint: its shape from above, in metres (every piece of a wall);
+    solid: (lowest z, highest z, volume, top area) of its body; cuts: (footprint, lowest z, highest z) of each
+    opening in a wall. attrs.size_source says where the sizes came from, naming the measured ones when only some were."""
+    import math
+
+    z0, z1, volume, top = (solid or (0, 0, 0, 0))[:4]
+    geometry = {}  # what the body gives, in metres
+    if kind == "wall" and footprint is not None:
+        pieces = [lt for lt in map(strip, getattr(footprint, "geoms", [footprint])) if lt]
+        if pieces:
+            geometry["m"] = sum(length for length, _ in pieces)
+            thickness = geometry["thickness_m"] = sum(length * t for length, t in pieces) / geometry["m"]
+            # Side = volume / thickness, so a gable end is not counted as a rectangle; less each opening's box inside
+            # the wall. ponytail: within 2% of the kernel's own cut on 84-100% of walls over four models; it takes
+            # too much where openings overlap or are not boxes. Cutting for real (a second geometry pass without
+            # disable-opening-subtractions, for the walls that have openings and no NetSideArea) is the upgrade.
+            if thickness > 0.01 and volume:
+                holes = sum(footprint.intersection(f).area * max(0, min(z1, b) - max(z0, a)) for f, a, b in cuts)
+                geometry["m2"] = max(0, volume - holes) / thickness
+    if kind in ("wall", "door", "window") and z1 > z0:
+        geometry["height_m"] = z1 - z0
+    if kind in ("door", "window") and footprint is not None:  # the longer side of the tightest box around it
+        ring = list(footprint.minimum_rotated_rectangle.exterior.coords)
+        geometry["m"] = max(math.dist(ring[0], ring[1]), math.dist(ring[1], ring[2]))
+    if kind == "slab" and top:
+        geometry["m2"], geometry["thickness_m"] = top, volume / top
+    if kind == "room" and footprint is not None:
+        from .swiss import room_dims
+        geometry["m"], width, length = room_dims(footprint)
+
+    if kind == "slab":  # two slab quantities that exporters disagree on are checked against the body before use
+        values = dict(values)
+        # Thickness is Depth in IFC4's Qto_SlabBaseQuantities and Width in what Revit and ArchiCAD export, and either
+        # can be a plan dimension or one layer instead: a stated one is taken only when the body agrees within 10%.
+        t = geometry.get("thickness_m")
+        values["Thickness"] = next((v for n in ("Depth", "Width") if (v := values.get(n)) and t and abs(v * unit["m"] - t) <= 0.1 * t), None)
+        # A net area above the gross one is the slab's whole surface, not its top (sixty5_str states twice the top).
+        gross = (values.get("GrossArea") or 0) * unit["m2"] or geometry.get("m2")
+        if gross and (values.get("NetArea") or 0) * unit["m2"] > 1.02 * gross:
+            del values["NetArea"]
+
+    qty, attrs, measured = {}, {}, []
+    for key, names in QTY.get(kind, []):
+        read = next((values[n] for n in names if values.get(n)), None)
+        value = read * unit[key if key in unit else "m"] if read else geometry.get(key)
+        if not value or key == "m3" and not read:  # a volume is only ever the model's own
+            continue
+        if not read:
+            measured.append(key if key.endswith("_m") else f"qty.{key}")
+        (attrs if key.endswith("_m") else qty)[key] = round(value, 3 if key.endswith("_m") else 4)
+    if qty or attrs:
+        stated = "attributes" if kind in ("door", "window") else "quantity set"
+        attrs["size_source"] = "geometry" if len(measured) == len(qty) + len(attrs) else stated if not measured else \
+            f"{stated}; geometry: {', '.join(measured)}"
+    if kind == "room" and footprint is not None:
+        attrs["width_m"], attrs["length_m"] = width, length  # always the footprint's: no quantity names these
+    return qty, attrs
 
 
 def fixture_kind(predefined: str | None, *names: str | None) -> str:
@@ -78,9 +172,14 @@ def _storey(element, get_container, get_aggregate):
     return None
 
 
-def _footprints(model, elements) -> dict[int, object]:
-    """Element id -> its shape seen from above (a shapely polygon in model metres), for elements with a body."""
+def _footprints(model, elements) -> tuple[dict[int, object], dict[int, tuple]]:
+    """Element id -> its shape seen from above (a shapely polygon in model metres), for elements with a body; and
+    element id -> (lowest z, highest z, volume, top area, whole shape from above) of that body, in metres. Openings
+    are not cut, so these are gross. The top area is a slab's: its plan area, over the cosine of its slope. The whole
+    shape keeps every piece of a wall drawn in several, where the first dict keeps the largest."""
     import multiprocessing
+
+    import numpy as np
 
     import ifcopenshell.geom
     from shapely.geometry import MultiPoint, Polygon
@@ -89,28 +188,41 @@ def _footprints(model, elements) -> dict[int, object]:
     settings = ifcopenshell.geom.settings()
     settings.set("use-world-coords", True)
     settings.set("disable-opening-subtractions", True)  # plan outlines only; cutting openings is the slow part
-    out = {}
+    out, solids = {}, {}
     if not elements:
-        return out
+        return out, solids
     it = ifcopenshell.geom.iterator(settings, model, multiprocessing.cpu_count(), include=elements)
     if not it.initialize():
-        return out
+        return out, solids
     while True:
         shape = it.get()
         v, f = shape.geometry.verts, shape.geometry.faces
         xy = [(v[i], v[i + 1]) for i in range(0, len(v), 3)]
-        if model.by_id(shape.id).is_a("IfcSpace") or model.by_id(shape.id).is_a("IfcWall"):
+        element, whole, top = model.by_id(shape.id), None, 0.0
+        pts = np.array(v).reshape(-1, 3)
+        a, b, c = (pts[np.array(f, dtype=int).reshape(-1, 3)[:, k]] for k in range(3))
+        normal = np.cross(b - a, c - a)  # twice each triangle's area, along its normal
+        if element.is_a("IfcSpace") or element.is_a("IfcWall") or element.is_a("IfcSlab"):
             # The union of the triangles keeps an L-shaped room or wall; a hull would fill its corner.
             tris = [Polygon([xy[f[i]], xy[f[i + 1]], xy[f[i + 2]]]) for i in range(0, len(f), 3)]
-            poly = unary_union([t for t in tris if t.area > 1e-9]).buffer(0.005).buffer(-0.005)
-            if poly.geom_type == "MultiPolygon":
-                poly = max(poly.geoms, key=lambda g: g.area)
+            whole = unary_union([t for t in tris if t.area > 1e-9]).buffer(0.005).buffer(-0.005)
+        if element.is_a("IfcSlab"):  # drawn as its hull, as before; measured as its true outline
+            poly = MultiPoint(xy).convex_hull
+            twice = np.linalg.norm(normal, axis=1)
+            flat = np.abs(normal[:, 2]) > 0.5 * twice  # faces lying flatter than 60 degrees: tops and undersides
+            if flat.any():
+                top = whole.area * float(twice[flat].sum() / np.abs(normal[flat, 2]).sum())
+        elif whole is not None:
+            poly = max(whole.geoms, key=lambda g: g.area) if whole.geom_type == "MultiPolygon" else whole
         else:
             poly = MultiPoint(xy).convex_hull
+        if len(pts):
+            solids[shape.id] = (float(pts[:, 2].min()), float(pts[:, 2].max()),
+                                abs(float(np.einsum("ij,ij->", a - pts[0], normal))) / 6, top, whole)
         if poly.geom_type == "Polygon" and poly.area > 1e-6:
             out[shape.id] = poly.simplify(0.01)
         if not it.next():
-            return out
+            return out, solids
 
 
 def _draw(file: Path, size: tuple[int, int], shapes: list[tuple[str, list]]) -> None:
@@ -208,7 +320,12 @@ def _build(path: str, file: Path) -> Scene:
     # A part of a stair modelled as a stair (Molio: 564 risers and landings in 15 stairs) is not a stair of its own.
     part_of_same = lambda e: (p := ue.get_aggregate(e)) is not None and kinds.get(p.id()) == kinds[e.id()]
     elements = [e for e in elements if e.id() in kinds and not part_of_same(e)]
-    shapes = _footprints(model, [e for e in elements if e.Representation])
+    # The openings cut into walls are measured too: a wall's net side area is its side less its openings.
+    voids: dict[int, list] = {}
+    for rel in model.by_type("IfcRelVoidsElement"):
+        if kinds.get(rel.RelatingBuildingElement.id()) == "wall" and rel.RelatedOpeningElement.Representation:
+            voids.setdefault(rel.RelatingBuildingElement.id(), []).append(rel.RelatedOpeningElement)
+    shapes, solids = _footprints(model, [e for e in elements if e.Representation] + [o for os in voids.values() for o in os])
 
     # One page per storey that has anything to draw, framed on its rooms and walls.
     on = {e.id(): _storey(e, ue.get_container, ue.get_aggregate) for e in elements}
@@ -240,10 +357,12 @@ def _build(path: str, file: Path) -> Scene:
         geom = [to_page(x, y) for x, y in poly.exterior.coords[:-1]] if poly is not None and to_page else []
         qtos = ue.get_psets(e, qtos_only=True)
         values = {k: v for q in qtos.values() for k, v in q.items() if isinstance(v, (int, float)) and k != "id"}
-        qty, attrs = {}, {"ifc_class": e.is_a()}
-        for u, keys in QTY.get(kind, []):
-            if v := next((values[k] for k in keys if values.get(k)), None):
-                qty[u] = round(v * unit[u], 4)
+        if kind in ("door", "window"):  # their sizes are attributes of the element, not quantities
+            values = {"OverallWidth": e.OverallWidth, "OverallHeight": e.OverallHeight}
+        cuts = [(shapes[o.id()], *solids[o.id()][:2]) for o in voids.get(e.id(), []) if o.id() in shapes and o.id() in solids]
+        solid = solids.get(e.id())
+        qty, sized = sizes(kind, values, unit, solid[4] if kind == "wall" and solid else poly, solid, cuts)
+        attrs = {"ifc_class": e.is_a()}
         t = ue.get_type(e)
         if t is not None and t.Name:
             attrs["type_name"] = t.Name
@@ -255,6 +374,7 @@ def _build(path: str, file: Path) -> Scene:
             if area:
                 qty["m2"] = round(area * (unit["m2"] if source != "footprint" else 1), 4)
             attrs["area_source"] = source
+            attrs |= sized
             # The 3D view raises its walls to this: the room's own height, else floor to floor.
             if values.get("FinishCeilingHeight") or values.get("Height"):
                 attrs["height_m"] = round((values.get("FinishCeilingHeight") or values["Height"]) * unit["m"], 3)
@@ -267,6 +387,7 @@ def _build(path: str, file: Path) -> Scene:
             label = f"{e.LongName} ({e.Name})" if e.LongName and e.Name and e.LongName != e.Name else e.LongName or e.Name
         else:
             label = e.Name
+            attrs |= sized
             if kind == "other":  # plans count these with where={"category": ...}
                 attrs["category"] = "stairs" if e.is_a("IfcStair") else "beam" if e.is_a("IfcBeam") else "light_fixture"
             if kind == "fixture":
@@ -296,6 +417,28 @@ if __name__ == "__main__":
     assert all(0 < v < 1 for v in to_page(5, 2.5))
     assert where == {"frame_x_m": -0.3, "frame_y_m": 5.3, "frame_w_m": 10.6, "frame_h_m": 5.6}
 
+    # Sizes: the model's own when stated, else measured. A 5 x 0.2 m wall 3 m high with a 1 x 2 m door opening.
+    from shapely.geometry import Polygon, box
+    near = lambda a, b: abs(a - b) < 1e-6
+    assert all(map(near, strip(box(0, 0, 5, 0.2)), (5, 0.2)))
+    assert all(map(near, strip(Polygon([(0, 0), (5, 0), (4.8, 0.2), (0.2, 0.2)])), (4.8, 0.2)))  # mitred: mean of its faces
+    assert all(map(near, strip(Polygon([(0, 0), (5, 0), (5, 3), (4.8, 3), (4.8, 0.2), (0, 0.2)])), (7.8, 0.2)))  # bent: along the middle
+    m = {"m": 1, "m2": 1, "m3": 1}
+    wall, solid, door = box(0, 0, 5, 0.2), (0, 3, 3.0, 0, None), [(box(2, -0.1, 3, 0.3), 0, 2)]
+    assert sizes("wall", {}, m, wall, solid, door) == ({"m": 5, "m2": 13}, {"height_m": 3, "thickness_m": 0.2, "size_source": "geometry"})
+    stated = sizes("wall", {"Length": 5200, "NetSideArea": 14, "NetVolume": 2.6}, {"m": 0.001, "m2": 1, "m3": 1}, wall, solid, door)
+    assert stated == ({"m": 5.2, "m2": 14, "m3": 2.6}, {"height_m": 3, "thickness_m": 0.2,
+                                                         "size_source": "quantity set; geometry: height_m, thickness_m"})
+    assert sizes("door", {"OverallWidth": 900, "OverallHeight": 2100}, {"m": 0.001}, box(0, 0, 1.1, 0.2), (0, 2.2, 0, 0, None)) == \
+        ({"m": 0.9}, {"height_m": 2.1, "size_source": "attributes"})
+    assert sizes("door", {"OverallWidth": None, "OverallHeight": None}, m, box(0, 0, 0.9, 0.1), (0, 2.1, 0, 0, None))[0] == {"m": 0.9}
+    slab = lambda **stated: sizes("slab", stated, m, None, (0, 0.2, 4.0, 20.0, None))
+    assert slab() == ({"m2": 20}, {"thickness_m": 0.2, "size_source": "geometry"})
+    assert slab(Depth=0.05, Width=0.2, NetArea=19, GrossArea=20) == ({"m2": 19}, {"thickness_m": 0.2, "size_source": "quantity set"})
+    assert slab(Width=4.0, NetArea=41, GrossArea=20)[0] == {"m2": 20}  # Width is the plan width; NetArea the whole surface
+    assert sizes("room", {"NetPerimeter": 14.5}, m, box(0, 0, 4, 3)) == \
+        ({"m": 14.5}, {"size_source": "quantity set", "width_m": 3, "length_m": 4})
+
     from .. import pipeline
     file = pipeline.DATA_ROOT / "data/ifc_models/bsc-duplex_duplex-a-20110907.ifc"
     if not file.exists():
@@ -307,4 +450,18 @@ if __name__ == "__main__":
     assert (n("door", "Level 1"), n("room", "Level 1")) == (6, 10)  # gold, per storey
     room = next(e for e in s.entities if e.label == "Living Room (A102)")
     assert abs(room.qty["m2"] - 27.66) <= 0.02 * 27.66 and room.level == "Level 1" and len(room.geom) >= 4
+    # The duplex has no quantity sets, so every size is measured; its type names say what to expect.
+    assert (room.qty["m"], room.attrs["width_m"], room.attrs["length_m"], room.attrs["size_source"]) == (21.132, 4.783, 5.783, "geometry")
+    of = lambda kind: [e for e in s.entities if e.type == kind]
+    assert all({"m", "m2"} <= e.qty.keys() and e.attrs["size_source"] == "geometry" for e in of("wall"))
+    assert 300 < sum(e.qty["m"] for e in of("wall")) < 350 and all(0.05 <= e.attrs["thickness_m"] <= 0.6 for e in of("wall"))
+    stud = [e for e in of("wall") if "152 mm Stud" in e.label]
+    assert stud and all(e.attrs["thickness_m"] == 0.152 and e.qty["m2"] <= e.qty["m"] * e.attrs["height_m"] + 1e-3 for e in stud)
+    door = next(e for e in of("door") if e.attrs["type_name"] == "0762 x 2032mm")  # OverallWidth, OverallHeight
+    assert (door.qty, door.attrs["height_m"], door.attrs["size_source"]) == ({"m": 0.762}, 2.032, "attributes")
+    assert all(0.5 <= e.qty["m"] <= 2.5 for e in of("door"))
+    glazing = next(e for e in of("window") if e.attrs["type_name"] == "2800mm x 2410mm")
+    assert (glazing.qty["m"], glazing.attrs["height_m"]) == (2.8, 2.41) and all("m" in e.qty for e in of("window"))
+    grade = next(e for e in of("slab") if "150mm Exterior Slab" in e.label)
+    assert grade.attrs["thickness_m"] == 0.15 and grade.qty["m2"] > 20 and all("m2" in e.qty for e in of("slab"))
     print("ok")

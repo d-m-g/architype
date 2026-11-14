@@ -91,9 +91,10 @@ def get_scene(path: str) -> Scene:
         scene = None if fresh else Scene.model_validate_json(cached.read_bytes())
     except ValueError:  # written before scenes were saved as UTF-8 (Windows wrote cp1252): build it again
         scene, fresh = None, True
-    if scene and scene.builder.startswith("ifc@"):  # an IFC scene from an older builder: build it again
-        from .parsers import ifc
-        if scene.builder != ifc.BUILDER:
+    if scene and scene.tier == "parse":  # a parsed scene from an older version of its builder: build it again
+        from .parsers import ifc, pdf, swiss
+        current = {b.split("@")[0]: b for b in (ifc.BUILDER, pdf.BUILDER, swiss.BUILDER, swiss.UPLOAD_BUILDER)}
+        if current.get(scene.builder.split("@")[0], scene.builder) != scene.builder:
             scene, fresh = None, True
     scene = scene or build_scene(path)
     if read_as_image(path) and scene.tier == "detect" and "room" not in scene.covers:

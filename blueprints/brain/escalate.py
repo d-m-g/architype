@@ -5,6 +5,8 @@
 2. If that still gives no answer, or a builder's answer is low-confidence, the Nemotron agent takes over: it reasons
    over the scene with tools (list entities, run a plan through the executor, ask Gemini about a region) and answers
    with the entities it used. Its tool calls are logged as trace steps, for the answer card.
+   On a scene parsed from a DXF, vector PDF or IFC file it has no look tool: the file holds exact geometry, so a size
+   is one the parser recorded or it is not answered. No model reads a measurement off the picture of such a file.
 """
 import base64
 import ast
@@ -47,6 +49,9 @@ a scene: a list of entities (rooms, doors, windows, fixtures, apartments, levels
   refinement or identical run_plan. Only use look again if a specific different crop can resolve the issue.
 - Each entity is one room or object. For "the largest / smallest room" call list_entities with sort and limit 1 and
   report that single entity; never combine rooms that share a label unless the question asks for a total.
+- A size is a recorded quantity, never your estimate. list_entities shows each entity's qty by unit, which run_plan
+  sums: m2 is area (a room's floor, a slab's top, a wall's side), m is the type's one length (a room's perimeter, a
+  door's or window's width, a wall's length), m3 is volume. Its sizes are further dimensions in metres.
 - Use look only when the scene lacks something you need; it asks a vision model about the page or a region of it.
 - Finish by calling answer with the value, its unit, the ids of the entities the answer rests on, and a one-sentence
   explanation. When the question asks how many, how big or how much, the answer is that number and the names go in
@@ -57,13 +62,30 @@ a scene: a list of entities (rooms, doors, windows, fixtures, apartments, levels
   apartment when appropriate; do not sum every bathroom for a question about the largest bathroom.
 - If the question cannot be answered from this drawing, call answer with answer "cannot answer" and say why."""
 
+LOOK_LINE = "- Use look only when the scene lacks something you need; it asks a vision model about the page or a region of it."
+PARSED_LINE = """- This scene was parsed from the drawing's own file, which holds exact geometry. Sizes come only from the scene's
+  recorded quantities: never estimate a length, area or height, and there is no tool to read one off the picture.
+  If the quantity the question needs is not recorded, call answer with "cannot answer" and say which measurement is missing."""
+assert LOOK_LINE in SYSTEM
+
+
+def instructions(scene: Scene) -> tuple[str, list[dict]]:
+    """The agent's system prompt and tools for a scene. A parsed file (DXF, vector PDF, IFC) gets no look tool: its
+    sizes are the parser's or nobody's. A detected or vision-read image keeps it, the picture being all there is."""
+    if scene.tier != "parse":
+        return SYSTEM, TOOLS
+    return SYSTEM.replace(LOOK_LINE, PARSED_LINE), [t for t in TOOLS if t["function"]["name"] not in ("look", "resolve_room_connections")]  # both ask a vision model
+
+
 TOOLS = [
     {"type": "function", "function": {
         "name": "resolve_room_connections", "description": "Ask vision to resolve uncertain PNG/JPEG room connections; cached and cost bounded. Re-list entities afterwards.",
         "parameters": {"type": "object", "required": ["type"], "properties": {
             "type": {"type": "string", "enum": ["door", "window", "fixture"]}}}}},
     {"type": "function", "function": {
-        "name": "list_entities", "description": "List scene entities, optionally filtered. Returns id, type, subtype, label, number, apartment, level, area_m2, conf.",
+        "name": "list_entities", "description": "List scene entities, optionally filtered. Returns id, type, subtype, label, number, apartment, level, area_m2, "
+                                          "qty (the other recorded quantities by unit: m, m3, ft2), sizes (width_m, length_m, height_m, thickness_m "
+                                          "and how they were obtained), conf. A long list is cut short: narrow it with the filters.",
         "parameters": {"type": "object", "properties": {
             "type": {"type": "string", "description": "room, apartment, level, door, window, fixture, wall, slab, column, row or other"},
             "subtype": {"type": "string"}, "label": {"type": "string", "description": "case-insensitive substring of the label"},
@@ -174,13 +196,21 @@ def _tool(name: str, args: dict, scene: Scene) -> tuple[str, list[TraceStep]]:
             hits = sorted(hits, key=lambda e: (("m2" not in e.qty), -e.qty.get("m2", 0) if args["sort"] == "area_desc" else e.qty.get("m2", 0)))
         rows = [{k: v for k, v in {"id": e.id, "type": e.type, "subtype": e.subtype, "label": e.label, "number": e.number,
                                    "apartment": e.apartment, "level": e.level, "area_m2": e.qty.get("m2"),
+                                   "qty": {u: v for u, v in e.qty.items() if u != "m2"} or None,
+                                   # dimensions in metres and where sizes came from; not a level's page frame
+                                   "sizes": {k: v for k, v in e.attrs.items() if not k.startswith("frame_") and (
+                                       k.endswith("_source") or k.endswith("_m") and type(v) in (int, float))} or None,
                                    "conf": round(e.conf, 2),
                                    "connections": {k: v for k, v in e.attrs.items() if k in (
                                        "room_id", "room_id2", "room", "room2", "room_label", "room_label2",
                                        "room_link_status", "room_link_candidates", "room_link_reason", "room_link_review")} or None
                                    }.items() if v is not None} for e in hits]
         limit = args.get("limit") if isinstance(args.get("limit"), int) and args["limit"] > 0 else 150
-        return json.dumps({"count": len(rows), "entities": rows[:min(limit, 150)]}, ensure_ascii=False), []
+        shown = rows[:min(limit, 150)]
+        reply = lambda: json.dumps({"count": len(rows), "shown": len(shown), "entities": shown}, ensure_ascii=False)
+        while len(reply()) > TOOL_REPLY_CHARS and len(shown) > 1:  # whole rows, not JSON cut off mid-entity
+            shown = shown[:len(shown) * 3 // 4]
+        return reply(), []
     if name == "run_plan":
         try:
             plan = QueryPlan.model_validate_json(args.get("plan", ""))
@@ -195,6 +225,9 @@ def _tool(name: str, args: dict, scene: Scene) -> tuple[str, list[TraceStep]]:
         return json.dumps({"answer": result.answer, "unit": result.unit, "formula": result.formula,
                            "evidence": result.evidence[:100], "error": result.error}), [s for s in result.trace if s.step == "resolve_room_connections"]
     if name == "look":
+        if scene.tier == "parse":  # not offered for a parsed file; refused if a model calls it anyway
+            return ("look is not available: this scene was parsed from the drawing's file, and sizes come only from its "
+                    "recorded quantities. If the quantity is not recorded, answer 'cannot answer' and name it."), []
         text, step = _look(scene, args.get("question", ""), args.get("box"))
         return text, [step]
     return f"unknown tool {name}", []
@@ -242,6 +275,7 @@ def _calculation_sources(result: Answer, scene: Scene) -> str:
     return f"Calculated from {names}{more}. See the formula and highlighted source evidence."
 
 
+TOOL_REPLY_CHARS = 8000  # what the agent is shown of one tool reply
 AGENT_FALLBACK_MODEL = "gemini-3.8-flash"  # runs the same loop when Nemotron does not answer in time
 CALL_TIMEOUT_S = 40
 AGENT_BUDGET_S = 120
@@ -293,7 +327,8 @@ def _agent_loop(question, scene, draft, inline_evidence, url, key, model, extra,
     kinds = Counter(f"{e.type}:{e.subtype}" if e.subtype else e.type for e in scene.entities)
     context = (f"Question: {question}\n\nScene from {scene.builder}: {dict(kinds)}.\n"
                f"The cheap path said: {draft.answer!r} (confidence {draft.confidence:.2f}){f'; error: {draft.error}' if draft.error else ''}.")
-    messages = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": context}]
+    system, tools = instructions(scene)
+    messages = [{"role": "system", "content": system}, {"role": "user", "content": context}]
     # A provider that failed first is still on the card: the failed attempt shows as a zero-cost step.
     steps: list[TraceStep] = [TraceStep(step=f"escalate:unavailable {f.split(':')[0]}") for f in failures]
     force_answer = False
@@ -306,7 +341,7 @@ def _agent_loop(question, scene, draft, inline_evidence, url, key, model, extra,
         client = openai.OpenAI(api_key=key, base_url=url, max_retries=0, timeout=min(CALL_TIMEOUT_S, remaining))
         t0 = time.perf_counter()
         try:
-            reply = client.chat.completions.create(model=model, messages=messages, tools=TOOLS, tool_choice=choice,
+            reply = client.chat.completions.create(model=model, messages=messages, tools=tools, tool_choice=choice,
                                                    max_tokens=4096, **extra)
         except openai.OpenAIError as e:
             raise _Unavailable(type(e).__name__) from None
@@ -376,6 +411,6 @@ def _agent_loop(question, scene, draft, inline_evidence, url, key, model, extra,
             steps.append(TraceStep(step=f"tool:{call.function.name}", ms=(time.perf_counter() - t1) * 1000,
                                    detail=f"{asked[:300]} → {text[:400]}"))
             steps += costed
-            messages.append({"role": "tool", "tool_call_id": call.id, "content": text[:8000]})
+            messages.append({"role": "tool", "tool_call_id": call.id, "content": text[:TOOL_REPLY_CHARS]})
     return Answer(tier="llm", error="Could not verify a final answer against the drawing. No unverified number is shown.",
                   trace=draft.trace + steps)

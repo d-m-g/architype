@@ -4,8 +4,11 @@ Questions name the .pdf. The same-name .dxf (file.with_suffix(".dxf")) has one l
 DOOR, WINDOW, FIXTURE, ROOM_OUTLINE, ROOM_TEXT, UNIT_OUTLINE, WALL. The same-name .png is the page image.
 
 Rooms, apartments, doors, windows and sanitary fixtures (toilets, sinks, bathtubs, showers).
+Sizes are measured on the DXF geometry, which is drawn in metres: a room's area, perimeter, width and length; a door's
+or window's width in the wall and the wall's thickness there (see README.md, "Sizes").
 Check:  uv run python -m blueprints.parsers.swiss
 """
+import math
 import re
 import struct
 from collections import Counter
@@ -13,7 +16,14 @@ from pathlib import Path
 
 from ..schemas import Entity, Page, Scene
 from .swiss_fixtures import fixtures
-from .swiss_openings import openings
+from .swiss_openings import openings, size
+
+# Bump when the entities change: pipeline.get_scene rebuilds a cached scene whose builder is not the current one.
+BUILDER, UPLOAD_BUILDER = "swiss_dxf@7", "swiss_dxf_upload@2"  # @7 / @2: perimeters, room and opening sizes
+# Metres: how close a door or window side must run to a wall end, or to a room outline, to lie on it. Jambs meet the
+# wall ends exactly. Outlines run up to 13 mm off a door's side and 5 cm off a window's; over 30 plans 2 cm placed
+# 99% of doors and 94% of windows and none wrongly, while a wider reach starts to catch the jambs of thin walls.
+WALL_EDGE, ROOM_EDGE = 0.005, 0.02
 
 NUMBER = re.compile(r"U?\d+\.\d+")
 AREA = re.compile(r"\d+\.\d+ m²")  # printed area under some numbers; the geometry is the source of truth
@@ -121,6 +131,27 @@ def label_units(markers, units, near) -> dict[int, str]:
         if free and min(free)[0] < near:
             unit_label[min(free)[1]] = letter
     return unit_label
+
+
+def room_dims(poly, m: float = 1.0) -> tuple[float, float, float]:
+    """(perimeter, width, length) of a room outline, in metres; m is metres per unit of poly.
+    The perimeter is the outer outline's length (a column or shaft standing inside the room adds nothing).
+    Width and length are the room's extent across and along its own longest wall, not the page axes, so a room
+    drawn at 30 degrees measures the same as one drawn square; length is the larger of the two."""
+    from shapely import affinity
+
+    ring = list(poly.exterior.coords)
+    (x0, y0), (x1, y1) = max(zip(ring, ring[1:]), key=lambda side: math.dist(*side))
+    bx0, by0, bx1, by1 = affinity.rotate(poly, -math.atan2(y1 - y0, x1 - x0), origin=(0, 0), use_radians=True).bounds
+    a, b = sorted(((bx1 - bx0) * m, (by1 - by0) * m))
+    return round(poly.exterior.length * m, 3), round(a, 3), round(b, 3)
+
+
+def sized(pts, zones, m: float = 1.0) -> dict:
+    """qty and attrs for a door or window box: qty.m its width in the wall, attrs.thickness_m the wall's thickness
+    there. Empty when swiss_openings.size cannot tell the width from the thickness."""
+    wt = size(pts, zones)
+    return dict(qty={"m": round(wt[0] * m, 3)}, more={"thickness_m": round(wt[1] * m, 3)}) if wt else {}
 
 
 def located(kind, pts, copies, placed, near=0.05):
@@ -235,17 +266,26 @@ def build_scene(path: str, file: Path) -> Scene:
             ref=f"dxf:{handle}" if handle else None))
         if poly:
             placed.append((poly, room))
+            room.qty["m"], room.attrs["width_m"], room.attrs["length_m"] = room_dims(poly)
+
+    # What a door or window box stands between: the wall solids at its jambs, the room outlines along its width.
+    walls = [p.buffer(0) for p, _ in polys("WALL")]
+    zones = [(unary_union(walls).buffer(WALL_EDGE), True)] if walls else []
+    if outlines:
+        zones.append((unary_union([p.boundary for p, _ in outlines]).buffer(ROOM_EDGE), False))
 
     found = Counter()
     for kind, pts, ref, copies in openings(msp):
         found[kind] += 1
+        where, dims = located(kind, pts, copies, placed), sized(pts, zones)
+        where["attrs"] |= dims.get("more", {})
         entities.append(Entity(id=f"{kind}-{found[kind]}", type=kind, geom=[to_page(x, y) for x, y in pts], ref=ref,
-                               **located(kind, pts, copies, placed)))
+                               qty=dims.get("qty", {}), **where))
     for sub, pts, ref, copies in fixtures(msp):
         found[sub] += 1
         entities.append(Entity(id=f"fixture-{sub}-{found[sub]}", type="fixture", subtype=sub,
                                geom=[to_page(x, y) for x, y in pts], ref=ref, **located("fixture", pts, copies, placed)))
-    return Scene(path=path, builder="swiss_dxf_upload@1" if upload else "swiss_dxf@6", tier="parse",
+    return Scene(path=path, builder=UPLOAD_BUILDER if upload else BUILDER, tier="parse",
                  covers=covers, pages=[page], entities=entities)
 
 
@@ -263,6 +303,28 @@ if __name__ == "__main__":
     room = lambda p, n: next(e for e in pipeline.build_scene(f"data/swiss_dwellings/{p}.pdf").entities if e.number == n)
     assert room("site2155_bldg3005_floor13704", "4.11").qty["m2"] == 14.7  # outline minus the hole outline inside it
     assert room("site2135_bldg2978_floor13581", "2.01").outdoor  # unlabelled balcony, known by its grey fill
+
+    # Sizes. A 4 x 3 room measures the same drawn square or turned 30 degrees; an L-shaped one by its longest wall.
+    from shapely import affinity
+    from shapely.geometry import Polygon, box
+    assert room_dims(box(0, 0, 4, 3)) == room_dims(affinity.rotate(box(0, 0, 4, 3), 30)) == (14, 3, 4)
+    assert room_dims(Polygon([(0, 0), (5, 0), (5, 2), (2, 2), (2, 4), (0, 4)]), 0.5) == (9, 2, 2.5)
+    for e in rooms.values():  # every room: longer than wide, and no outline is shorter than a square's of that area
+        assert e.attrs["length_m"] >= e.attrs["width_m"] > 0 and e.qty["m"] >= 4 * e.qty["m2"] ** 0.5 - 0.01, e
+    bed = rooms["7.08"]  # Schlafzimmer 7.08 is a plain rectangle, 3.545 x 4.418: perimeter 2 (w + l), area w l
+    assert (bed.qty["m"], bed.attrs["width_m"], bed.attrs["length_m"]) == (15.926, 3.545, 4.418)
+    assert abs(bed.qty["m"] - 2 * (3.545 + 4.418)) < 0.001 and abs(bed.qty["m2"] - 3.545 * 4.418) < 0.01
+    # A 0.9 m door in a 0.15 m wall between two rooms; the walls end at its jambs. Sized by either, and by neither.
+    door = [(0, 0), (0.9, 0), (0.9, 0.15), (0, 0.15)]
+    walls = (box(-2, 0, 0, 0.15).union(box(0.9, 0, 3, 0.15)).buffer(WALL_EDGE), True)
+    edges = (box(-2, -3, 3, 0).boundary.union(box(-2, 0.15, 3, 3).boundary).buffer(ROOM_EDGE), False)
+    assert size(door, [walls]) == size(door, [edges]) == size(door[1:] + door[:1], [walls, edges]) == (0.9, 0.15)
+    assert size(door, []) is None and size(door, [(box(5, 5, 6, 6), True)]) is None
+    doors, windows = ([e for e in s.entities if e.type == t] for t in ("door", "window"))
+    # all 18 doors and 11 windows; the four doors over 2 m are the glazed balcony fronts, in the 0.52-0.57 m outer wall
+    assert all(0.5 <= e.qty["m"] <= 3.5 and 0.03 <= e.attrs["thickness_m"] <= 0.6 for e in doors + windows), "an opening's size"
+    assert sorted(e.qty["m"] for e in doors)[len(doors) // 2] == 0.878  # the plan's usual door
+    assert sorted(e.attrs["thickness_m"] for e in windows) == [0.518] * 5 + [0.554] * 5 + [0.57]  # the outer wall, never a width
 
     # Doors, windows and fixtures carry their apartment and room, as counted on the PNG, through the executor.
     from ..executor import execute
