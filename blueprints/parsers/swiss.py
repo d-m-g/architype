@@ -16,6 +16,7 @@ from ..schemas import Entity, Page, Scene
 from .swiss_fixtures import fixtures
 from .swiss_openings import openings
 
+BUILDER = "swiss_dxf@7"  # @7: rooms carry their perimeter and net wall area; the pipeline rebuilds older cached scenes
 NUMBER = re.compile(r"U?\d+\.\d+")
 AREA = re.compile(r"\d+\.\d+ m²")  # printed area under some numbers; the geometry is the source of truth
 MARKER = re.compile(r"(?:Whg|App)\. (\S+)")  # apartment marker above a label: "Whg. A" (de), "App. A" (fr, it)
@@ -250,7 +251,7 @@ def build_scene(path: str, file: Path) -> Scene:
         found[sub] += 1
         entities.append(Entity(id=f"fixture-{sub}-{found[sub]}", type="fixture", subtype=sub,
                                geom=[to_page(x, y) for x, y in pts], ref=ref, **located("fixture", pts, copies, placed)))
-    return Scene(path=path, builder="swiss_dxf_upload@1" if upload else "swiss_dxf@7", tier="parse",
+    return Scene(path=path, builder="swiss_dxf_upload@1" if upload else BUILDER, tier="parse",
                  covers=covers, pages=[page], entities=entities)
 
 

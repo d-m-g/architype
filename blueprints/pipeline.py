@@ -54,12 +54,16 @@ def build_scene(path: str) -> Scene:
         if path.lower().endswith(".ifc"):
             from .parsers import ifc
             return ifc.build_scene(path, drawing_file(path))
-        if path.lower().endswith(".dxf"):
-            from .parsers import swiss
-            return swiss.build_scene(path, drawing_file(path))
-        if path.lower().endswith(".pdf"):  # raises NotImplementedError when the PDF is not a plan it can read
-            from .parsers import pdf
-            return pdf.build_scene(path, drawing_file(path))
+        if path.lower().endswith((".dxf", ".pdf")):
+            # The Swiss renderer's layers and styles first (exact), then the generic reader (rooms from a room layer
+            # or fill, else from the walls). Each raises NotImplementedError on a file it cannot read; when both do,
+            # the upload is left to the vision reader.
+            from .parsers import dxf, pdf, swiss, vector_pdf
+            known, generic = (swiss, dxf) if path.lower().endswith(".dxf") else (pdf, vector_pdf)
+            try:
+                return known.build_scene(path, drawing_file(path))
+            except NotImplementedError:
+                return generic.build_scene(path, drawing_file(path))
         raise NotImplementedError("no parser for this upload type")
     file, source = dataset_file(path), source_of(path)
     if source == "swiss_dwellings":
@@ -91,9 +95,9 @@ def get_scene(path: str) -> Scene:
         scene = None if fresh else Scene.model_validate_json(cached.read_bytes())
     except ValueError:  # written before scenes were saved as UTF-8 (Windows wrote cp1252): build it again
         scene, fresh = None, True
-    if scene and scene.builder.startswith("ifc@"):  # an IFC scene from an older builder: build it again
-        from .parsers import ifc
-        if scene.builder != ifc.BUILDER:
+    if scene and scene.builder.split("@")[0] in ("ifc", "swiss_dxf", "pdf_vector"):  # from an older reader: build it again
+        from .parsers import ifc, pdf, swiss
+        if scene.builder not in (ifc.BUILDER, swiss.BUILDER, pdf.BUILDER):
             scene, fresh = None, True
     scene = scene or build_scene(path)
     if read_as_image(path) and scene.tier == "detect" and "room" not in scene.covers:
