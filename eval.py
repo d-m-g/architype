@@ -94,6 +94,7 @@ def main() -> None:
     p.add_argument("--type", help="only this question type: count, area, length, volume or text")
     p.add_argument("--limit", type=int, help="score a seeded random sample of this many questions")
     p.add_argument("--baseline", action="store_true", help="score the free most-common-answer baseline instead of the pipeline")
+    p.add_argument("--vision", action="store_true", help="score the vision reader alone (the route for scans and uploads)")
     p.add_argument("--fresh", action="store_true", help="rebuild scenes instead of reading .cache/scenes")
     p.add_argument("--out", type=Path, help="run log path; default runs/<time>-<what>.jsonl")
     args = p.parse_args()
@@ -109,9 +110,17 @@ def main() -> None:
         sys.exit("no questions match these filters")
 
     ask = mode_baseline([q for q in everything if split_of(q["path"]) == "train"]) if args.baseline else pipeline.answer
+    if args.vision:
+        from blueprints.brain.escalate import answer_from_vision
+
+        def ask(path, question):
+            try:
+                return answer_from_vision(question, path)
+            except NotImplementedError as e:
+                return Answer(error=str(e))
     rows = run(questions, ask)
 
-    what = "-".join(filter(None, ["baseline" if args.baseline else "pipeline", args.source, args.type]))
+    what = "-".join(filter(None, ["baseline" if args.baseline else "vision" if args.vision else "pipeline", args.source, args.type]))
     out = args.out or Path("runs") / f"{time.strftime('%Y%m%d-%H%M%S')}-{what}.jsonl"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("".join(r.model_dump_json() + "\n" for r in rows), encoding="utf-8")

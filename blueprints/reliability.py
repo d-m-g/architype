@@ -43,10 +43,11 @@ def measured(tier: str, confidence: float) -> str | None:
 if __name__ == "__main__":
     latest: dict[tuple, dict] = {}
     for run in sorted(Path("runs").glob("*.jsonl")):  # names start with a timestamp, so later runs win
-        if "pipeline" in run.name or "vision" in run.name:
+        kind = "vision" if "vision" in run.name else "pipeline" if "pipeline" in run.name else None
+        if kind:  # a vision run measures another route on the same questions: keep both
             for line in run.read_text().splitlines():
                 row = json.loads(line)
-                latest[(row["path"], row["question"])] = row
+                latest[(kind, row["path"], row["question"])] = row
     table = build(list(latest.values()))
     FILE.write_text(json.dumps(dict(sorted(table.items())), indent=0) + "\n")
     assert build([{"pred": 3, "correct": True, "tier": "detect", "confidence": 1.0},

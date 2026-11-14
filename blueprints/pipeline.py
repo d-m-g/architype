@@ -32,9 +32,24 @@ def source_of(path: str) -> str:
     return "uploads" if path.startswith("uploads/") else path.split("/")[1]  # "data/<source>/..."
 
 
+IMAGES = (".png", ".jpg", ".jpeg")
+
+
+def read_as_image(path: str) -> bool:
+    """An image read like an upload: detector plus vision rooms. Every image except cubicasa5k, which has its own room
+    reader; a plan image in ifc_models is a picture, not a model."""
+    return path.lower().endswith(IMAGES) and (path.startswith("uploads/") or source_of(path) != "cubicasa5k")
+
+
 def build_scene(path: str) -> Scene:
     """Pick the builder for a drawing. Each builder is build_scene(path, file) -> Scene."""
-    if path.startswith("uploads/"):  # DXF, IFC and vector PDF uploads are parsed, raster images detected; the rest go to vision
+    if read_as_image(path):
+        from .brain.vision import drawing_file
+        from .detector import alike, raster
+        scene = raster.build_scene(path, drawing_file(path), upload=True)
+        alike.leave_out_rejected(scene, drawing_file(path))  # symbols users rejected on earlier drawings
+        return scene
+    if path.startswith("uploads/"):  # DXF, IFC and vector PDF uploads are parsed; the rest go to vision
         from .brain.vision import drawing_file
         if path.lower().endswith(".ifc"):
             from .parsers import ifc
@@ -42,11 +57,6 @@ def build_scene(path: str) -> Scene:
         if path.lower().endswith(".dxf"):
             from .parsers import swiss
             return swiss.build_scene(path, drawing_file(path))
-        if path.lower().endswith((".png", ".jpg", ".jpeg")):
-            from .detector import alike, raster
-            scene = raster.build_scene(path, drawing_file(path), upload=True)
-            alike.leave_out_rejected(scene, drawing_file(path))  # symbols users rejected on earlier drawings
-            return scene
         if path.lower().endswith(".pdf"):  # raises NotImplementedError when the PDF is not a plan it can read
             from .parsers import pdf
             return pdf.build_scene(path, drawing_file(path))
@@ -86,8 +96,8 @@ def get_scene(path: str) -> Scene:
         if scene.builder != ifc.BUILDER:
             scene, fresh = None, True
     scene = scene or build_scene(path)
-    if path.startswith("uploads/") and scene.tier == "detect" and "room" not in scene.covers:
-        # A PNG or JPG upload: the detector finds doors, windows and fixtures, and the vision reader adds rooms by
+    if read_as_image(path) and scene.tier == "detect" and "room" not in scene.covers:
+        # A PNG or JPG: the detector finds doors, windows and fixtures, and the vision reader adds rooms by
         # type, apartments and floors, so it gives what a PDF upload gives. Done here, not in build_scene, so scenes
         # cached before this (or while the reader was down) get their rooms the next time they are opened.
         from .brain.vision import add_rooms
