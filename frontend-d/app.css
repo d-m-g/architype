@@ -284,8 +284,7 @@ main>section{height:100%}
  mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round'%3E%3Crect x='9' y='3' width='6' height='11' rx='3'/%3E%3Cpath d='M5 11a7 7 0 0 0 14 0M12 18v3'/%3E%3C/svg%3E") center/contain no-repeat}
 .mic[aria-pressed=true]{color:var(--bad);background:color-mix(in srgb,var(--bad) 12%,transparent);animation:pulse 1.2s ease-in-out infinite}
 @keyframes pulse{50%{opacity:.55}}
-.mic:disabled,.mic:disabled+.lang{display:none}
-.mic:disabled~.voice-status{visibility:hidden}
+.mic:disabled,.mic:disabled~.lang{display:none}
 .lang{height:28px;padding:0 4px;border-color:transparent;background:transparent;font-size:12px;color:var(--ink-2)}
 .voice-status{flex:1;min-width:0;font-size:12px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
@@ -346,3 +345,18 @@ td .q{display:block;max-width:60ch} td small{color:var(--ink-3);font:11.5px var(
  *,*::before,*::after{animation-duration:0s!important;transition:none!important}
  .scan::before{inset:0;height:auto;border:0;opacity:.5}
 }
+
+/* An answer can be explored without losing access to the drawing overview. */
+.general-view{white-space:nowrap}
+/* Dictation stays a draft until recognition is final and the user chooses Ask. */
+.voice-state{flex-shrink:0;font-size:12px;color:var(--ink-2);min-width:38px}
+.voice-state[data-state=listening]{color:var(--bad);font-weight:600}
+.voice-state[data-state=transcribing]{color:var(--warn);font-weight:600}
+.voice-state[data-state=review]{color:var(--good);font-weight:600}
+.voice-preview{padding:10px 12px;margin-top:8px;border:1px solid var(--line);border-radius:8px;background:var(--surface);max-height:160px;overflow:auto}
+.voice-preview>strong{font-size:12px;color:var(--ink-2)}
+.voice-preview #voice-transcript{font-size:14px;line-height:1.5;margin:5px 0;overflow-wrap:anywhere;white-space:pre-wrap}
+.composer>.voice-status{display:block;margin-top:6px;font-size:12px;white-space:normal;overflow:visible;line-height:1.45;color:var(--ink-2)}
+.composer>.voice-status:empty{display:none}
+.composer .mic{width:40px;min-height:40px}
+@media(max-width:480px){.voice-state{font-size:11px}.composer-row{gap:4px}.general-view{padding-inline:8px}.zoom{gap:2px}}

@@ -111,6 +111,7 @@
           <output id="zoom-label">100%</output>
           <button id="zoom-in" class="btn icon" type="button" aria-label="Zoom in">+</button>
           <button id="fit" class="btn quiet" type="button">Fit</button>
+          <button id="general-view" class="btn quiet general-view" type="button" hidden>General view</button>
         </div>
         <span class="spacer"></span>
         <button id="edit-toggle" class="btn quiet" type="button" aria-pressed="false" disabled>
@@ -160,8 +161,8 @@
 
       <footer class="legend">
         <span>Confidence: 0%<i class="key key-scale"></i>100%</span>
-        <span><i class="key key-counted"></i>Counted in the answer</span>
-        <span><i class="key key-other"></i>Found, not counted</span>
+        <span id="counted-legend"><i class="key key-counted"></i>Counted in the answer</span>
+        <span><i class="key key-other"></i><span id="other-legend">Found, not counted</span></span>
         <span><i class="key key-review"></i>Under 80%, check it</span>
         <span id="view-status" class="legend-hint" role="status">Drag to pan, scroll to zoom</span>
       </footer>
@@ -234,15 +235,17 @@
       <form id="ask-form" class="composer">
         <label class="visually-hidden" for="question">Your question</label>
         <textarea id="question" rows="1" placeholder="Ask about this drawing" autocomplete="off"></textarea>
+        <div id="voice-preview" class="voice-preview" hidden><strong>Live transcript</strong><p id="voice-transcript" aria-label="Live transcript"></p><p class="muted small">Draft only. Review the question before choosing Ask.</p></div>
         <div class="composer-row">
-          <button id="voice-dictate" class="btn icon mic" type="button" aria-pressed="false" title="Dictate">Dictate question</button>
+          <button id="voice-dictate" class="btn icon mic" type="button" aria-pressed="false" aria-label="Start dictation" aria-describedby="voice-status" title="Start dictation">Dictate question</button>
+          <span id="voice-state" class="voice-state" data-state="ready" aria-label="Microphone state">Ready</span>
           <select id="voice-language" class="lang" aria-label="Dictation language">
             <option value="en-GB">EN</option><option value="fi-FI">FI</option><option value="de-DE">DE</option><option value="fr-FR">FR</option><option value="it-IT">IT</option>
           </select>
-          <span id="voice-status" class="voice-status" role="status"></span>
           <button id="cancel-request" class="btn" type="button" hidden>Stop</button>
           <button id="ask-submit" class="btn primary" type="submit">Ask</button>
         </div>
+        <p id="voice-status" class="voice-status" role="status" aria-live="polite"></p>
       </form>
     </aside>
   </div>

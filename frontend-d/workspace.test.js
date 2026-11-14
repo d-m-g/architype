@@ -51,3 +51,23 @@ test('failed follow-up retains previous evidence and never saves it as the new q
  const h=liveFollowupHarness({scene:{},answer:null,errors:['Answer: 503 unavailable']});
  h.finish();await h.request;assert.equal(h.context.result,h.result);assert.equal(h.calls.shown,0);assert.equal(h.calls.rendered,0);assert.equal(h.calls.recorded,0);assert.equal(h.node('retry-request').hidden,false);assert.match(h.node('contract-status').textContent,/Previous answer and evidence remain/);
 });
+
+test('General view restores all detection layers and fits the page without discarding the answer',()=>{
+ const text=readFileSync(new URL('./main.js',import.meta.url),'utf8'),start=text.indexOf('export function toggleGeneralView(){'),end=text.indexOf("$('general-view').onclick",start);
+ const answer={answer:4,evidence:['window']},state={generalView:false,editing:false,scene:{entities:[{type:'room'},{type:'window'}]},rawAnswer:answer,result:answer,selected:'window',layers:new Set()};
+ const calls={fit:0,frame:0,paint:0},status={};
+ const context={state,kindOf:e=>e.type,select:id=>state.selected=id,renderDrawingSide(){},drawMarks:()=>calls.paint++,fit:()=>calls.fit++,frameEvidence:()=>calls.frame++,publish(){},$:()=>status};
+ runInNewContext(text.slice(start,end).replace('export ',''),context);
+ context.toggleGeneralView();assert.equal(state.generalView,true);assert.deepEqual([...state.layers],['room','window']);assert.equal(state.rawAnswer,answer);assert.equal(state.result,answer);assert.equal(state.selected,null);assert.equal(calls.fit,1);
+ context.toggleGeneralView();assert.equal(state.generalView,false);assert.equal(state.layers.size,0);assert.equal(calls.frame,1);assert.equal(state.rawAnswer,answer);
+ state.editing=true;context.toggleGeneralView();assert.equal(calls.paint,2);assert.equal(state.generalView,false);
+});
+test('General view paints detections without answer badges while retaining accurate evidence labels',()=>{
+ const text=readFileSync(new URL('./main.js',import.meta.url),'utf8'),start=text.indexOf('function drawMarks(){'),end=text.indexOf('function markSelection()',start);
+ const make=(id,type,n)=>({id,type,page:0,label:id,conf:.9,polygon:[[0,0],[n,0],[n,n],[0,n]]});
+ const state={generalView:true,editing:false,page:0,layers:new Set(['room','window']),scene:{entities:[make('room','room',20),make('window','window',5)]}};
+ const layer={children:[],replaceChildren(){this.children=[];},append(...nodes){this.children.push(...nodes);}};
+ const context={state,$:()=>layer,evidenceIds:()=>['window'],area:e=>e.polygon[1][0],kindOf:e=>e.type,mark:(entity,className,label)=>({id:entity.id,className,label}),el:(tag,attrs,...children)=>({tag,attrs,children}),markSelection(){},updateView(){}};
+ runInNewContext(text.slice(start,end),context);context.drawMarks();assert.equal(layer.children.length,2);assert.ok(layer.children.every(n=>n.className.startsWith('mark other')));assert.match(layer.children.find(n=>n.id==='window').label,/counted in the answer/);
+ state.generalView=false;state.layers.clear();context.drawMarks();assert.equal(layer.children.filter(n=>n.className==='mark evidence').length,1);assert.equal(layer.children.filter(n=>n.attrs?.class?.startsWith('badge')).length,1);
+});

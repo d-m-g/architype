@@ -21,7 +21,7 @@ export function el(tag,attrs={},...children){
 
 /** One drawing at a time. raw* are the API's objects; scene and result are their display forms. */
 export const state={path:null,name:'',raw:null,scene:null,page:0,rawAnswer:null,result:null,question:'',ms:null,
- preview:null,layers:new Set(),selected:null,readError:null,editing:false,edited:false,corrected:null};
+ preview:null,generalView:true,layers:new Set(),selected:null,readError:null,editing:false,edited:false,corrected:null};
 
 // ───────── progress: every request shows the top bar; long ones also get a clock ─────────
 let busy=0;
@@ -166,12 +166,23 @@ function mark(entity,className,label){
  group.append(el('title',{},label));
  return group;
 }
+/** Switch the drawing overview without clearing the question, answer or history. */
+export function toggleGeneralView(){
+ if(!state.scene||state.editing)return;
+ state.generalView=!state.generalView;
+ state.layers=state.generalView?new Set(state.scene.entities.map(kindOf)):new Set();
+ select(null);renderDrawingSide();drawMarks();
+ if(state.generalView)fit();else frameEvidence();
+ $('view-status').textContent=state.generalView?'General view: all detected areas. Drag to pan, scroll to zoom':'Answer view: cited areas. Drag to pan, scroll to zoom';
+ publish();
+}
+$('general-view').onclick=toggleGeneralView;
 function drawMarks(){
  const layer=$('overlays');layer.replaceChildren();
  if(!state.scene||state.editing)return;
- const cited=evidenceIds(),onPage=state.scene.entities.filter(e=>e.page===state.page&&e.polygon.length>=3).sort((a,b)=>area(b)-area(a));
+ const answerCited=evidenceIds(),cited=state.generalView?[]:answerCited,onPage=state.scene.entities.filter(e=>e.page===state.page&&e.polygon.length>=3).sort((a,b)=>area(b)-area(a));
  for(const entity of onPage)if(!cited.includes(entity.id)&&state.layers.has(kindOf(entity)))
-  layer.append(mark(entity,`mark other kind-${entity.type}`,`${entity.label}, ${Math.round(entity.conf*100)}% sure, not part of the answer`));
+  layer.append(mark(entity,`mark other kind-${entity.type}`,`${entity.label}, ${Math.round(entity.conf*100)}% sure, ${answerCited.includes(entity.id)?'counted in the answer':'not part of the answer'}`));
  const badges=[];
  for(const entity of onPage){
   const n=cited.indexOf(entity.id);if(n<0)continue;
@@ -249,6 +260,9 @@ function counts(){
  return [...tally].sort((a,b)=>Object.keys(KINDS).indexOf(a[0])-Object.keys(KINDS).indexOf(b[0]));
 }
 function renderDrawingSide(){
+ $('counted-legend').hidden=state.generalView;$('other-legend').textContent=state.generalView?'Detected area':'Found, not counted';
+ if($('viewport-3d').hidden)$('view-status').textContent=state.generalView?'General view: all detected areas. Drag to pan, scroll to zoom':'Answer view: cited areas. Drag to pan, scroll to zoom';
+ const overview=$('general-view');overview.hidden=!state.result||!state.scene;overview.disabled=state.editing;overview.textContent=state.generalView?'Answer view':'General view';overview.title=state.generalView?'Return to the answer highlights':'Fit the full drawing and show all detected areas';
  $('drawing-title').textContent=state.name;
  const raw=state.raw,kind=notAPlan(raw);
  $('layers').replaceChildren();
@@ -360,7 +374,7 @@ export function showAnswer(raw,question,ms=null){
   state.rawAnswer={answer:null,unit:null,confidence:0,tier:'none',evidence:[],trace:[],error:error.message,cost_usd:0};
   state.result={evidence:[]};
  }
- state.question=question;state.ms=ms;state.selected=null;$('inspector').hidden=true;
+ state.generalView=false;state.question=question;state.ms=ms;state.selected=null;$('inspector').hidden=true;
  if(!state.editing)state.layers.clear();
  renderDrawingSide();renderAnswer();drawMarks();publish();
 }
@@ -380,7 +394,7 @@ function saveResult(question,rawAnswer,ms){
 let generation=0,reading=null;
 function resetDrawing(){
  abortAsk();generation++;previewLoader.cancel();
- Object.assign(state,{raw:null,scene:null,page:0,rawAnswer:null,result:null,question:'',ms:null,preview:null,selected:null,readError:null,editing:false,corrected:null});
+ Object.assign(state,{raw:null,scene:null,page:0,rawAnswer:null,result:null,question:'',ms:null,preview:null,selected:null,readError:null,generalView:true,editing:false,corrected:null});
  state.layers.clear();shownHistory=null;
  $('overlays').replaceChildren();$('inspector').hidden=true;$('page-rail').hidden=true;
  $('working').hidden=true;

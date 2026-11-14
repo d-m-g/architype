@@ -49,3 +49,31 @@ test('cancelled playback callbacks cannot overwrite stop status or a newer playb
  assert.equal(get('voice-status').textContent,'Finished reading.');
  unsubscribe();
 });
+
+function voiceHarness(){
+ const nodes=new Map(),events=new Map();let session;
+ const get=id=>{if(!nodes.has(id))nodes.set(id,{value:'',textContent:'',hidden:true,attrs:{},listeners:new Map(),setAttribute(k,v){this.attrs[k]=v;},addEventListener(k,fn){this.listeners.set(k,fn);},dispatchEvent(event){this.listeners.get(event.type)?.(event);},focus(){}});return nodes.get(id);};
+ class Recognition{constructor(){session=this;}start(){}abort(){this.aborted=true;this.onend?.();}}
+ const stop=mountVoice({getElementById:get,addEventListener(){}},{SpeechRecognition:Recognition,addEventListener:(type,fn)=>events.set(type,fn)});
+ return {get,events,stop,start(){get('voice-dictate').onclick();return session;},result(target,text,isFinal){target.onresult({results:[Object.assign([{transcript:text}],{isFinal})]});}};
+}
+test('live dictation shows interim words separately and only commits a final transcript for review',()=>{
+ const h=voiceHarness();h.get('question').value='Typed draft';assert.equal(h.get('voice-state').textContent,'Ready');
+ const session=h.start();assert.equal(session.interimResults,true);assert.equal(h.get('voice-state').textContent,'Listening');assert.equal(h.get('voice-dictate').attrs['aria-label'],'Cancel dictation');
+ h.result(session,'How many',false);assert.equal(h.get('voice-transcript').textContent,'How many');assert.equal(h.get('voice-preview').hidden,false);assert.equal(h.get('question').value,'Typed draft');
+ h.result(session,'How many windows',false);assert.equal(h.get('voice-transcript').textContent,'How many windows');
+ session.onspeechend();assert.equal(h.get('voice-state').textContent,'Transcribing');
+ h.result(session,'How many windows?',true);assert.equal(h.get('question').value,'How many windows?');assert.equal(h.get('voice-state').textContent,'Review question');assert.equal(h.get('voice-preview').hidden,true);assert.equal(h.get('voice-dictate').attrs['aria-pressed'],'false');assert.match(h.get('voice-status').textContent,/choose Ask/);h.stop();
+});
+test('cancelled and failed interim recognition preserve the typed question and ignore late transcripts',()=>{
+ const h=voiceHarness();h.get('question').value='Keep this';const old=h.start();h.result(old,'unfinished',false);
+ h.get('voice-dictate').onclick();assert.equal(h.get('voice-state').textContent,'Ready');assert.equal(h.get('voice-preview').hidden,true);
+ const current=h.start();h.result(old,'Wrong late final',true);assert.equal(h.get('question').value,'Keep this');assert.equal(h.get('voice-state').textContent,'Listening');
+ current.onerror({error:'network'});assert.equal(h.get('question').value,'Keep this');assert.match(h.get('voice-status').textContent,/could not connect/);assert.equal(h.get('voice-state').textContent,'Ready');h.stop();
+});
+test('typing, drawing changes and recognition ending discard partial speech without overwriting the draft',()=>{
+ const h=voiceHarness();h.get('question').value='Original';let session=h.start();h.result(session,'Partial',false);
+ h.get('question').value='Manual edit';h.get('question').dispatchEvent(new Event('input'));h.result(session,'Late answer',true);assert.equal(h.get('question').value,'Manual edit');assert.equal(session.aborted,true);
+ session=h.start();h.result(session,'Another partial',false);session.onend();assert.equal(h.get('voice-state').textContent,'Ready');assert.equal(h.get('voice-preview').hidden,true);assert.equal(h.get('question').value,'Manual edit');
+ session=h.start();h.events.get('stoa:drawing-reset')();h.result(session,'Wrong drawing',true);assert.equal(h.get('question').value,'Manual edit');assert.equal(h.get('voice-state').textContent,'Ready');h.stop();
+});
