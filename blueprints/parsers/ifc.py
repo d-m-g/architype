@@ -393,6 +393,15 @@ if __name__ == "__main__":
     assert bed.attrs["wall_openings"] == 6
     assert abs(bed.attrs["wall_openings_m2"] - (0.864 * 2.032 + 2.8 * 2.41 + 0.75 * 2.2 + 3 * 0.819 * 0.759)) < 0.05
 
+    # "wall area of bathroom 1": the name inside the label matches too. Two units have a Bathroom 1, so both are added
+    # and the answer says so; the full label picks one, surely.
+    from ..executor import execute
+    from ..schemas import Query, QueryPlan
+    walls = lambda label: execute(QueryPlan(queries={"w": Query(op="sum", type="room", label=label, qty="wall_m2")}, unit="m2"), s)
+    one, both = walls("Bathroom 1 (A104)"), walls("bathroom 1")
+    assert (one.answer, one.confidence, len(both.evidence), both.confidence) == (bath.qty["wall_m2"], 1.0, 2, 0.6)
+    assert "Bathroom 1 (B104)" in both.confidence_note
+
     # A model with no IfcSpace: rooms from its 14 walls. The 42.9 m2 main room is lost unless wall ends are joined.
     s = build_scene("data/ifc_models/resbim-100_model.ifc", file.with_name("resbim-100_model.ifc"))
     rooms = [e for e in s.entities if e.type == "room"]

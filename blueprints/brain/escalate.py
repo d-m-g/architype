@@ -34,6 +34,8 @@ MAX_TURNS = 8
 SYSTEM = """You answer a question about one construction drawing, using tools. The drawing has already been read into
 a scene: a list of entities (rooms, doors, windows, fixtures, apartments, levels) with ids, labels and quantities.
 - Use list_entities to see what is there, and run_plan for every count, sum or arithmetic: never compute numbers yourself.
+- A room carries its floor area (qty m2), its perimeter (qty m) and its wall area net of doors and windows (qty
+  wall_m2). Wall area, paint, wallpaper and skirting questions are sums of those over rooms, not over wall entities.
 - Each entity is one room or object. For "the largest / smallest room" call list_entities with sort and limit 1 and
   report that single entity; never combine rooms that share a label unless the question asks for a total.
 - Use look only when the scene lacks something you need; it asks a vision model about the page or a region of it.
@@ -48,7 +50,7 @@ a scene: a list of entities (rooms, doors, windows, fixtures, apartments, levels
 
 TOOLS = [
     {"type": "function", "function": {
-        "name": "list_entities", "description": "List scene entities, optionally filtered. Returns id, type, subtype, label, number, apartment, level, area_m2, conf.",
+        "name": "list_entities", "description": "List scene entities, optionally filtered. Returns id, type, subtype, label, number, apartment, level, area_m2, perimeter_m, wall_m2, conf.",
         "parameters": {"type": "object", "properties": {
             "type": {"type": "string", "description": "room, apartment, level, door, window, fixture, wall, slab, column, row or other"},
             "subtype": {"type": "string"}, "label": {"type": "string", "description": "case-insensitive substring of the label"},
@@ -61,7 +63,7 @@ TOOLS = [
         "parameters": {"type": "object", "required": ["plan"], "properties": {"plan": {"type": "string", "description":
             'QueryPlan JSON, e.g. {"queries": {"a": {"op": "sum", "type": "room", "subtype": "bathroom", "qty": "m2"}, '
             '"n": {"op": "count", "type": "room", "subtype": "bathroom"}}, "formula": "a / n", "unit": "m2"}. '
-            "Query fields: op (count|sum), type, subtype, label, number, level, apartment, outdoor, where, qty (m2|m|m3|ft2, for sum)."}}}}},
+            "Query fields: op (count|sum), type, subtype, label, number, level, apartment, outdoor, where, qty (m2|m|m3|ft2|wall_m2, for sum)."}}}}},
     {"type": "function", "function": {
         "name": "look", "description": "Ask a vision model a question about the page image, or about one region of it.",
         "parameters": {"type": "object", "required": ["question"], "properties": {
@@ -155,6 +157,7 @@ def _tool(name: str, args: dict, scene: Scene) -> tuple[str, list[TraceStep]]:
             hits = sorted(hits, key=lambda e: (("m2" not in e.qty), -e.qty.get("m2", 0) if args["sort"] == "area_desc" else e.qty.get("m2", 0)))
         rows = [{k: v for k, v in {"id": e.id, "type": e.type, "subtype": e.subtype, "label": e.label, "number": e.number,
                                    "apartment": e.apartment, "level": e.level, "area_m2": e.qty.get("m2"),
+                                   "perimeter_m": e.qty.get("m") if e.type == "room" else None, "wall_m2": e.qty.get("wall_m2"),
                                    "conf": round(e.conf, 2)}.items() if v is not None} for e in hits]
         limit = args.get("limit") if isinstance(args.get("limit"), int) and args["limit"] > 0 else 150
         return json.dumps({"count": len(rows), "entities": rows[:min(limit, 150)]}, ensure_ascii=False), []
