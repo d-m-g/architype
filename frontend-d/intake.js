@@ -1,5 +1,5 @@
 import {uploadDrawing,isDrawingPath,recoveryMessage} from './api-client.js';
-import {prepareLocalDrawing} from './local-file.js';
+import {prepareLocalDrawing,renderPDFPreview} from './local-file.js';
 const $ = id => document.getElementById(id);
 let fileURL = null, selection = 0, previousMode = '', uploadFile=null, uploadName='', uploadAbort=null;
 function stopVoice() {
@@ -38,14 +38,19 @@ $('drawing-file').onchange = async () => {
     $('local-content').replaceChildren();
     if (fileURL) URL.revokeObjectURL(fileURL);
     fileURL = URL.createObjectURL(uploadFile);
-    const dxf = type === 'image/vnd.dxf';  // browsers cannot draw CAD; the server renders the page after upload
-    const preview = document.createElement(dxf ? 'p' : type === 'application/pdf' ? 'iframe' : 'img');
-    if (dxf) { preview.className = 'muted'; preview.textContent = 'DXF drawings cannot be previewed in the browser. Upload it: the server reads its layers and draws the page.'; }
-    else if (type === 'application/pdf') { preview.title = 'Local PDF preview'; }
-    else { preview.alt = 'Local drawing preview: ' + file.name; preview.onerror = () => { if(id===selection) $('upload-status').textContent = 'This image could not be decoded. Choose another file. Nothing was uploaded.'; }; }
-    if (!dxf) preview.src = fileURL;
+    const dxf = type === 'image/vnd.dxf',pdf=type==='application/pdf';
+    let preview=document.createElement(dxf?'p':'img'),pdfNote='';
+    if(dxf){preview.className='muted';preview.textContent='DXF drawings cannot be previewed in the browser. Upload it: the server reads its layers and draws the page.';}
+    else if(pdf){
+      $('upload-status').textContent='Rendering PDF page 1 for the drawing viewer...';
+      try{
+        const rendered=await renderPDFPreview(uploadFile);if(id!==selection)return;
+        preview.src=rendered.displayURL;preview.alt='PDF drawing preview, page 1 of '+rendered.pageCount;
+        pdfNote=' - Page 1 of '+rendered.pageCount+'; analysis covers page 1';
+      }catch(error){if(id!==selection)return;preview=document.createElement('p');preview.className='muted';preview.textContent=error.message+' You can upload the original PDF below to use the server reader.';}
+    }else{preview.alt='Local drawing preview: '+file.name;preview.onerror=()=>{if(id===selection)$('upload-status').textContent='This image could not be decoded. Choose another file. Nothing was uploaded.';};preview.src=fileURL;}
     $('local-content').append(preview);
-    $('local-name').textContent = file.name + ' · ' + (file.size/1024/1024).toFixed(2) + ' MB'+(prepared.converted?' · converted to PNG':'');
+    $('local-name').textContent = file.name + ' · ' + (file.size/1024/1024).toFixed(2) + ' MB'+(prepared.converted?' · converted to PNG':'')+pdfNote;
     $('local-preview').hidden = false;
     $('editor-workspace').hidden = true;
     $('source-pill').hidden = true;

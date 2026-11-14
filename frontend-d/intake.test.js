@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {validateLocalDrawing,MAX_LOCAL_BYTES,validateImageSize,createSourcePreviewLoader,sourcePreviewKind} from './local-file.js';
+import {validateLocalDrawing,MAX_LOCAL_BYTES,validateImageSize,createSourcePreviewLoader,sourcePreviewKind,pdfPreviewSize,renderPDFPreview} from './local-file.js';
 import {requestDrawing,getConnectionStatus,requestJSON} from './api-client.js';
 
 test('connection check reads production OpenAPI and verifies route methods',async(t)=>{
@@ -93,4 +93,31 @@ test('recovery distinguishes model setup, reader, timeout, connection and file f
  assert.match(recoveryMessage('413 too large'),/file size/);
  assert.match(recoveryMessage('415 unsupported format'),/not supported/);
  assert.match(recoveryMessage('Unexpected response'),/Review the details/);
+});
+
+test('PDF source uses a rendered image with actual dimensions and page count',async()=>{
+ let loads=0;const loader=createSourcePreviewLoader(()=>{throw new Error('Raster loader must not receive a PDF');},async()=>{loads++;return {displayURL:'data:image/png;base64,preview',width:2400,height:1600,pageCount:8,previewPage:1};});
+ let preview;await loader.select('uploads/source.pdf',value=>preview=value);
+ assert.equal(preview.displayURL,'data:image/png;base64,preview');assert.equal(preview.width,2400);assert.equal(preview.pageCount,8);
+ await loader.select('uploads/source.pdf',()=>{});assert.equal(loads,1);
+});
+test('PDF preview bounds canvas memory while preserving portrait and rotated page proportions',()=>{
+ for(const [w,h] of [[595,842],[842,595],[20000,30000]]){
+  const size=pdfPreviewSize(w,h);assert.ok(size.width<=4096&&size.height<=4096);assert.ok(size.width*size.height<8010000);
+  assert.ok(Math.abs(size.width/size.height-w/h)<.002);
+ }
+ assert.throws(()=>pdfPreviewSize(0,10),/invalid dimensions/);
+});
+test('PDF renders only page one, reports full page count and cleans up on success or failure',async()=>{
+ const calls=[];let destroyed=0,taskDestroyed=0,canvas;
+ const page={getViewport:({scale})=>({width:600*scale,height:800*scale}),render:options=>{calls.push(options);return {promise:Promise.resolve()};}};
+ const pdf={numPages:9,getPage:async n=>{assert.equal(n,1);return page;},destroy:async()=>{destroyed++;}};
+ const lib={getDocument:options=>{assert.equal(options.isEvalSupported,false);assert.ok(options.data instanceof Uint8Array);return {promise:Promise.resolve(pdf),destroy:async()=>taskDestroyed++};}};
+ const createCanvas=()=>canvas={getContext:()=>({}),toDataURL:type=>{assert.equal(type,'image/png');return 'data:image/png;base64,page';}};
+ const result=await renderPDFPreview(new Blob(['%PDF-test']),{loadLibrary:async()=>lib,createCanvas});
+ assert.equal(result.pageCount,9);assert.equal(result.previewPage,1);assert.equal(result.width,1800);assert.equal(result.height,2400);assert.equal(destroyed,1);assert.equal(canvas.width,1);assert.equal(calls.length,1);
+ page.render=()=>({promise:Promise.reject(new Error('broken PDF'))});
+ await assert.rejects(renderPDFPreview(new Blob(['%PDF-test']),{loadLibrary:async()=>lib,createCanvas}),/broken PDF/);assert.equal(destroyed,2);
+ const failed={getDocument:()=>({promise:Promise.reject({name:'PasswordException'}),destroy:async()=>taskDestroyed++})};
+ await assert.rejects(renderPDFPreview(new Blob(['%PDF-test']),{loadLibrary:async()=>failed,createCanvas}),/requires a password/);assert.equal(taskDestroyed,1);
 });

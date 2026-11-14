@@ -271,9 +271,8 @@ html{scroll-padding-top:88px}
 @media(forced-colors:active){.theme-toggle[aria-pressed=true]{outline:2px solid Highlight}.figma-workspace button{forced-color-adjust:auto}}
 @media(max-width:650px){.figma-workspace .mock-badge{max-width:min(155px,calc(100vw - 190px))}}
 :root[data-theme=dark] .figma-workspace .connection-status{background:var(--paper);color:var(--ink);border-color:var(--line)}
-#uploaded-pdf-preview{display:block;width:100%;height:clamp(380px,calc(100dvh - 320px),720px);border:0;background:white}
 .source-file-badge{display:grid;place-items:center;min-height:65px;width:100%;background:var(--accent-soft);color:var(--muted);font-size:13px;font-weight:600;border:1px solid var(--line)}
-@media(max-width:650px){.source-file-badge{min-height:38px}#uploaded-pdf-preview{height:460px}}
+@media(max-width:650px){.source-file-badge{min-height:38px}}
 
 /* Source navigation and API detections. Neutral outlines are not answer evidence. */
 .figma-workspace .canvas-wrap{padding:8px;overscroll-behavior:contain}
@@ -293,6 +292,5 @@ html{scroll-padding-top:88px}
 .viewer-information summary{font-weight:600;min-height:32px;align-content:center}
 .viewer-information p{margin:8px 0;line-height:1.6;overflow-wrap:anywhere}
 .viewer-information .viewer-message{position:static;max-width:none;padding:0;background:transparent;letter-spacing:normal;color:var(--muted);font:inherit}
-.figma-workspace #uploaded-pdf-preview{height:clamp(280px,calc(100dvh - 310px),900px)}
-@media(max-width:800px){.figma-workspace .canvas-wrap,.figma-workspace #uploaded-pdf-preview{height:clamp(280px,60dvh,650px)}}
-@media(max-height:600px) and (min-width:801px){.figma-workspace .canvas-wrap,.figma-workspace #uploaded-pdf-preview{height:65dvh;min-height:220px}}
+@media(max-width:800px){.figma-workspace .canvas-wrap{height:clamp(280px,60dvh,650px)}}
+@media(max-height:600px) and (min-width:801px){.figma-workspace .canvas-wrap{height:65dvh;min-height:220px}}

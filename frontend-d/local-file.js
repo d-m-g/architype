@@ -29,7 +29,7 @@ export function sourcePreviewKind(path){
 }
 
 /** Source display does not depend on a model, and late loads cannot replace a newer file. */
-export function createSourcePreviewLoader(loadImage){
+export function createSourcePreviewLoader(loadImage,loadPDF){
   let generation=0;const cache=new Map();
   return {
     cancel(){generation++;},
@@ -40,7 +40,8 @@ export function createSourcePreviewLoader(loadImage){
         if(!preview){
           preview={path,image:path,type:kind};
           if(kind==='image'){const size=await loadImage(path);validateImageSize(size.width,size.height);preview={...preview,width:size.width,height:size.height};}
-          cache.set(path,preview);
+          else if(loadPDF){const page=await loadPDF(path);validateImageSize(page.width,page.height);preview={...preview,...page};}
+          cache.set(path,preview);if(cache.size>4)cache.delete(cache.keys().next().value);
         }
         if(token===generation)onReady(preview);
       }catch(error){if(token===generation)onError(error);}
@@ -67,4 +68,37 @@ export async function prepareLocalDrawing(file){
     if(blob.size>50*1024*1024)throw new Error('The converted PNG exceeds the server’s 50 MB limit. Reduce the image dimensions and try again.');
     return {blob,type:'image/png',name:'drawing.png',converted:true,originalType,...size};
   }finally{bitmap.close();}
+}
+
+// Pinned, lazy-loaded PDF.js. PDF bytes stay in this browser; only renderer assets use the CDN.
+const PDF_ASSETS='https://cdn.jsdelivr.net/npm/pdfjs-dist@5.4.624/';
+let pdfLibrary;
+async function getPDFLibrary(){
+ if(!pdfLibrary)pdfLibrary=import(PDF_ASSETS+'build/pdf.min.mjs').then(lib=>{lib.GlobalWorkerOptions.workerSrc=PDF_ASSETS+'build/pdf.worker.min.mjs';return lib;}).catch(error=>{pdfLibrary=null;throw new Error('PDF preview could not load. Check your connection and retry; you can still upload the original PDF for analysis.');});
+ return pdfLibrary;
+}
+export function pdfPreviewSize(width,height){
+ if(!Number.isFinite(width)||!Number.isFinite(height)||width<=0||height<=0)throw new Error('This PDF page has invalid dimensions.');
+ const scale=Math.min(3,4096/Math.max(width,height),Math.sqrt(8000000/(width*height)));
+ return {scale,width:Math.ceil(width*scale),height:Math.ceil(height*scale)};
+}
+/** Render page one without a browser PDF plugin, matching the current upload reader's page scope. */
+export async function renderPDFPreview(file,{loadLibrary=getPDFLibrary,createCanvas=()=>document.createElement('canvas')}={}){
+ const lib=await loadLibrary(),data=new Uint8Array(await file.arrayBuffer());
+ const task=lib.getDocument({data,isEvalSupported:false,useSystemFonts:true,cMapUrl:PDF_ASSETS+'cmaps/',cMapPacked:true,standardFontDataUrl:PDF_ASSETS+'standard_fonts/',wasmUrl:PDF_ASSETS+'wasm/'});
+ let pdf,canvas;
+ try{
+  pdf=await task.promise;const page=await pdf.getPage(1),base=page.getViewport({scale:1}),size=pdfPreviewSize(base.width,base.height),viewport=page.getViewport({scale:size.scale});
+  canvas=createCanvas();canvas.width=size.width;canvas.height=size.height;
+  const context=canvas.getContext('2d');if(!context)throw new Error('PDF canvas rendering is unavailable in this browser.');
+  await page.render({canvasContext:context,viewport,background:'rgb(255,255,255)'}).promise;
+  return {displayURL:canvas.toDataURL('image/png'),width:size.width,height:size.height,pageCount:pdf.numPages,previewPage:1};
+ }catch(error){throw new Error(error?.name==='PasswordException'?'This PDF requires a password. Export an unlocked copy before uploading.':'PDF preview failed: '+(error?.message??'The document could not be rendered.'));}
+ finally{if(pdf)await pdf.destroy();else await task.destroy();if(canvas){canvas.width=1;canvas.height=1;}}
+}
+export async function loadPDFPreview(path){
+ const response=await fetch('/api/image?'+new URLSearchParams({path}),{signal:AbortSignal.timeout(60000)});
+ if(!response.ok)throw new Error('PDF source could not be loaded ('+response.status+'). Check your sign-in and retry.');
+ const file=await response.blob();if(file.size>50*1024*1024)throw new Error('PDF is too large for browser preview.');
+ return renderPDFPreview(file);
 }

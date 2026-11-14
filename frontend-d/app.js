@@ -1,4 +1,4 @@
-import {createSourcePreviewLoader,sourcePreviewKind} from './local-file.js';
+import {createSourcePreviewLoader,sourcePreviewKind,loadPDFPreview} from './local-file.js';
 import {historyStore} from './history-state.js';
 import {requestDrawing,requestJSON,getConnectionStatus,isDrawingPath,recoveryMessage,LIVE_REQUEST_TIMEOUT_MS} from './api-client.js';
 import {publishEditor} from './editor-bridge.js';
@@ -15,21 +15,19 @@ const previewLoader=createSourcePreviewLoader(path=>new Promise((resolve,reject)
  const image=new Image();image.onload=()=>resolve({width:image.naturalWidth,height:image.naturalHeight});
  image.onerror=()=>reject(new Error('The uploaded source image could not be loaded. Check your sign-in and connection, then select the file again.'));
  image.src=imageURL(path);
-}));
+}),loadPDFPreview);
 function emptyDisplayScene(entities=[]){return {width:sourcePreview?.width??1000,height:sourcePreview?.height??760,page:1,entities,pages:[]};}
 function showSourcePreview(path){
  previewLoader.select(path,preview=>{
   if(shared||!apiSelected)return;
   sourcePreview=preview;scene={...scene,width:preview.width??1000,height:preview.height??760};
-  const pdf=preview.type==='pdf';$('uploaded-pdf-preview').hidden=!pdf;svg.closest('.canvas-wrap').hidden=pdf;
-  if(pdf)$('uploaded-pdf-preview').src=imageURL(preview.image);
-  else{const image=svg.querySelector('image');image.setAttribute('href',imageURL(preview.image));image.setAttribute('width',preview.width);image.setAttribute('height',preview.height);}
-  $('canvas-label').textContent='SOURCE PREVIEW · No extracted overlays';
+  const image=svg.querySelector('image');image.setAttribute('href',preview.displayURL??imageURL(preview.image));image.setAttribute('width',preview.width);image.setAttribute('height',preview.height);
+  $('canvas-label').textContent=preview.type==='pdf'?`PDF page 1 of ${preview.pageCount}. Preview only; API detections appear after analysis. The upload reader currently analyses page 1.`:'SOURCE PREVIEW - No extracted overlays';
   svg.setAttribute('aria-label','Source image preview without extracted evidence overlays. Arrow keys pan; plus and minus zoom.');
   $('source-pill').textContent='Team API · source preview; analysis separate';render();
  },error=>{if(!shared&&apiSelected)$('canvas-label').textContent=error.message;});
 }
-function clearSourcePreview(){previewLoader.cancel();sourcePreview=null;$('uploaded-pdf-preview').hidden=true;$('uploaded-pdf-preview').removeAttribute('src');svg.closest('.canvas-wrap').hidden=false;}
+function clearSourcePreview(){previewLoader.cancel();sourcePreview=null;svg.closest('.canvas-wrap').hidden=false;}
 
 function el(tag,attrs={}){const node=document.createElementNS(NS,tag);for(const [k,v] of Object.entries(attrs))node.setAttribute(k,v);return node;}
 function syncEditor(){publishEditor({wireScene:shared?rawScene:null,answer:result.raw??result,entities:scene.entities.map(e=>({...e,page:e.page??0})),selectedId:selected,pageIndex:currentPage,viewport:{...view},sourcePreview:shared?null:sourcePreview,mode:shared?'shared':apiSelected?'pending':'mock'});}
