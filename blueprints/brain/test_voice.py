@@ -69,7 +69,7 @@ class VoiceTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_existing_login_protects_voice_endpoints(self):
         with patch.object(api, "PASSWORD_HASH", "enabled"):
-            for path in ("/api/voice/config", "/api/voice/transcribe", "/api/voice/speak"):
+            for path in ("/api/voice/config", "/api/voice/transcribe", "/api/voice/speak", "/api/voice/live-token"):
                 response = await self.client.get(path) if path.endswith("config") else await self.client.post(path)
                 self.assertEqual(response.status_code, 401)
 
@@ -77,6 +77,38 @@ class VoiceTests(unittest.IsolatedAsyncioTestCase):
         response = await self.client.get("/api/voice/config")
         self.assertTrue(response.json()["configured"])
         self.assertNotIn("test-only-secret", response.text)
+
+    async def test_live_token_is_single_use_short_lived_and_locked_to_transcription(self):
+        with patch.object(voice, "_post_google", return_value={"name": "auth_tokens/short-lived"}) as post:
+            response = await self.client.post("/api/voice/live-token", json={"language": "fi-FI"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["cache-control"], "no-store")
+        self.assertEqual(response.json()["token"], "auth_tokens/short-lived")
+        self.assertNotIn("test-only-secret", response.text)
+        payload = post.call_args.args[0]
+        self.assertTrue(post.call_args.kwargs["auth_token"])
+        self.assertEqual(payload["uses"], 1)
+        setup = payload["bidiGenerateContentSetup"]
+        self.assertEqual(setup["model"], "models/gemini-3.5-transcribe-live")
+        self.assertEqual(setup["generationConfig"]["responseModalities"], ["TEXT"])
+        self.assertEqual(setup["inputAudioTranscription"]["languageCodes"], ["fi-FI"])
+        expiry = voice.datetime.fromisoformat(payload["expireTime"])
+        self.assertLess((expiry - voice.datetime.now(voice.timezone.utc)).total_seconds(), 121)
+
+    async def test_live_language_validation_prevents_provider_calls(self):
+        with patch.object(voice, "_post_google") as post:
+            response = await self.client.post("/api/voice/live-token", json={"language": "invalid <code>"})
+        self.assertEqual(response.status_code, 422)
+        post.assert_not_called()
+
+    async def test_live_token_can_be_disabled_without_disabling_recorded_dictation(self):
+        with patch.dict("os.environ", {"BLUEPRINTS_LIVE_TRANSCRIPTION": "0"}), patch.object(voice, "_post_google") as post:
+            response = await self.client.post("/api/voice/live-token", json={"language": "auto"})
+            config = await self.client.get("/api/voice/config")
+        self.assertEqual(response.status_code, 503)
+        self.assertFalse(config.json()["live_transcription"])
+        self.assertTrue(config.json()["configured"])
+        post.assert_not_called()
 
     def test_google_errors_redact_key_and_disable_interaction_storage(self):
         failure = HTTPError("https://google.invalid", 403, "Forbidden", {}, io.BytesIO(json.dumps({
