@@ -155,13 +155,13 @@ const kindOf=entity=>entity.type;
 /** Every box's colour follows its own confidence: hue 0 (red) at 0%, 60 (amber) at 50%, 120 (green) at 100%. */
 const hue=entity=>Math.round((entity.conf??1)*120);
 const area=e=>Math.abs(e.polygon.reduce((sum,p,i,points)=>{const q=points[(i+1)%points.length];return sum+p[0]*q[1]-q[0]*p[1];},0));
-const evidenceIds=()=>state.result?[...new Set(state.result.evidence)]:[];
+const evidenceIds=()=>{const known=new Set(state.scene?.entities.map(entity=>entity.id)??[]);return state.result?[...new Set(state.result.evidence)].filter(id=>known.has(id)):[];};
 export function entityById(id){return state.scene?.entities.find(e=>e.id===id);}
 function hover(id,on){for(const node of document.querySelectorAll('[data-entity]'))if(node.dataset.entity===id)node.classList.toggle('hot',on);}
 function mark(entity,className,label){
  const group=el('g',{class:className+(entity.uncertain?' review':''),style:`--h:${hue(entity)}`,role:'button',tabindex:'0','aria-label':label,'data-entity':entity.id,
-  onclick:()=>select(entity.id),onmouseenter:()=>hover(entity.id,true),onmouseleave:()=>hover(entity.id,false),
-  onkeydown:event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();event.stopPropagation();select(entity.id);}}},
+  onclick:()=>select(entity.id,{focusEvidence:true}),onmouseenter:()=>hover(entity.id,true),onmouseleave:()=>hover(entity.id,false),
+  onkeydown:event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();event.stopPropagation();select(entity.id,{focusEvidence:true});}}},
   el('polygon',{points:entity.polygon.map(p=>p.join(',')).join(' ')}));
  group.append(el('title',{},label));
  return group;
@@ -203,14 +203,15 @@ function markSelection(){
 const inspectors=[];
 /** Other modules add controls to the inspector: fn(entity, node). */
 export function onInspect(fn){inspectors.push(fn);}
-export function select(id,{zoomTo=false}={}){
+export function select(id,{zoomTo=false,focusEvidence=false}={}){
  const entity=id?entityById(id):null;
  state.selected=entity?.id??null;
- if(entity&&entity.page!==state.page)setPage(entity.page);
+ if(entity&&entity.page!==state.page){setPage(entity.page);renderDrawingSide();drawMarks();}
  markSelection();
  const box=$('inspector');box.hidden=!entity;box.replaceChildren();
- if(!entity){publish();return;}
+ if(!entity){$('evidence-navigation').textContent='Select an item, then use arrow keys to browse.';publish();return;}
  const n=evidenceIds().indexOf(entity.id);
+ $('evidence-navigation').textContent=n>=0?`${n+1} of ${evidenceIds().length}: ${entity.label}. Arrow keys browse items.`:'Selected detection is not cited in this answer.';
  box.append(
   el('button',{class:'btn icon close',type:'button','aria-label':'Close',onclick:()=>select(null)},'×'),
   el('strong',{},entity.label),
@@ -220,6 +221,7 @@ export function select(id,{zoomTo=false}={}){
  for(const fn of inspectors)fn(entity,box);
  const row=[...$('evidence-list').children].find(node=>node.dataset.entity===entity.id);
  row?.scrollIntoView({block:'nearest',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
+ if(focusEvidence)row?.focus({preventScroll:true});
  if(zoomTo&&entity.polygon.length){
   const xs=entity.polygon.map(p=>p[0]),ys=entity.polygon.map(p=>p[1]),{w,h}=pageSize();
   const width=Math.min(w,Math.max((Math.max(...xs)-Math.min(...xs))*4,(Math.max(...ys)-Math.min(...ys))*4*w/h,w*.3));
@@ -228,6 +230,26 @@ export function select(id,{zoomTo=false}={}){
  }
  publish();
 }
+/** Walk the numbered answer order, with stable ends and no changes to the answer itself. */
+export function nextEvidenceId(ids,selected,key){
+ if(!ids.length)return null;
+ if(key==='Home')return ids[0];if(key==='End')return ids.at(-1);
+ const step={ArrowRight:1,ArrowDown:1,ArrowLeft:-1,ArrowUp:-1}[key];if(!step)return null;
+ const current=ids.indexOf(selected),index=current<0?(step>0?0:ids.length-1):Math.max(0,Math.min(ids.length-1,current+step));
+ return ids[index];
+}
+function browseEvidence(event){
+ if(event.defaultPrevented||event.isComposing||event.altKey||event.ctrlKey||event.metaKey||event.shiftKey||asking||state.editing||!state.result||$('workspace').hidden||$('panel-ask').hidden)return;
+ const target=event.target;
+ if(target.isContentEditable||target.closest('input,textarea,select,[contenteditable]:not([contenteditable="false"]),[role="textbox"],[role="slider"],[role="spinbutton"]'))return;
+ if(target!==document.body&&!target.closest('#workspace'))return;
+ const ids=evidenceIds().filter(id=>entityById(id)),next=nextEvidenceId(ids,state.selected,event.key);if(next===null)return;
+ event.preventDefault();event.stopPropagation();
+ if(state.generalView){state.generalView=false;state.layers.clear();renderDrawingSide();drawMarks();}
+ select(next,{zoomTo:true,focusEvidence:true});
+}
+// Capture before the viewer's arrow-to-pan handler. Alt+arrows retain panning on the drawing.
+document.addEventListener('keydown',browseEvidence,true);
 window.addEventListener('stoa:select-entity',event=>select(event.detail.id));
 
 // ───────── pages ─────────
@@ -330,8 +352,9 @@ function renderAnswer(){
  const cited=evidenceIds().map(id=>entityById(id)).filter(Boolean),unsure=cited.filter(e=>e.uncertain).length;
  $('evidence').hidden=!cited.length;
  $('evidence-count').textContent=`${cited.length}${unsure?`, ${unsure} to check`:''}`;
+ $('evidence-navigation').textContent='Select an item, then use arrow keys to browse. Home and End jump to the first and last item.';
  $('evidence-list').replaceChildren(...cited.map((entity,i)=>el('button',{type:'button',class:`evidence-row${entity.uncertain?' review':''}`,style:`--h:${hue(entity)}`,'data-entity':entity.id,'aria-pressed':'false',
-  onclick:()=>select(entity.id,{zoomTo:true}),onmouseenter:()=>hover(entity.id,true),onmouseleave:()=>hover(entity.id,false)},
+  onclick:()=>select(entity.id,{zoomTo:true,focusEvidence:true}),onmouseenter:()=>hover(entity.id,true),onmouseleave:()=>hover(entity.id,false)},
   el('span',{class:'n'},String(i+1)),
   el('span',{class:'what'},entity.label,el('small',{},[entity.quantityText,entity.context,entity.conf<1?`${Math.round(entity.conf*100)}% sure${entity.uncertain?', check it':''}`:null,
    state.scene.pages.length>1?`page ${entity.page+1}`:null,entity.polygon.length?null:'not drawn'].filter(Boolean).join(' · '))))));

@@ -360,3 +360,6 @@ td .q{display:block;max-width:60ch} td small{color:var(--ink-3);font:11.5px var(
 .composer>.voice-status:empty{display:none}
 .composer .mic{width:40px;min-height:40px}
 @media(max-width:480px){.voice-state{font-size:11px}.composer-row{gap:4px}.general-view{padding-inline:8px}.zoom{gap:2px}}
+
+.evidence-navigation{margin:4px 0 10px;line-height:1.5;overflow-wrap:anywhere}
+.evidence-row:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;background:var(--accent-soft)}
