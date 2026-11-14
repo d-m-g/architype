@@ -56,7 +56,7 @@ MEANING = {
     ("window", "m"): "width of the opening", ("window", "height_m"): "height", ("window", "thickness_m"): "wall thickness there",
     ("wall", "m"): "length", ("wall", "m2"): "net area of one face, less openings (paint)", ("wall", "m3"): "net volume",
     ("wall", "height_m"): "height", ("wall", "thickness_m"): "thickness",
-    ("slab", "m2"): "top area", ("slab", "m3"): "net volume", ("slab", "thickness_m"): "thickness",
+    ("slab", "m2"): "top area (floor area only for subtype floor)", ("slab", "m3"): "net volume", ("slab", "thickness_m"): "thickness",
     ("level", "elevation_m"): "floor elevation", ("level", "height_m"): "floor to floor",
 }
 # The sizes a file with exact geometry is expected to hold per type; one of these with no value is "not recorded".
@@ -281,6 +281,8 @@ answer says what the reply is:
 - "rows": a list (which rooms are over 15 m2). One query returning the rows to list.
 unit: the unit of the number or of each row's value: count, m2, m, m3 or ft2.
 Rooms connect to doors, windows and fixtures through links only. Never match them by label or number columns.
+A building's or storey's floor area is the m2 of its rooms. Only in a model without rooms (a structural model) is it
+the m2 of slabs with subtype 'floor', never every slab: roof slabs are not floor area.
 
 Examples (the inventory decides the real column values):
 "How big is the kitchen?" -> {"kind": "direct", "queries": {"a": "SELECT sum(m2) AS value, group_concat(id) AS ids FROM entities WHERE type = 'room' AND subtype = 'kitchen'"}, "unit": "m2"}

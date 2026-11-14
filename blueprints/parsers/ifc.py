@@ -19,7 +19,7 @@ from ..schemas import Entity, Page, Scene
 
 # @2: each level carries its page frame in metres, so the 3D view can stack the storeys
 # @3: wall, slab, door, window and room sizes, from the quantity sets or else measured on the geometry
-BUILDER = "ifc@3"
+BUILDER = "ifc@4"
 SIDE = 2048  # long side of a storey page, pixels
 # IFC class -> entity type. Stairs, beams and light fixtures are "other", told apart by attrs.category.
 TYPES = {"IfcSpace": "room", "IfcDoor": "door", "IfcWindow": "window", "IfcWall": "wall", "IfcSlab": "slab",
@@ -36,6 +36,9 @@ QTY = {"wall": [("m", ("Length",)), ("m2", ("NetSideArea",)), ("m3", ("NetVolume
        "room": [("m", ("NetPerimeter", "GrossPerimeter"))],
        "door": [("m", ("OverallWidth",)), ("height_m", ("OverallHeight",))],
        "window": [("m", ("OverallWidth",)), ("height_m", ("OverallHeight",))]}
+
+
+SLAB_KINDS = {"FLOOR": "floor", "ROOF": "roof", "BASESLAB": "base", "LANDING": "landing"}  # IfcSlab.PredefinedType -> subtype
 
 
 def room_area(qtos: dict[str, dict], footprint: float | None) -> tuple[float | None, str]:
@@ -369,6 +372,8 @@ def _build(path: str, file: Path) -> Scene:
         if getattr(e, "PredefinedType", None) and e.PredefinedType != "NOTDEFINED":
             attrs["predefined_type"] = e.PredefinedType
         subtype = label = number = None
+        if kind == "slab":  # what the slab is, so a floor-area question can leave the roofs out
+            subtype = SLAB_KINDS.get(getattr(e, "PredefinedType", None), "other")
         if kind == "room":
             area, source = room_area(qtos, poly.area if poly is not None else None)
             if area:
@@ -401,7 +406,7 @@ def _build(path: str, file: Path) -> Scene:
     for i, page in enumerate(pages):
         _draw(pipeline.CACHE / page.image, (page.width, page.height), drawn.get(i, []))
     covers = ["level", "room", "door", "window", "wall", "slab", "column", "other", "fixture",
-              "fixture:toilet", "fixture:sink", "fixture:bathtub", "fixture:shower"]
+              "fixture:toilet", "fixture:sink", "fixture:bathtub", "fixture:shower", *(f"slab:{k}" for k in sorted(set(SLAB_KINDS.values()) | {"other"}))]
     return Scene(path=path, builder=BUILDER, tier="parse", covers=covers, pages=pages, entities=entities)
 
 

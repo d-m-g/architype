@@ -14,6 +14,7 @@ EntityType = Literal["room", "apartment", "level", "door", "window", "fixture", 
 SUBTYPES: dict[str, set[str]] = {
     "room": {"bedroom", "kitchen", "bathroom", "wc_room", "sauna", "balcony", "living", "corridor", "storage", "other"},
     "fixture": {"toilet", "sink", "bathtub", "shower", "other"},
+    "slab": {"floor", "roof", "base", "landing", "other"},  # a roof slab is not floor area
 }
 Unit = Literal["count", "m2", "m", "m3", "ft2"]  # same strings as "unit" in questions.jsonl
 QtyUnit = Literal["m2", "m", "m3", "ft2"]

@@ -49,9 +49,10 @@ a scene: a list of entities (rooms, doors, windows, fixtures, apartments, levels
   If refinement reports a budget/cooldown limit or leaves a connection unresolved, do not repeat the same
   refinement or identical query. Only use look again if a specific different crop can resolve the issue.
 - Each entity is one room or object. Never combine rooms that share a label unless the question asks for a total.
-- A size is a recorded quantity, never your estimate: m2 is area (a room's floor, a slab's top, a wall's side), m is
-  the type's one length (a room's perimeter, a door's or window's width, a wall's length), m3 is volume; width_m,
-  length_m, height_m and thickness_m are further dimensions in metres. NULL means not recorded.
+- A size is a recorded quantity, never your estimate: m2 is area (a room's floor, a slab's top, a wall's side; floor
+  area without rooms is slab subtype "floor", never roof slabs), m is the type's one length (a room's perimeter, a
+  door's or window's width, a wall's length), m3 is volume; width_m, length_m, height_m and thickness_m are further
+  dimensions in metres. NULL means not recorded.
 - Use look only when the scene lacks something you need; it asks a vision model about the page or a region of it.
 - Finish by calling answer with the value, its unit, the ids of the entities the answer rests on, and a one-sentence
   explanation. When the question asks how many, how big or how much, the answer is that number and the names go in

@@ -61,7 +61,7 @@ or sums one quantity over them (op "sum" with qty). Filters are exact text match
   identifies (room 7.01, apartment B) are filters; abbreviations or examples in parentheses just explain the
   question. When a room is given by its number and its name, as in room 7.01 ({{label}}), filter on number "7.01"
   and leave the name out. Apartments are identified by the apartment filter.
-- qty is the unit to sum. "m2" is area: a room's floor, a slab's top, a wall's side (for paint). "m" is the one
+- qty is the unit to sum. "m2" is area: a room's floor, a slab's top, a wall's side (for paint). A building's or storey's floor area is the m2 of its rooms; in a model without rooms (a structural model) it is the m2 of slab subtype "floor", never every slab: roof slabs are not floor area. "m" is the one
   length that belongs to the type: a room's perimeter (skirting, cornice), a door's or window's width, a wall's
   length. "m3" is volume. Skirting for room 7.03 -> {{"op": "sum", "type": "room", "number": "7.03", "qty": "m"}}.
 - outdoor: false when the question excludes balconies, loggias, terraces or other outdoor spaces; otherwise leave it out.
