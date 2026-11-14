@@ -222,3 +222,7 @@ Follow-up questions keep the existing source, camera and highlights visible, wit
 Overview counts and areas are scoped to the active page. Missing room coverage is shown as unavailable; subtype-only coverage is labelled partial. Room counts include detections without drawable geometry. Indoor area summaries exclude outdoor rooms, identify missing quantities, preserve reported zeros and are labelled partial when coverage or quantities are incomplete. They are reported room-area sums, not verified building footprint measurements.
 
 Source JSON imports, dataset-path entry and API diagnostics are under Settings > Advanced settings (collapsed by default). Ask and Evaluate remain in the primary navigation. Existing #sources links still open the advanced settings section and preserve the current drawing and answer.
+
+### Add drawing flow
+
+Add drawing opens one card with Choose file, Review and Open drawing steps. File selection, preview, original filename, size/conversion details, optional question and upload/retry actions stay together. Open drawing explicitly uploads the file and starts its scene overview; the drafted question is not submitted. Users can replace a file, cancel preparation, cancel upload or return to the current drawing. Closing the card discards the pending preview and restores the current drawing. Server-path entry lives under Settings > Advanced settings. Original filenames are retained as viewer/history labels while API requests keep using content-addressed source paths.

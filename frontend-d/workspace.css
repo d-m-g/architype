@@ -306,3 +306,43 @@ html{scroll-padding-top:88px}
 .advanced-settings label{display:flex;flex-direction:column;align-items:flex-start;gap:6px;width:100%;margin:12px 0}
 .advanced-settings input{width:100%;min-height:44px}
 #advanced-settings-summary{scroll-margin-top:100px}
+
+/* One upload card owns file selection, review and the explicit open action. */
+.figma-workspace .drawing-intake .intake-body{max-width:1060px;margin:auto;padding:20px 4px 4px}
+.intake-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}
+.intake-heading h2{font-size:20px;margin:0 0 6px}
+.intake-heading .muted{max-width:65ch}
+.figma-workspace .intake-heading button{margin:0;flex-shrink:0}
+.intake-progress{display:flex;gap:24px;list-style:none;margin:22px 0;padding:0;color:var(--muted);font-size:12px}
+.intake-progress li{display:flex;align-items:center;gap:8px}
+.intake-progress li>span{display:grid;place-items:center;width:26px;height:26px;border:1px solid var(--line);border-radius:50%;font-size:12px}
+.intake-progress [aria-current=step]{color:var(--ink);font-weight:600}
+.intake-progress [aria-current=step]>span{background:var(--accent);color:var(--paper);border-color:var(--accent)}
+.file-picker-wrap{position:relative}
+.figma-workspace .drawing-intake label.drawing-file-picker{display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px;min-height:170px;margin:0;padding:24px;border:1px dashed var(--accent);border-radius:10px;background:var(--accent-soft);color:var(--ink);cursor:pointer;text-align:center}
+.drawing-file-picker svg{color:var(--accent)}
+.drawing-file-picker strong{font-size:16px}
+.drawing-file-picker>span{font-size:13px;color:var(--muted)}
+.file-picker-wrap:focus-within .drawing-file-picker{outline:3px solid var(--focus);outline-offset:3px}
+#drawing-file{position:absolute;width:1px;height:1px;min-height:0;padding:0;border:0;opacity:0;overflow:hidden;clip-path:inset(50%)}
+.drawing-intake:is([data-stage=review],[data-stage=uploading]) .file-picker-wrap{display:none}
+.figma-workspace .drawing-intake #local-preview{padding:0;margin:0;border:0;background:transparent}
+.local-preview-layout{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(270px,1fr);gap:24px;align-items:start}
+.local-drawing-image{display:grid;place-items:center;min-height:240px;padding:16px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
+#local-content img{width:100%;max-height:390px;object-fit:contain;border-radius:4px}
+#local-content p{line-height:1.6;margin:0;padding:20px;color:var(--muted)}
+.local-file-details{min-width:0}
+#local-name{font-size:18px;line-height:1.4;margin:0;overflow-wrap:anywhere}
+.local-file-details .eyebrow{margin-bottom:8px}
+.local-file-details #local-file-meta{margin:8px 0}
+.figma-workspace .local-file-details button{margin:0 0 12px}
+.figma-workspace .local-file-details label{font-size:13px;margin-top:16px}
+#local-question{min-height:92px;resize:vertical}
+.intake-actions{display:flex;justify-content:flex-end;align-items:center;gap:10px;margin-top:20px;padding-top:16px;border-top:1px solid var(--line);flex-wrap:wrap}
+.figma-workspace .intake-actions button{margin:0}
+.figma-workspace .intake-actions .primary{width:auto;min-width:160px;justify-content:center}
+#close-local{margin-right:auto}
+.intake-status{font-size:13px;line-height:1.6;color:var(--muted);margin:16px 0 4px;overflow-wrap:anywhere}
+.drawing-intake[data-stage=uploading] .intake-status,.drawing-intake[data-stage=preparing] .intake-status{color:var(--ink)}
+@media(max-width:800px){.local-preview-layout{grid-template-columns:1fr}.local-drawing-image{min-height:160px}#local-content img{max-height:280px}.intake-progress{gap:14px;font-size:11px}.intake-heading h2{font-size:18px}}
+@media(max-width:450px){.intake-heading{gap:10px}.intake-heading .muted{font-size:12px}.intake-progress{gap:10px;justify-content:space-between}.intake-progress li{gap:5px}.intake-progress li>span{width:22px;height:22px}.intake-actions{align-items:stretch}.intake-actions .primary{flex-basis:100%;order:-1}.figma-workspace .drawing-intake .intake-body{padding-top:14px}}

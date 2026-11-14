@@ -148,3 +148,41 @@ test('different drawings never reuse each other and failed-shaped scenes are not
  let invalid=0;const bad=createSceneLoader(async()=>{invalid++;return {detail:'not a scene'};});await bad('uploads/a.png');await bad('uploads/a.png');assert.equal(invalid,2);
  const controller=new AbortController();controller.abort();await assert.rejects(loader('uploads/a.png',controller.signal),{name:'AbortError'});assert.equal(calls,2);
 });
+
+import {readFileSync} from 'node:fs';
+import {runInNewContext} from 'node:vm';
+
+function intakeHarness({prepare,upload}={}){
+ const nodes=new Map(),events=[],toggles=new Map();
+ function element(){return {hidden:false,disabled:false,value:'',textContent:'',dataset:{},attrs:{},children:[],setAttribute(k,v){this.attrs[k]=v;},getAttribute(k){return this.attrs[k]??null;},removeAttribute(k){delete this.attrs[k];},append(...children){this.children.push(...children);},replaceChildren(...children){this.children=children;},focus(){},click(){return this.onclick?.();}};}
+ const node=id=>{if(!nodes.has(id))nodes.set(id,element());return nodes.get(id);};
+ const intake={...element(),open:true,dataset:{stage:'choose'},addEventListener:(name,fn)=>toggles.set(name,fn)};
+ const steps=['choose','review','open'].map(step=>({...element(),dataset:{intakeStep:step}}));
+ node('local-preview').hidden=true;node('mode-label').textContent='TEAM API';node('question').value='Existing question';node('voice-stop').disabled=true;
+ const source=readFileSync(new URL('./intake.js',import.meta.url),'utf8').replace(/^import .*;\r?\n/gm,'');
+ const context={document:{getElementById:node,querySelector:()=>intake,querySelectorAll:()=>steps,createElement:element,addEventListener(){}},window:{dispatchEvent:event=>events.push(event),addEventListener(){}},URL:{createObjectURL:()=> 'blob:preview',revokeObjectURL(){}},Event,CustomEvent:class{constructor(type,options){this.type=type;this.detail=options?.detail;}},AbortController,DOMException,setTimeout:()=>1,clearTimeout(){},prepareLocalDrawing:prepare??(async()=>({blob:new Blob(['image']),name:'drawing.png',type:'image/png'})),renderPDFPreview:async()=>({displayURL:'data:image/png;base64,page',pageCount:2}),uploadDrawing:upload??(async()=>({path:'uploads/content.png',reader:'detector'})),isDrawingPath:()=>true,recoveryMessage:error=>String(error.message??error)};
+ runInNewContext(source,context);
+ return {node,intake,steps,events,select(name='Ground floor.png'){node('drawing-file').files=[{name,size:1024}];return node('drawing-file').onchange();},close(){intake.open=false;toggles.get('toggle')();}};
+}
+test('Add drawing keeps review details together and carries the original filename into the viewer',async()=>{
+ const h=intakeHarness();await h.select();assert.equal(h.intake.dataset.stage,'review');assert.equal(h.node('local-name').textContent,'Ground floor.png');assert.match(h.node('local-file-meta').textContent,/MB/);assert.equal(h.node('local-preview').hidden,false);assert.equal(h.node('editor-workspace').hidden,true);
+ h.node('local-question').value='How many windows?';await h.node('upload-drawing').onclick();
+ const opened=h.events.find(event=>event.type==='stoa:open-case');assert.equal(opened.detail.displayName,'Ground floor.png');assert.equal(opened.detail.question,'How many windows?');assert.equal(h.intake.open,false);assert.equal(h.node('editor-workspace').hidden,false);
+});
+test('closing Add drawing during preparation prevents a late preview from reopening it',async()=>{
+ let finish;const h=intakeHarness({prepare:()=>new Promise(resolve=>finish=resolve)});
+ const selection=h.select();assert.equal(h.intake.dataset.stage,'preparing');h.close();finish({blob:new Blob(['image']),name:'drawing.png',type:'image/png'});await selection;
+ assert.equal(h.node('local-preview').hidden,true);assert.equal(h.node('editor-workspace').hidden,false);assert.equal(h.intake.dataset.stage,'choose');
+});
+test('cancelled upload retains the reviewed file and question for retry',async()=>{
+ const h=intakeHarness({upload:(_file,_name,signal)=>new Promise((_resolve,reject)=>signal.addEventListener('abort',()=>reject(new DOMException('cancelled','AbortError')),{once:true}))});
+ await h.select();h.node('local-question').value='Keep my draft';const upload=h.node('upload-drawing').onclick();assert.equal(h.intake.dataset.stage,'uploading');assert.equal(h.node('replace-drawing').disabled,true);
+ h.node('cancel-upload').onclick();await upload;
+ assert.equal(h.intake.dataset.stage,'review');assert.equal(h.node('local-question').value,'Keep my draft');assert.equal(h.node('local-preview').hidden,false);assert.equal(h.node('upload-drawing').disabled,false);assert.match(h.node('upload-drawing').textContent,/Try opening again/);assert.equal(h.events.filter(event=>event.type==='stoa:open-case').length,0);
+});
+
+test('replacing the reviewed file keeps the draft and returning restores the previous drawing mode',async()=>{
+ const h=intakeHarness();await h.select('First.png');h.node('local-question').value='My draft';await h.select('Replacement.png');
+ assert.equal(h.node('local-name').textContent,'Replacement.png');assert.equal(h.node('local-question').value,'My draft');
+ h.node('close-local').onclick();assert.equal(h.intake.open,false);assert.equal(h.node('mode-label').textContent,'TEAM API');assert.equal(h.node('question').value,'My draft');assert.equal(h.node('editor-workspace').hidden,false);
+});
