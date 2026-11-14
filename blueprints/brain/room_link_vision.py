@@ -12,6 +12,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from .. import pipeline, room_queries
+from ..calculation_evidence import classify_review, deduplicate_corrected
 from ..costs import llm_step
 from ..executor import execute
 from ..schemas import TraceStep
@@ -19,7 +20,7 @@ from .plan import GEMINI_URL
 from .vision import VISION_MODEL, drawing_file
 
 VERSION = "room-link-vision@4"
-VALIDATION_VERSION = "distinct-endpoints@1"
+VALIDATION_VERSION = "calculation-evidence@2"
 MAX_OBJECTS = 24
 MAX_BATCHES = 3
 _lock = threading.RLock()
@@ -38,6 +39,9 @@ class Link(BaseModel):
     clear: bool
     endpoints: list[Endpoint] = Field(max_length=2)
     reason: str = Field(max_length=500)
+    observed_type: Literal["door", "window", "fixture", "non_object", "uncertain"] | None = None
+    classification_clear: bool = False
+    non_object_kind: Literal["legend", "annotation", "other"] | None = None
 
 
 class Reply(BaseModel):
@@ -47,7 +51,7 @@ class Reply(BaseModel):
 
 def _directory(scene):
     # Only immutable extraction inputs: applying a decision cannot invalidate its own cache.
-    geometry = [(e.id, e.type, e.subtype, e.label, e.number, e.apartment, e.page, e.geom)
+    geometry = [(e.id, e.attrs.get("detection_original_type", e.type), e.subtype, e.label, e.number, e.apartment, e.page, e.geom)
                 for e in scene.entities if e.type in ("room", "door", "window", "fixture")]
     key = hashlib.sha256(json.dumps([VERSION, VISION_MODEL, scene.path, geometry], sort_keys=True).encode()).hexdigest()
     return pipeline.CACHE/"room-link-vision"/key
@@ -71,6 +75,8 @@ def _box(entity):
 
 def _accept(scene, entity, decision):
     """Validate references and nearby endpoint evidence; this does not independently verify model semantics."""
+    if classify_review(scene, entity, decision):
+        return True
     if not decision.clear or len(decision.endpoints) != (1 if entity.type == "fixture" else 2) or not entity.geom:
         return False
     rooms = {r.id: r for r in scene.entities if r.type == "room" and r.page == entity.page and r.geom}
@@ -120,7 +126,7 @@ def apply_cached(scene):
     changed = 0
     restore_geometry = False
     for entity in scene.entities:
-        if entity.attrs.get("room_link_status") not in ("partial", "uncertain") and entity.attrs.get("room_link_origin") != "vision":
+        if entity.attrs.get("room_link_status") not in ("partial", "uncertain", "excluded") and entity.attrs.get("room_link_origin") != "vision":
             continue
         cached = _file(directory, entity)
         if cached.exists():
@@ -139,6 +145,7 @@ def apply_cached(scene):
     if restore_geometry:
         from ..image_room_links import attach_room_links
         changed += int(attach_room_links(scene, drawing_file(scene.path)))
+    deduplicate_corrected(scene)
     return changed
 
 
@@ -185,6 +192,10 @@ Return exactly this JSON structure, using actual ids and coordinates from the dr
  {"kind":"outside","room_id":null,"point":[0.25,0.44]}],"reason":"Visible exterior doorway"}]}
 For an uncertain object still include object_id, clear=false, endpoints=[], and a reason. Include ALL requested
 objects, never return a count. Every endpoint needs kind, room_id (null for non-room) and point [x,y].
+Also return observed_type (door/window/fixture/non_object/uncertain), classification_clear (boolean), and
+non_object_kind (legend/annotation/other or null). A legend/sample symbol is not an unresolved real door:
+use non_object, classification_clear=true, non_object_kind=legend. Identify windows misdetected as doors.
+Object classification certainty is separate from clear, which describes room endpoints.
 """+json.dumps({"rooms": descriptions, "objects": objects})
     client = openai.OpenAI(api_key=os.environ["GEMINI_API_KEY"], base_url=GEMINI_URL, max_retries=0, timeout=60)
     t = time.perf_counter()
@@ -258,6 +269,7 @@ def resolve(scene, kind):
                 decision.clear = False
             _write(_file(directory, entity), decision.model_dump())
             resolved += int(accepted)
+        deduplicate_corrected(scene)
         step.detail = f"Resolved {resolved}/{len(pending)} uncertain {kind} connections; model-inferred, not independently verified. "+(step.detail or "")
         return [step]
 
@@ -276,5 +288,6 @@ def execute_with_links(plan, scene):
 
 def refinement_exhausted(answer):
     """Another agent cannot verify the same exact count after link refinement still failed."""
-    return (answer.answer is None and (answer.error or "").startswith("Cannot verify the per-room count")
-            and any(step.step == "resolve_room_connections" for step in answer.trace))
+    return (answer.answer is None and ((answer.error or "").startswith("Calculation support") or (
+            (answer.error or "").startswith("Cannot verify the per-room count")
+            and any(step.step == "resolve_room_connections" for step in answer.trace))))

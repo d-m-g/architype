@@ -2,6 +2,23 @@
 export const units={count:'count',m2:'m²',ft2:'ft²',m:'m',m3:'m³'};
 const canonical=value=>JSON.stringify(value,(_key,item)=>item&&typeof item==='object'&&!Array.isArray(item)?Object.fromEntries(Object.entries(item).sort(([a],[b])=>a.localeCompare(b))):item);
 const finite=n=>typeof n==='number'&&Number.isFinite(n);
+export const CALCULATION_THRESHOLD=.6;
+export function calculationExclusion(e,scene){
+ if(e.attrs?.calculation_excluded)return e.attrs.calculation_exclusion_reason??'Excluded detection';
+ if(scene?.tier==='detect'&&/\.(png|jpe?g)$/i.test(scene.path??'')&&['door','window','fixture'].includes(e.type)&&(e.conf??1)<CALCULATION_THRESHOLD)return 'Below provisional 60% evidence cutoff';
+ return null;
+}
+/** Structured executor audit; malformed/older traces retain the ordinary evidence rendering. */
+export function calculationAudit(answer){
+ const step=answer?.trace?.find(s=>s.step==='calculation_evidence');if(!step?.detail)return null;
+ let data;try{data=JSON.parse(step.detail);}catch{return null;}
+ if(!finite(data.threshold)||data.threshold<0||data.threshold>1||!Array.isArray(data.queries)||!data.queries.every(q=>
+  ['included','context','unresolved'].every(k=>Array.isArray(q[k])&&q[k].every(id=>typeof id==='string'))&&
+  Array.isArray(q.excluded)&&q.excluded.every(e=>typeof e.id==='string'&&typeof e.reason==='string')))return null;
+ const included=[...new Set(data.queries.flatMap(q=>q.included))],context=[...new Set(data.queries.flatMap(q=>q.context))];
+ return {...data,included,context,unresolved:[...new Set(data.queries.flatMap(q=>q.unresolved))],
+  excluded:[...new Map(data.queries.flatMap(q=>q.excluded).filter(e=>!included.includes(e.id)).map(e=>[e.id,e])).values()]};
+}
 function requireValue(condition,message){if(!condition)throw new Error(message);}
 export function validateScene(scene){requireValue(scene?.schema_version===1,'Unsupported Scene schema_version (expected 1).');requireValue(typeof scene.path==='string'&&Array.isArray(scene.pages)&&Array.isArray(scene.entities),'Invalid Scene shape.');const ids=new Set();for(const p of scene.pages)requireValue(typeof p.image==='string'&&finite(p.width)&&p.width>0&&finite(p.height)&&p.height>0,'Invalid page dimensions/image.');for(const e of scene.entities){requireValue(typeof e.id==='string'&&!ids.has(e.id),'Duplicate or invalid entity ID.');ids.add(e.id);validateEntity(e,scene.pages);}return scene;}
 function validateEntity(e,pages){requireValue(typeof e.id==='string','Invalid entity ID.');requireValue(Number.isInteger(e.page??0)&&(e.page??0)>=0&&(pages===null||(e.page??0)<pages.length),'Entity page index is unavailable.');requireValue(Array.isArray(e.geom??[])&&(e.geom??[]).every(p=>Array.isArray(p)&&p.length===2&&p.every(n=>finite(n)&&n>=0&&n<=1)),'Geometry must use normalized 0..1 coordinates.');requireValue(e.conf===undefined||(finite(e.conf)&&e.conf>=0&&e.conf<=1),'Invalid entity confidence.');}
@@ -15,10 +32,10 @@ export function describeEntity(e){
   :e.type==='apartment'?`Apartment ${e.label??e.id}`
   :['door','window','fixture'].includes(e.type)?[title(e.subtype??e.type),where].filter(Boolean).join(' · ')
   :e.label??e.number??e.subtype??e.id;
- const context=[e.type!=='apartment'&&e.apartment?`Apartment ${e.apartment}`:null,e.outdoor?'outdoor':null,a.copies>1?`drawn ${a.copies}× on the same spot`:null].filter(Boolean).join(' · ');
+ const context=[e.type!=='apartment'&&e.apartment?`Apartment ${e.apartment}`:null,e.outdoor?'outdoor':null,a.detection_original_type?`Reclassified from ${a.detection_original_type} by vision`:null,a.copies>1?`drawn ${a.copies}× on the same spot`:null].filter(Boolean).join(' · ');
  return {label,context:context||undefined};
 }
-export function adaptScene(raw,answer={}){validateScene(raw);const map=new Map(raw.entities.map(e=>[e.id,e]));for(const e of answer.extra_entities??[]){validateEntity(e,raw.pages);if(map.has(e.id)){requireValue(canonical(map.get(e.id))===canonical(e),'extra_entities ID conflicts with the scene.');continue;}map.set(e.id,e);}const entities=[...map.values()].map(e=>{const page=raw.pages[e.page??0];const quantities=Object.entries(e.qty??{});return {...e,...describeEntity(e),rawLabel:e.label,page:e.page??0,polygon:(e.geom??[]).map(([x,y])=>[x*page.width,y*page.height]),sourceRef:e.ref??`Entity ${e.id} (no source reference supplied)`,method:raw.builder,uncertain:(e.conf??1)<.8,quantity:quantities[0]?.[1],unit:units[quantities[0]?.[0]],quantityText:quantities.length?quantities.map(([u,v])=>`${v} ${units[u]??u}`).join(' · '):undefined};});return {raw,pages:raw.pages,entities,width:raw.pages[0]?.width??1000,height:raw.pages[0]?.height??760,page:1,level:'Not specified'};}
+export function adaptScene(raw,answer={}){validateScene(raw);const map=new Map(raw.entities.map(e=>[e.id,e]));for(const e of answer.extra_entities??[]){validateEntity(e,raw.pages);if(map.has(e.id)){requireValue(canonical(map.get(e.id))===canonical(e),'extra_entities ID conflicts with the scene.');continue;}map.set(e.id,e);}const entities=[...map.values()].map(e=>{const page=raw.pages[e.page??0];const quantities=Object.entries(e.qty??{});return {...e,...describeEntity(e),rawLabel:e.label,page:e.page??0,polygon:(e.geom??[]).map(([x,y])=>[x*page.width,y*page.height]),sourceRef:e.ref??`Entity ${e.id} (no source reference supplied)`,method:raw.builder,calculationExcluded:!!calculationExclusion(e,raw),calculationExclusion:calculationExclusion(e,raw),uncertain:(e.conf??1)<CALCULATION_THRESHOLD,quantity:quantities[0]?.[1],unit:units[quantities[0]?.[0]],quantityText:quantities.length?quantities.map(([u,v])=>`${v} ${units[u]??u}`).join(' · '):undefined};});return {raw,pages:raw.pages,entities,width:raw.pages[0]?.width??1000,height:raw.pages[0]?.height??760,page:1,level:'Not specified'};}
 /** Inline answer evidence remains inspectable without inventing page dimensions or a Scene. */
 export function adaptAnswerEvidence(raw){
  const map=new Map();
@@ -31,7 +48,7 @@ export function adaptAnswerEvidence(raw){
   const quantities=Object.entries(e.qty??{});
   return {...e,page:e.page??0,label:e.label??e.number??e.subtype??e.id,polygon:[],geometryUnavailable:true,
    sourceRef:e.ref??`Entity ${e.id} (no source reference supplied)`,method:'Answer-provided evidence; source coordinates unavailable',
-   uncertain:(e.conf??1)<.8,quantity:quantities[0]?.[1],unit:units[quantities[0]?.[0]],
+   uncertain:(e.conf??1)<CALCULATION_THRESHOLD,quantity:quantities[0]?.[1],unit:units[quantities[0]?.[0]],
    quantityText:quantities.length?quantities.map(([u,v])=>`${v} ${units[u]??u}`).join(' · '):undefined};
  });
 }

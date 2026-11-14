@@ -1,13 +1,14 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';import {publishEditor,subscribeEditor,getEditorSnapshot} from './editor-bridge.js';
 import {runInNewContext} from 'node:vm';
 import {createHistoryStore} from './history-state.js';
+import {calculationAudit} from './contracts.js';
 
 test('verified answers show the uncapped source score separately from arithmetic verification',()=>{
  const source=readFileSync(new URL('./main.js',import.meta.url),'utf8');
  const code=source.slice(source.indexOf(' const confidence=Math.round(raw.confidence*100)'),source.indexOf(' const assumptions='));
  function facts(raw){
   const output={replaceChildren(...children){this.children=children;}};
-  runInNewContext(code,{raw,failed:raw.answer===null,state:{ms:null},$:()=>output,TIER:{llm:'Agent',parse:'CAD'},money:()=>'$0',
+  runInNewContext(code,{raw,calculationAudit,failed:raw.answer===null,state:{ms:null},$:()=>output,TIER:{llm:'Agent',parse:'CAD'},money:()=>'$0',
    el:(tag,attrs,...children)=>({tag,children:children.filter(c=>c!==null)})});
   return Object.fromEntries(output.children.map(row=>[row.children[0].children[0],row.children[1].children.at(-1)]));
  }
@@ -18,6 +19,28 @@ test('verified answers show the uncapped source score separately from arithmetic
  assert.equal(heuristic.Confidence,'70%, medium');assert.equal(heuristic['Source score'],undefined);
  const text=facts({...verified,answer:'Bain',formula:null,trace:[]});
  assert.equal(text['Source score'],undefined);assert.equal(text.Calculation,undefined);
+ const audited=facts({...verified,confidence:.73,trace:[{step:'execute'},{step:'calculation_evidence',detail:JSON.stringify({threshold:.6,queries:[]})}]});
+ assert.equal(audited['Calculation confidence'],'73%');assert.equal(audited['Evidence cutoff'],'60% · provisional');
+});
+
+test('calculation numbering excludes room context and excluded detections, and review rows navigate to their source',()=>{
+ const source=readFileSync(new URL('./main.js',import.meta.url),'utf8');
+ const raw={answer:7,trace:[{step:'calculation_evidence',detail:JSON.stringify({threshold:.6,queries:[{
+  included:['d0','d1'],context:['room'],unresolved:[],excluded:[{id:'legend',reason:'Legend symbol outside floor plan'}]}]})}]};
+ const entities=[{id:'d0'},{id:'d1'},{id:'room',label:'Couloir 4.05'},{id:'legend',type:'door',label:'Door'}];
+ const state={rawAnswer:raw,scene:{entities},result:{evidence:['room','d0','d1']},layers:new Set()};
+ const numbered=source.slice(source.indexOf('const evidenceIds='),source.indexOf('export function entityById('));
+ assert.deepEqual([...runInNewContext(numbered+';evidenceIds()', {state,calculationAudit})],['d0','d1']);
+ const node=(tag,attrs={},...children)=>({tag,attrs,children,append(...more){this.children.push(...more);},replaceChildren(...more){this.children=more;}});
+ const nodes={'calculation-review':node('div'),'evidence-label':node('span')},calls=[];
+ const code=source.slice(source.indexOf('function renderCalculationReview('),source.indexOf('function renderAnswer('));
+ runInNewContext(code+';renderCalculationReview(raw)',{raw,state,calculationAudit,$:id=>nodes[id],entityById:id=>entities.find(e=>e.id===id),
+  el:node,typeColour:()=> 'var(--door)',select:(id,options)=>calls.push({id,options}),drawMarks:()=>calls.push('draw')});
+ assert.equal(nodes['evidence-label'].textContent,'Included in calculation');
+ const details=nodes['calculation-review'].children.find(e=>e.tag==='details');
+ assert.match(details.children[0].children[0],/Other detections not included/);
+ const button=details.children[1];assert.equal(button.attrs['data-entity'],'legend');button.attrs.onclick();
+ assert.equal(calls[0].id,'legend');assert.equal(calls[0].options.zoomTo,true);assert.equal(state.layers.has('door'),true);
 });
 
 test('object navigation frames symbols closely and keeps wide or tall geometry inside the real viewer',()=>{

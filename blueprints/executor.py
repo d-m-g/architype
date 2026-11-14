@@ -3,9 +3,11 @@ import ast
 import math
 import operator
 import time
+import json
 
 from .schemas import Answer, Entity, Query, QueryPlan, Scene, TraceStep
 from . import room_queries
+from . import calculation_evidence as policy
 
 _OPS = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul, ast.Div: operator.truediv,
         ast.FloorDiv: operator.floordiv, ast.USub: operator.neg}
@@ -37,12 +39,13 @@ def _same(value: str | None, wanted: str) -> bool:
     return value is not None and value.strip().casefold() == wanted.strip().casefold()
 
 
-def select(q: Query, scene: Scene) -> list[Entity]:
+def select(q: Query, scene: Scene, *, apply_policy=True) -> list[Entity]:
     connected = bool(room_queries.ROOM_FILTERS.keys() & q.where.keys())
     wanted = {r.id for r in room_queries.targets(q, scene)} if connected else set()
     return [
         e for e in scene.entities
         if e.type == q.type
+        and (not apply_policy or not policy.exclusion(e, scene) or q.type not in policy.OBJECT_TYPES or q.op != "count")
         and (q.subtype is None or e.subtype == q.subtype)
         and (q.label is None or _same(e.label, q.label))
         and (q.number is None or _same(e.number, q.number))
@@ -57,13 +60,18 @@ def select(q: Query, scene: Scene) -> list[Entity]:
 
 def execute(plan: QueryPlan, scene: Scene) -> Answer:
     t0 = time.perf_counter()
+    audit = []
 
     def done(**fields) -> Answer:
         step = TraceStep(step="execute", ms=(time.perf_counter() - t0) * 1000, detail=fields.get("formula") or fields.get("error"))
         if "confidence" in fields:
             fields["confidence_note"] = " ".join(why)
+        audit_step = [TraceStep(step="calculation_evidence", detail=json.dumps({"threshold": policy.THRESHOLD,
+            "confidence": fields.get("confidence", 0), "arithmetic": "verified" if fields.get("answer") is not None else "not completed",
+            "score_rule": "min(geometric mean of included detection scores, requested room scores) × qualified evidence coverage",
+            "queries": audit}))] if audit else []
         return Answer(tier=scene.tier, interpretation=plan.interpretation, assumptions=plan.assumptions,
-                      trace=[step], **fields)
+                      trace=[step]+audit_step, **fields)
 
     values: dict[str, float] = {}
     evidence: list[str] = []
@@ -74,11 +82,37 @@ def execute(plan: QueryPlan, scene: Scene) -> Answer:
             # An uncovered key would count as zero and look confident. Refuse, so the pipeline escalates.
             return done(error=f"scene from {scene.builder} does not cover {key}")
         hits = select(q, scene)
+        cited_rooms = room_queries.targets(q, scene)
+        if policy.raster(scene) and q.op == "count" and q.type in policy.OBJECT_TYPES:
+            included = {e.id for e in hits}
+            below = [e for e in select(q, scene, apply_policy=False) if not e.attrs.get("calculation_excluded") and e.conf < policy.THRESHOLD]
+            coverage = len(hits)/(len(hits)+len(below)) if hits or below else 1.0
+            support = policy.score(hits, cited_rooms)*coverage
+            confidence = min(confidence, support)
+            omitted, unresolved = [], []
+            for entity in scene.entities:
+                if entity.type != q.type and entity.attrs.get("detection_original_type") != q.type:
+                    continue
+                reason = policy.exclusion(entity, scene)
+                if entity.type != q.type:
+                    reason = f"Corrected from {q.type} to {entity.type}: {entity.attrs.get('calculation_type_reason', '')}"
+                elif entity.id not in included and reason is None:
+                    issue = room_queries.uncertainty(q, scene, [entity]) if cited_rooms else None
+                    if issue:
+                        unresolved.append(entity.id)
+                        reason = entity.attrs.get("room_link_reason", "Unresolved room connection")
+                    else:
+                        reason = "Outside the requested room or filters"
+                if entity.id not in included:
+                    omitted.append({"id": entity.id, "reason": reason, "score": entity.conf})
+            audit.append({"name": name, "type": q.type, "included": [e.id for e in hits],
+                          "context": [r.id for r in cited_rooms], "excluded": omitted, "unresolved": unresolved,
+                          "score": support, "coverage": coverage})
         if room_queries.ROOM_FILTERS.keys() & q.where.keys():
             base = q.model_copy(update={"where": {k: v for k, v in q.where.items() if k not in room_queries.ROOM_FILTERS}})
             error = room_queries.uncertainty(q, scene, select(base, scene))
             if error:
-                return done(error=error)
+                return done(error=error, evidence=[r.id for r in cited_rooms]+[e.id for e in hits])
             cited_rooms = room_queries.targets(q, scene)
             evidence += [r.id for r in cited_rooms]
             confidence = min(confidence, min(r.conf for r in cited_rooms))
@@ -129,4 +163,10 @@ def execute(plan: QueryPlan, scene: Scene) -> Answer:
         shown = f"{plan.formula} with " + ", ".join(f"{k} = {v:g}" for k, v in numbers.items()) + f" gives {value:g}"
     if plan.unit == "count" and float(value).is_integer():
         value = int(value)
+    if audit:
+        why.append(f"Provisional calculation support score, not a calibrated probability. Evidence cutoff {policy.THRESHOLD:.0%}; arithmetic is verified. "
+                   "Below-cutoff, excluded and out-of-scope detections are listed separately.")
+        if confidence+1e-12 < policy.THRESHOLD:
+            return done(error=f"Calculation support {confidence:.0%} is below the provisional {policy.THRESHOLD:.0%} cutoff.",
+                        confidence=confidence, evidence=evidence, formula=shown)
     return done(answer=value, unit=plan.unit, confidence=confidence, evidence=evidence, formula=shown)

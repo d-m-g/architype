@@ -14,7 +14,7 @@ export function displayGeometry(snapshot){
  if(snapshot.mode==='pending')return [];
  const levels=snapshot.entities.filter(e=>e.type==='level'&&e.attrs?.frame_w_m>0&&e.attrs.frame_h_m>0).sort((a,b)=>(a.attrs.elevation_m??0)-(b.attrs.elevation_m??0));
  const pages=snapshot.wireScene?.pages??[],frames=new Map(levels.filter(e=>pages[e.page??0]?.width>0&&pages[e.page??0].height>0).map((e,floor)=>[e.page??0,{...e.attrs,floor,w:pages[e.page??0].width,h:pages[e.page??0].height}])),stacked=frames.size>1;  // polygons are in page pixels
- const entities=snapshot.entities.filter(e=>(stacked?frames.has(e.page??0):(e.page??0)===snapshot.pageIndex)&&Array.isArray(e.polygon)&&e.polygon.length>=3&&e.polygon.every(p=>p.length===2&&p.every(Number.isFinite)));
+ const entities=snapshot.entities.filter(e=>!e.calculationExcluded&&(stacked?frames.has(e.page??0):(e.page??0)===snapshot.pageIndex)&&Array.isArray(e.polygon)&&e.polygon.length>=3&&e.polygon.every(p=>p.length===2&&p.every(Number.isFinite)));
  if(!entities.length)return [];
  const place=e=>{const f=stacked&&frames.get(e.page??0);return f?e.polygon.map(([x,y])=>[f.frame_x_m+x/f.w*f.frame_w_m,y/f.h*f.frame_h_m-f.frame_y_m]):e.polygon;};
  const placed=entities.map(e=>[e,place(e)]),points=placed.flatMap(([,p])=>p),xs=points.map(p=>p[0]),ys=points.map(p=>p[1]);
