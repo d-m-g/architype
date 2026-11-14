@@ -57,9 +57,10 @@ def get_scene(path: str) -> Scene:
     """The scene for a drawing, from .cache/scenes/<source>/ when it was built before."""
     dataset_file(path)
     cached = CACHE / "scenes" / source_of(path) / (hashlib.md5(path.encode()).hexdigest() + ".json")
+    from .brain.room_types import add_room_types  # room labels in any language -> room types (Küche -> kitchen)
     if READ_CACHE and cached.exists():
-        return Scene.model_validate_json(cached.read_text())
-    scene = build_scene(path)
+        return add_room_types(Scene.model_validate_json(cached.read_text()))
+    scene = add_room_types(build_scene(path))
     _BUILT_NOW.add(path)
     cached.parent.mkdir(parents=True, exist_ok=True)
     cached.write_text(scene.model_dump_json())

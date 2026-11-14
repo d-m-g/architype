@@ -6,6 +6,7 @@ You turn a question into a `QueryPlan`, handle what the cheap path cannot, and o
 |---|---|
 | `plan.py` | `make_plan(question, scene)` and `plan_with_trace`: Gemini turns any question, any language, into a `QueryPlan`; cached in `plans.json` and `.cache/plans/`. |
 | `vision.py` | `read_scene(path)`: Gemini reads a floor plan once and returns a `Scene` (rooms with label, number, apartment, printed area; floors; apartments; doors; windows; fixtures; each with a box). Refuses drawings that are not floor plans. |
+| `room_types.py`, `room_types.json` | `add_room_types(scene)`, called by `pipeline.get_scene` for every scene: room labels in any language get a room type (Küche → kitchen, Bagno → bathroom), unlabelled rooms get one from the fixtures inside them (bathtub/shower → bathroom, toilet only → wc_room). The scene claims `room:<type>` coverage only when every room is typed. 71 dataset labels are seeded (reviewed); new labels cost one Flash call per drawing, cached. |
 | `escalate.py` | `escalate(...)`: drawings with no scene are answered on the vision scene; anything still unanswered or low-confidence goes to the Nemotron agent with scene tools. |
 | `baseline.py`, `baselines.html` | Plain-model baselines and their report. |
 | `HANDDRAWN.md` | The hand-drawn plan: annotation set and self-checks. |
