@@ -2,6 +2,87 @@ import test from 'node:test';import assert from 'node:assert/strict';import {rea
 import {runInNewContext} from 'node:vm';
 import {createHistoryStore} from './history-state.js';
 
+test('General view groups all pages, loads collapsed groups on demand, and reveals hidden object layers on selection',()=>{
+ const source=readFileSync(new URL('./main.js',import.meta.url),'utf8');
+ const code=source.slice(source.indexOf('let objectListEntities='),source.indexOf('function renderDrawingSide()'));
+ const node=(tag,attrs={},...children)=>({tag,attrs,children,open:!!attrs.open,dataset:{kind:attrs['data-kind']},events:{},
+  append(...added){this.children.push(...added);},replaceChildren(...added){this.children=added;},addEventListener(name,fn){this.events[name]=fn;},
+  querySelectorAll(selector){return this.children.filter(n=>n&&typeof n==='object').flatMap(n=>[...(selector==='details[open]'&&n.tag==='details'&&n.open?[n]:[]),...n.querySelectorAll(selector)]);}});
+ const nodes={'object-browser':node('details',{open:true}),'object-groups':node('div'),'object-total':node('span')};
+ const entities=[{id:'d2',type:'door',label:'Door 2',page:1,conf:.9,polygon:[[0,0],[1,0],[1,1]]},
+  {id:'r2',type:'room',label:'Bedroom',page:1,polygon:[]},{id:'r1',type:'room',label:'Living room',page:0,polygon:[]}];
+ const state={generalView:true,editing:false,path:'uploads/plan.pdf',scene:{entities},layers:new Set()},calls=[];
+ const context={state,$:id=>nodes[id],el:node,kindOf:e=>e.type,KINDS:{room:['Room','Rooms'],door:['Door','Doors']},typeColour:()=> 'var(--door)',hover(){},
+  select:(id,options)=>calls.push({id,options}),drawMarks:()=>calls.push('draw'),renderDrawingSide:()=>context.renderObjectBrowser()};
+ runInNewContext(code,context);context.renderObjectBrowser();
+ assert.equal(nodes['object-browser'].hidden,false);assert.equal(nodes['object-total'].textContent,'3');
+ const [rooms,doors]=nodes['object-groups'].children;
+ assert.equal(rooms.dataset.kind,'room');assert.equal(doors.dataset.kind,'door');assert.equal(doors.children[1].children.length,0);
+ rooms.open=true;rooms.events.toggle();
+ assert.equal(rooms.children[1].children[0].attrs['data-entity'],'r1');assert.equal(rooms.children[1].children[0].attrs.disabled,true);
+ doors.open=true;doors.events.toggle();
+ const door=doors.children[1].children[0];assert.match(door.children[1].children[0],/Page 2.*Score 90\/100/);
+ door.attrs.onclick();assert.equal(state.layers.has('door'),true);assert.equal(calls[1].id,'d2');assert.equal(calls[1].options.zoomTo,true);assert.equal(calls[1].options.scrollEvidence,false);
+ state.page=1;context.renderObjectBrowser();assert.equal(nodes['object-groups'].children[1],doors);assert.equal(doors.open,true);
+ nodes['object-browser'].open=false;state.scene.entities=entities.slice(0,1);context.renderObjectBrowser();
+ assert.equal(nodes['object-groups'].children[0].open,true);assert.equal(nodes['object-browser'].open,false);
+ state.generalView=false;context.renderObjectBrowser();assert.equal(nodes['object-browser'].hidden,true);
+ state.generalView=true;state.editing=true;context.renderObjectBrowser();assert.equal(nodes['object-browser'].hidden,true);
+});
+
+test('confidence rings hide at fit, appear when zoomed in, and hide again without rebuilding marks',()=>{
+ const code=readFileSync(new URL('./main.js',import.meta.url),'utf8');
+ const visibility=code.slice(code.indexOf('export function confidenceRingVisible'),code.indexOf('function confidenceRing(entity)')).replace('export ','');
+ const update=code.slice(code.indexOf('function updateView('),code.indexOf('const MARGIN='));
+ const classes=new Set(),ring={dataset:{x:'400',y:'150',w:'180',h:'100'},classList:{toggle:(name,on)=>on?classes.add(name):classes.delete(name)}};
+ const properties=new Map(),screen={width:800,height:600};
+ const context={view:{x:0,y:0,w:1060,h:795},pageSize:()=>({w:1000,h:750}),MARGIN:1.06,
+  svg:{setAttribute(){},getBoundingClientRect:()=>screen,style:{setProperty:(name,value)=>properties.set(name,value)},classList:{toggle(){}}},
+  $:id=>id==='overlays'?{querySelectorAll:selector=>selector==='.confidence-ring'?[ring]:[]}: {},publish(){}};
+ runInNewContext(visibility+update+';updateView(false);',context);
+ assert.equal(classes.has('is-readable'),false);
+ context.view={x:100,y:100,w:500,h:375};runInNewContext('updateView(false)',context);
+ assert.equal(classes.has('is-readable'),true);assert.equal(properties.get('--u'),.625);
+ screen.width=200;screen.height=150;runInNewContext('updateView(false)',context);
+ assert.equal(classes.has('is-readable'),true);assert.equal(properties.get('--u'),2.5);
+ ring.dataset.w='5';runInNewContext('updateView(false)',context);assert.equal(classes.has('is-readable'),false);
+ ring.dataset.w='180';context.view.x=600;runInNewContext('updateView(false)',context);assert.equal(classes.has('is-readable'),false);
+ context.view={x:0,y:0,w:1060,h:795};runInNewContext('updateView(false)',context);assert.equal(classes.has('is-readable'),false);
+});
+
+test('rings report zero and full confidence honestly, omit missing scores, and keep type colours stable',()=>{
+ const code=readFileSync(new URL('./main.js',import.meta.url),'utf8');
+ const ringCode=code.slice(code.indexOf('function confidenceRing(entity)'),code.indexOf('const area='));
+ const make=runInNewContext(ringCode+';confidenceRing',{
+  el:(tag,attrs,...children)=>({tag,attrs,children})
+ });
+ const entity={polygon:[[10,20],[80,20],[80,50]],conf:0};
+ const zero=make(entity);assert.equal(zero.children.find(n=>n.attrs.class==='confidence-progress').attrs['stroke-dasharray'],'0 100');
+ assert.equal(zero.children.find(n=>n.tag==='text').children[0],'0');
+ const full=make({...entity,conf:1});assert.equal(full.children.find(n=>n.tag==='text').children[0],'100');
+ assert.equal(full.attrs['data-x'],80);assert.equal(full.attrs['data-y'],20);assert.equal(full.attrs['data-w'],70);
+ assert.equal(make({...entity,conf:undefined}),null);assert.equal(make({...entity,conf:NaN}),null);
+ assert.equal(make({...entity,polygon:[]}),null);
+ const colour=runInNewContext(code.slice(code.indexOf('const TYPE_COLOUR='),code.indexOf('/** Fit is 100%'))+';typeColour');
+ assert.equal(colour({type:'door',conf:0}),colour({type:'door',conf:1}));
+ assert.notEqual(colour({type:'room'}),colour({type:'door'}));assert.equal(colour({type:'unknown'}),'var(--zone)');
+});
+
+test('answer evidence rows use the same object colour and expose the score outside the zoom-dependent ring',()=>{
+ const code=readFileSync(new URL('./main.js',import.meta.url),'utf8');
+ const colour=code.slice(code.indexOf('const TYPE_COLOUR='),code.indexOf('/** Fit is 100%'));
+ const rows=code.slice(code.indexOf(' const cited=evidenceIds().map'),code.indexOf(' const trace=raw.trace??[];'));
+ const nodes=new Map(),entity={id:'w1',type:'window',label:'Window',conf:.97,polygon:[[0,0],[1,0],[1,1]]};
+ runInNewContext(colour+rows,{
+  evidenceIds:()=>['w1'],entityById:()=>entity,state:{scene:{pages:[{}]}},
+  $:id=>{if(!nodes.has(id))nodes.set(id,{replaceChildren(...children){this.children=children;}});return nodes.get(id);},
+  el:(tag,attrs,...children)=>({tag,attrs,children})
+ });
+ const row=nodes.get('evidence-list').children[0];
+ assert.equal(row.attrs.style,'--type:var(--window)');
+ assert.match(JSON.stringify(row.children),/Model score 97\/100/);
+});
+
 test('reopening a saved upload restores the displayed answer, corrections and camera without invoking a reader',async()=>{
  const code=readFileSync(new URL('./main.js',import.meta.url),'utf8');
  const open=code.slice(code.indexOf('export async function openDrawing'),code.indexOf("$('reading-retry').onclick")).replace('export ','');
@@ -27,7 +108,7 @@ test('highlight backing follows the same geometry and leaves one clickable regio
  const code=readFileSync(new URL('./main.js',import.meta.url),'utf8');
  const mark=code.slice(code.indexOf('function mark('),code.indexOf('/** Switch the drawing overview'));
  const result=runInNewContext(mark+';mark({id:"door",polygon:[[0,0],[30,0],[30,40]],conf:.8},"mark evidence","Door")',{
-  hue:()=>96,el:(tag,attrs,...children)=>({tag,attrs,children,append(child){this.children.push(child);}})
+  typeColour:()=> 'var(--door)',confidenceRing:()=>null,el:(tag,attrs,...children)=>({tag,attrs,children,append(child){this.children.push(child);}})
  });
  const polygons=result.children.filter(child=>child.tag==='polygon');
  assert.deepEqual(polygons.map(p=>p.attrs.class),['halo-dark','halo-light','region-shape']);
@@ -134,4 +215,5 @@ test('selecting evidence on another page redraws its overlays and focuses the ma
  const entity={id:'page-two',label:'Kitchen',type:'room',page:1,polygon:[],conf:1},state={page:0,selected:null},calls={draw:0,render:0,focus:0,scroll:0},row={dataset:{entity:entity.id},scrollIntoView(){calls.scroll++;},focus(){calls.focus++;}},nodes={'inspector':{replaceChildren(){},append(){}},'evidence-list':{children:[row]},'evidence-navigation':{}};
  const context={state,entityById:()=>entity,setPage:p=>state.page=p,renderDrawingSide:()=>calls.render++,drawMarks:()=>calls.draw++,markSelection(){},$:id=>nodes[id],evidenceIds:()=>['first',entity.id],el:()=>({}),KINDS:{room:['Room']},inspectors:[],matchMedia:()=>({matches:true}),publish(){}};
  runInNewContext(code,context);context.select(entity.id,{focusEvidence:true});assert.equal(state.page,1);assert.equal(calls.draw,1);assert.equal(calls.render,1);assert.equal(calls.focus,1);assert.equal(calls.scroll,1);assert.match(nodes['evidence-navigation'].textContent,/2 of 2/);
+ context.select(entity.id,{scrollEvidence:false});assert.equal(calls.scroll,1);assert.equal(calls.focus,1);
 });
