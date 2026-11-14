@@ -20,6 +20,9 @@ test('expired sessions retain the backend error and give sign-in recovery',async
 test('local preview checks file content, empty files and size before displaying',async()=>{
  assert.equal(await validateLocalDrawing(new Blob(['%PDF-1.7\n'])),'application/pdf');
  assert.equal(await validateLocalDrawing(new Blob([new Uint8Array([137,80,78,71,13,10,26,10])])),'image/png');
+ assert.equal(await validateLocalDrawing(new Blob(['  0\r\nSECTION\r\n  2\r\nHEADER\r\n'])),'image/vnd.dxf');
+ assert.equal(await validateLocalDrawing(new Blob(['999\nexported by CAD\n0\nSECTION\n'])),'image/vnd.dxf');
+ await assert.rejects(validateLocalDrawing(new Blob(['0\nnot a dxf'])),/not a supported/);
  await assert.rejects(validateLocalDrawing(new Blob(['<script>fake.pdf</script>'])),/not a supported/);
  await assert.rejects(validateLocalDrawing(new Blob([])),/non-empty/);
  await assert.rejects(validateLocalDrawing({size:MAX_LOCAL_BYTES+1}),/25 MB/);

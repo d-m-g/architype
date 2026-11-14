@@ -1,9 +1,9 @@
 export const MAX_LOCAL_BYTES = 25 * 1024 * 1024;
-const FORMATS='PDF, PNG, JPEG, WebP, GIF, BMP or AVIF';
+const FORMATS='PDF, PNG, JPEG, WebP, GIF, BMP, AVIF or DXF';
 export async function validateLocalDrawing(file) {
   if (!file || file.size === 0) throw new Error(`Choose a non-empty ${FORMATS} drawing.`);
   if (file.size > MAX_LOCAL_BYTES) throw new Error('Choose a file no larger than 25 MB for local preview.');
-  const bytes = new Uint8Array(await file.slice(0,64).arrayBuffer());
+  const bytes = new Uint8Array(await file.slice(0,256).arrayBuffer());
   const ascii = (start,end) => String.fromCharCode(...bytes.slice(start,end));
   if (ascii(0,5) === '%PDF-') return 'application/pdf';
   if ([137,80,78,71,13,10,26,10].every((n,i)=>bytes[i]===n)) return 'image/png';
@@ -12,7 +12,10 @@ export async function validateLocalDrawing(file) {
   if (['GIF87a','GIF89a'].includes(ascii(0,6))) return 'image/gif';
   if (ascii(0,2)==='BM') return 'image/bmp';
   if (ascii(4,8)==='ftyp' && [8,16,20,24,28,32,36,40,44,48,52,56,60].some(i=>['avif','avis'].includes(ascii(i,i+4)))) return 'image/avif';
-  throw new Error(`This file is not a supported ${FORMATS}. Export TIFF, HEIC, SVG and CAD files to PNG, JPEG or PDF first.`);
+  // ASCII DXF opens with group code 0 and SECTION (optionally after a 999 comment); binary DXF has its own sentinel.
+  const head = ascii(0,bytes.length);
+  if (/^\s*(?:999\r?\n[^\n]*\n\s*)?0\r?\n\s*SECTION/.test(head) || head.startsWith('AutoCAD Binary DXF')) return 'image/vnd.dxf';
+  throw new Error(`This file is not a supported ${FORMATS}. Export TIFF, HEIC, SVG and DWG files to PNG, JPEG, PDF or DXF first.`);
 }
 
 export function validateImageSize(width,height){
@@ -49,6 +52,7 @@ export function createSourcePreviewLoader(loadImage){
 export async function prepareLocalDrawing(file){
   const originalType=await validateLocalDrawing(file),source=new Blob([file],{type:originalType});
   if(originalType==='application/pdf')return {blob:source,type:originalType,name:'drawing.pdf',converted:false};
+  if(originalType==='image/vnd.dxf')return {blob:source,type:originalType,name:'drawing.dxf',converted:false};  // parsed on the server
   let bitmap;
   try{bitmap=await createImageBitmap(source);}catch{throw new Error('Your browser could not decode this image. Export it as PNG or JPEG and try again.');}
   try{

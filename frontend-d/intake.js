@@ -38,10 +38,12 @@ $('drawing-file').onchange = async () => {
     $('local-content').replaceChildren();
     if (fileURL) URL.revokeObjectURL(fileURL);
     fileURL = URL.createObjectURL(uploadFile);
-    const preview = document.createElement(type === 'application/pdf' ? 'iframe' : 'img');
-    if (type === 'application/pdf') { preview.title = 'Local PDF preview'; }
+    const dxf = type === 'image/vnd.dxf';  // browsers cannot draw CAD; the server renders the page after upload
+    const preview = document.createElement(dxf ? 'p' : type === 'application/pdf' ? 'iframe' : 'img');
+    if (dxf) { preview.className = 'muted'; preview.textContent = 'DXF drawings cannot be previewed in the browser. Upload it: the server reads its layers and draws the page.'; }
+    else if (type === 'application/pdf') { preview.title = 'Local PDF preview'; }
     else { preview.alt = 'Local drawing preview: ' + file.name; preview.onerror = () => { if(id===selection) $('upload-status').textContent = 'This image could not be decoded. Choose another file. Nothing was uploaded.'; }; }
-    preview.src = fileURL;
+    if (!dxf) preview.src = fileURL;
     $('local-content').append(preview);
     $('local-name').textContent = file.name + ' · ' + (file.size/1024/1024).toFixed(2) + ' MB'+(prepared.converted?' · converted to PNG':'');
     $('local-preview').hidden = false;
