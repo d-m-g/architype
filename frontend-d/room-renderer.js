@@ -16,9 +16,9 @@ const MODELS={toilet:['toilet',0],basin:['bathroomSinkSquare',0],counter:['kitch
 
 export class RoomRenderer {
  mount(container,{selectEntity}){
-  this.container=container;this.selectEntity=selectEntity;this.visible=false;this.objects=[];this.walls=[];this.floors=[];this.geometry=[];this.models={};this.signature='';this.dims=sandboxDefaults();
-  container.innerHTML=`<div class="three-ui"><div class="three-canvas"><details class="three-sandbox"><summary>Adjust model</summary><p>Assumed values, not measured from the drawing.</p>${SANDBOX.map(s=>`<div><label for="sandbox-${s.key}">${s.label}</label><output for="sandbox-${s.key}"></output><input id="sandbox-${s.key}" name="${s.key}" type="range" min="${s.min}" max="${s.max}" step="${s.step}"></div>`).join('')}<button type="button">Reset</button></details><div class="three-controls" role="group" aria-label="3D camera"><button data-action="left" aria-label="Rotate left">↶</button><button data-action="right" aria-label="Rotate right">↷</button><button data-action="in" aria-label="Zoom 3D in">+</button><button data-action="out" aria-label="Zoom 3D out">−</button><button data-action="reset" aria-label="Reset 3D view">Reset</button><button data-action="top" aria-label="Top view">Top</button><button data-action="full" aria-label="Full screen">⛶</button></div></div><div class="three-foot"><label class="three-select">Inspect <select aria-label="Inspect 3D object"><option value="">Choose an object</option></select></label><p class="three-status" role="status"></p></div></div>`;
-  this.host=container.querySelector('.three-canvas');this.status=container.querySelector('.three-status');this.select=container.querySelector('select');
+  this.container=container;this.selectEntity=selectEntity;this.visible=false;this.objects=[];this.walls=[];this.floors=[];this.overhead=[];this.geometry=[];this.models={};this.real=null;this.realPath='';this.signature='';this.dims=sandboxDefaults();
+  container.innerHTML=`<div class="three-ui"><div class="three-canvas"><details class="three-sandbox"><summary>Adjust model</summary><p class="three-note">Assumed values, not measured from the drawing.</p>${SANDBOX.map(s=>`<div><label for="sandbox-${s.key}">${s.label}</label><output for="sandbox-${s.key}"></output><input id="sandbox-${s.key}" name="${s.key}" type="range" min="${s.min}" max="${s.max}" step="${s.step}"></div>`).join('')}<button type="button">Reset</button></details><div class="three-controls" role="group" aria-label="3D camera"><button data-action="left" aria-label="Rotate left">↶</button><button data-action="right" aria-label="Rotate right">↷</button><button data-action="in" aria-label="Zoom 3D in">+</button><button data-action="out" aria-label="Zoom 3D out">−</button><button data-action="reset" aria-label="Reset 3D view">Reset</button><button data-action="top" aria-label="Top view">Top</button><button data-action="full" aria-label="Full screen">⛶</button></div></div><div class="three-foot"><label class="three-select">Inspect <select aria-label="Inspect 3D object"><option value="">Choose an object</option></select></label><p class="three-status" role="status"></p></div></div>`;
+  this.host=container.querySelector('.three-canvas');this.note=container.querySelector('.three-note');this.status=container.querySelector('.three-status');this.select=container.querySelector('select');
   this.renderer=new THREE.WebGLRenderer({antialias:true,alpha:false});this.renderer.setPixelRatio(Math.min(devicePixelRatio,2));this.host.prepend(this.renderer.domElement);
   this.renderer.toneMapping=THREE.NeutralToneMapping;this.renderer.shadowMap.enabled=true;this.renderer.shadowMap.type=THREE.PCFShadowMap;
   this.renderer.shadowMap.autoUpdate=false;  // the shadow map is redrawn only when the model or the sun changes, not on every camera move
@@ -56,6 +56,18 @@ export class RoomRenderer {
    scene.position.set(-centre.x,-box.min.y,-centre.z);holder.add(scene);holder.scale.set(1/size.x,FIXTURES[kind].height/size.y,1/size.z);this.models[kind]=holder;
   }))).then(()=>{if(this.renderer&&this.snapshot){this.build();this.refresh();}});
  }
+ /** A model that knows where its storeys sit (IFC) also has its own 3D geometry: real walls with their openings cut, slabs,
+  *  columns, stairs, roof. It replaces the walls and openings inferred from room outlines as soon as it arrives. */
+ loadReal(path){
+  if(path===this.realPath)return;this.realPath=path;this.disposeReal();if(!path)return;
+  this.note.textContent='Loading the model’s own geometry…';
+  new GLTFLoader().loadAsync(`/api/model?path=${encodeURIComponent(path)}`).then(({scene})=>{
+   if(path!==this.realPath||!this.renderer)return;
+   scene.updateMatrixWorld(true);scene.traverse(o=>{if(!o.isMesh)return;const m=o.material,hsl=m.color.getHSL({});m.color.setHSL(hsl.h,Math.min(hsl.s,.25),hsl.l);m.roughness=.85;m.metalness=0;if(m.opacity<1)m.transparent=true;/* the model's colours, muted: authoring tools paint roofs and finishes in loud flat tones */lit(o,!m.transparent);});
+   this.real=scene;this.build();this.dims.floors=this.floors.length;this.applyDimensions();this.refresh();this.reset();
+  }).catch(()=>{if(path===this.realPath)this.note.textContent='Walls are inferred from the room outlines: the model’s own geometry could not be loaded.';});
+ }
+ disposeReal(){this.real?.traverse(o=>{if(o.isMesh){o.geometry.dispose();o.material.dispose();}});this.real=null;}
  applyTheme(){
   this.dark=document.documentElement.dataset.theme==='dark';
   this.renderer.setClearColor(new THREE.Color(getComputedStyle(document.documentElement).getPropertyValue('--desk').trim()));
@@ -64,13 +76,14 @@ export class RoomRenderer {
  /** Sliders only move, scale and relight what is already in the scene: nothing is rebuilt or disposed. */
  applyDimensions(){
   const extents=sandboxExtents(this.dims),[x,y,z]=sunPosition(this.dims.sun);
-  for(const object of this.objects){const e=extents[object.userData.type]??extents.other;object.position.y=e.base;object.scale.y=e.height;}
+  for(const object of this.objects){if(object.userData.real)continue;const e=extents[object.userData.type]??extents.other;object.position.y=e.base;object.scale.y=e.height;}
   // A wall piece is the full height, or what is left above an opening (the lintel), or below a window (the sill wall).
   // Storeys stand at their own elevation, pulled apart by the spacing slider; the ones above 'Floors shown' are lifted off.
   this.floors.forEach((floor,i)=>{floor.position.y=floor.userData.elevation*extents.k*this.dims.gap;floor.visible=i<this.dims.floors;});
+  for(const [object,floor] of this.overhead)object.visible=this.dims.floors===this.floors.length||floor<this.dims.floors-1;  // the top storey left standing is open from above
   for(const wall of this.walls){const u=wall.userData,top=Math.min(extents.wallHeight,u.storey?u.storey*extents.k:Infinity)*u.lift,o=extents[u.part],[from,to]=u.part==='wall'?[0,top]:u.below?[0,o.base]:[o.base+o.height,top];wall.position.y=from;wall.scale.y=Math.max(to-from,1e-4);wall.visible=to-from>1e-3;}
   this.sun.position.set(x*20,y*20,z*20);this.sun.intensity=1+2*y;this.sun.color.setRGB(1,.8+.2*y,.6+.4*y);  // low sun: weaker and warmer
-  SANDBOX.forEach((spec,i)=>{const input=this.inputs[i];if(spec.key==='floors'){spec={...spec,max:Math.max(1,this.floors.length)};input.max=spec.max;}if(spec.key==='floors'||spec.key==='gap')input.parentElement.hidden=this.floors.length<2;const text=format(spec,this.dims[spec.key]);input.value=this.dims[spec.key];input.previousElementSibling.value=text;input.setAttribute('aria-valuetext',text);});
+  SANDBOX.forEach((spec,i)=>{const input=this.inputs[i];if(spec.key==='floors'){spec={...spec,max:Math.max(1,this.floors.length)};input.max=spec.max;}input.parentElement.hidden=spec.key==='floors'||spec.key==='gap'?this.floors.length<2:spec.key!=='sun'&&this.realOn;/* a model's own geometry has its own sizes */const text=format(spec,this.dims[spec.key]);input.value=this.dims[spec.key];input.previousElementSibling.value=text;input.setAttribute('aria-valuetext',text);});
   this.renderer.shadowMap.needsUpdate=true;this.draw();
  }
  paint(){
@@ -104,16 +117,17 @@ export class RoomRenderer {
  }
  /** Runs only while a drag or its damping is still moving the camera; otherwise the scene is drawn on demand. */
  animate(){if(this.frameId)return;const step=()=>{this.frameId=0;if(!this.visible)return;if(this.controls.update()||this.dragging)this.frameId=requestAnimationFrame(step);};this.frameId=requestAnimationFrame(step);}
- clearObjects(){for(const object of this.objects){for(const material of object.userData.materials)material.dispose();if(object.userData.own)object.geometry.dispose();}this.group.clear();this.objects=[];this.walls=[];this.floors=[];}
+ clearObjects(){for(const object of this.objects){for(const material of object.userData.materials)material.dispose();if(object.userData.own)object.geometry.dispose();}this.group.clear();this.objects=[];this.walls=[];this.floors=[];this.overhead=[];}
  update(snapshot){
   this.snapshot=snapshot;const geometry=displayGeometry(snapshot),signature=JSON.stringify(geometry);
-  if(signature!==this.signature){this.signature=signature;this.geometry=geometry;this.span=estimateSpan(geometry);this.dims.span=this.span;this.wallHeight=estimateWallHeight(geometry);this.dims.wallHeight=this.wallHeight;this.dims.gap=1;this.build();this.dims.floors=this.floors.length;this.applyDimensions();this.reset();}
+  if(signature!==this.signature){this.signature=signature;const path=geometry[0]?.origin?snapshot.wireScene?.path??'':'';if(path!==this.realPath)this.disposeReal();/* never dress a new drawing in the last model's geometry */this.geometry=geometry;this.span=estimateSpan(geometry);this.dims.span=this.span;this.wallHeight=estimateWallHeight(geometry);this.dims.wallHeight=this.wallHeight;this.dims.gap=1;this.build();this.dims.floors=this.floors.length;this.applyDimensions();this.reset();this.loadReal(path);}
   this.refresh();
  }
  /** Rebuilds the model from the current geometry: on a new drawing, and once more when the fixture models have loaded. */
  build(){
   this.clearObjects();this.select.replaceChildren(new Option('Choose an object',''));
-  const thickness=wallThickness(this.span);
+  const thickness=wallThickness(this.span),real=this.real;this.realOn=Boolean(real);
+  this.note.textContent=real?'Geometry, sizes and heights come from the model itself.':this.realPath?this.note.textContent:'Assumed values, not measured from the drawing.';
   const add=(parent,geometry,material,position,scale,cast=true)=>{const mesh=lit(new THREE.Mesh(this.parts[geometry],material),cast);mesh.position.set(...position);mesh.scale.set(...scale);parent.add(mesh);return mesh;};
   const place=(object,fit)=>{object.position.set(fit.x,0,fit.z);object.rotation.y=-fit.angle;return object;};
   // One group per storey (a drawing is a single one), so a door only opens the walls of its own floor.
@@ -124,7 +138,7 @@ export class RoomRenderer {
   const openings=new Map(),cuts=new Map();
   for(const entity of items)if(entity.type==='door'||entity.type==='window'){const fit=placeOpening(entity.points,edges,thickness);openings.set(entity.id,fit);for(const cut of fit.cuts)cuts.set(cut.edge,[...(cuts.get(cut.edge)??[]),{...cut,type:entity.type}]);}
   for(const entity of items){
-   if(entity.type==='wall'&&rooms.size)continue;  // a model's own walls are drawn only where no rooms give walls with openings
+   if(real?entity.type!=='room':entity.type==='wall'&&rooms.size)continue;  // the model's own geometry supplies everything but the room floors; without it, a model's flat wall outlines are drawn only where no rooms give walls with openings
    let object,own=false,tint;const materials=[],opening=openings.get(entity.id);
    const tinted=options=>{tint=new THREE.MeshStandardMaterial(options);materials.push(tint);return tint;};
    if(entity.kind){  // a fixture, fitted to its footprint: the downloaded model when there is one, else shared procedural parts
@@ -142,9 +156,22 @@ export class RoomRenderer {
    object.userData={...entity,tint,materials,own};floor.add(object);this.objects.push(object);this.select.append(new Option(`${entity.label}${entity.uncertain?' · needs review':''}`,entity.id));
    // Open roof: a room is its floor plus wall boxes along each edge, split around its openings. Each room's walls are a hair
    // taller than the last one's, so where two rooms' walls overlap one top wins cleanly instead of flickering.
-   if(entity.type==='room')for(const fit of roomWalls(rooms.get(entity.id),thickness,cuts))for(const below of fit.part==='window'?[false,true]:[false]){
+   if(entity.type==='room'&&!real)for(const fit of roomWalls(rooms.get(entity.id),thickness,cuts))for(const below of fit.part==='window'?[false,true]:[false]){
     const wall=place(lit(new THREE.Mesh(this.parts.box,this.materials.wall)),fit);wall.scale.set(fit.length,1,thickness);wall.userData={id:entity.id,type:'wall',part:fit.part,below,storey:entity.storey,lift:1+order.indexOf(entity.id)%7*.0012};floor.add(wall);this.walls.push(wall);}
   }
+  }
+  if(real&&this.floors.length){
+   // Each element of the model joins its storey: the scene entity it is (by GlobalId) says which, else its height does.
+   const [cx,ground,cz]=this.geometry[0].origin,k=10/this.geometry[0].spanM,byRef=new Map(this.geometry.map(e=>[e.ref,e])),levels=this.floors.map(f=>f.userData.elevation+ground),box=new THREE.Box3();
+   const holders=this.floors.map((floor,i)=>{const holder=new THREE.Group();holder.scale.setScalar(k);holder.position.set(-cx*k,-levels[i]*k,-cz*k);floor.add(holder);return holder;});
+   for(const node of real.children){
+    const entity=byRef.get('ifc:'+(node.userData.name??node.name)),object=node.clone(),materials=[];let index=entity?.floor;
+    box.setFromObject(node);if(index===undefined){const y=box.getCenter(new THREE.Vector3()).y;index=Math.max(0,levels.findLastIndex(level=>level<=y+.05));}
+    if(box.min.y-levels[index]>1.8)this.overhead.push([object,index]);  // a ceiling, beam or the slab above: lifted off with the storeys above it
+
+    if(entity){object.traverse(o=>{if(o.isMesh){o.material=o.material.clone();materials.push(o.material);}});object.userData={...entity,materials,real:true};this.objects.push(object);this.select.append(new Option(`${entity.label}${entity.uncertain?' · needs review':''}`,entity.id));}
+    holders[index].add(object);
+   }
   }
   this.applyDimensions();
  }
@@ -155,5 +182,5 @@ export class RoomRenderer {
  resize(){if(!this.renderer)return;const w=this.host.clientWidth,h=this.host.clientHeight;if(!w||!h)return;this.renderer.setSize(w,h,false);this.camera.aspect=w/h;this.camera.updateProjectionMatrix();this.draw();}
  draw(){if(this.visible&&!this.lost&&this.renderer)this.renderer.render(this.world,this.camera);}
  setVisible(visible){this.visible=visible;this.controls.enabled=visible;if(visible)this.resize();}
- dispose(){cancelAnimationFrame(this.frameId);for(const model of Object.values(this.models??{}))model.traverse(o=>{if(o.isMesh){o.geometry.dispose();o.material.dispose();}});window.removeEventListener('stoa:theme-change',this.onTheme);this.observer?.disconnect();this.controls?.dispose();if(this.group)this.clearObjects();for(const item of [...Object.values(this.parts??{}),...Object.values(this.materials??{}),this.ground?.geometry,this.ground?.material,this.grid?.geometry,this.grid?.material])item?.dispose();this.renderer?.dispose();this.renderer=null;this.container?.replaceChildren();}
+ dispose(){cancelAnimationFrame(this.frameId);this.disposeReal();for(const model of Object.values(this.models??{}))model.traverse(o=>{if(o.isMesh){o.geometry.dispose();o.material.dispose();}});window.removeEventListener('stoa:theme-change',this.onTheme);this.observer?.disconnect();this.controls?.dispose();if(this.group)this.clearObjects();for(const item of [...Object.values(this.parts??{}),...Object.values(this.materials??{}),this.ground?.geometry,this.ground?.material,this.grid?.geometry,this.grid?.material])item?.dispose();this.renderer?.dispose();this.renderer=null;this.container?.replaceChildren();}
 }

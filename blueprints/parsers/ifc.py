@@ -139,6 +139,47 @@ def build_scene(path: str, file: Path) -> Scene:
     return _build(model_path, file).model_copy(update={"path": path}, deep=True)
 
 
+def model_glb(path: str, file: Path) -> Path:
+    """The model's own 3D geometry as a GLB for the 3D view, written once to .cache/models/. Every element with a body
+    except spaces and opening voids, openings cut, one node per element named by its GlobalId. Metres, y up, and
+    (x, z) = (east, -north), which is how the 3D view lays out the storey pages."""
+    import multiprocessing
+
+    import ifcopenshell
+    import ifcopenshell.geom
+
+    from .. import pipeline
+    if file.suffix.lower() == ".pdf":
+        path, file = path.rsplit("_plan-", 1)[0] + ".ifc", file.with_name(file.name.rsplit("_plan-", 1)[0] + ".ifc")
+    out = pipeline.CACHE / "models" / (hashlib.md5(path.encode()).hexdigest() + ".glb")
+    if out.exists():
+        return out
+    try:
+        model = ifcopenshell.open(str(file))
+    except Exception as e:
+        raise ValueError(f"{file.name} is not a readable IFC model") from e
+    out.parent.mkdir(parents=True, exist_ok=True)
+    part = out.with_suffix(".part.glb")  # the serializer picks its format from the extension
+    settings = ifcopenshell.geom.settings()
+    settings.set("use-element-guids", True)
+    settings.set("apply-default-materials", True)
+    writer = ifcopenshell.geom.serializers.glb(str(part), settings)
+    writer.setFile(model)
+    writer.setUnitNameAndMagnitude("METER", 1.0)
+    writer.writeHeader()
+    skip = [*model.by_type("IfcSpace"), *model.by_type("IfcOpeningElement")]
+    shapes = ifcopenshell.geom.iterator(settings, model, multiprocessing.cpu_count(), exclude=skip)
+    if shapes.initialize():
+        while True:
+            writer.write(shapes.get())
+            if not shapes.next():
+                break
+    writer.finalize()
+    del writer  # closes the file, so it can be renamed on Windows
+    part.replace(out)
+    return out
+
+
 @lru_cache(maxsize=1)  # a model's plan PDFs are asked about one after another; build the model once for all of them
 def _build(path: str, file: Path) -> Scene:
     import ifcopenshell

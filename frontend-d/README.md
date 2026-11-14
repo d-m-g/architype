@@ -194,7 +194,7 @@ Skip to editor moves focus to the editor heading, including from other panels. F
 
 ## Multi-page floor plates
 
-A model whose levels carry their page frame in metres (an IFC model: `frame_x_m`, `frame_y_m`, `frame_w_m`, `frame_h_m` and `elevation_m` on each `level` entity) is shown as one model with every storey at its own elevation, in the same orbit view as a single drawing. The **Adjust model** panel then also has *Floors shown* (lifts the upper storeys off to look inside) and *Floor spacing* (pulls the storeys apart). Other multi-page drawings show the current page, since nothing says how their pages line up.
+A model whose levels carry their page frame in metres (an IFC model: `frame_x_m`, `frame_y_m`, `frame_w_m`, `frame_h_m` and `elevation_m` on each `level` entity) is shown as one model with every storey at its own elevation, in the same orbit view as a single drawing. The **Adjust model** panel then also has *Floors shown* (lifts the upper storeys off to look inside) and *Floor spacing* (pulls the storeys apart). The view first stacks walls inferred from the room outlines, then swaps in the model's own geometry from `GET /api/model?path=` (a GLB the IFC library writes once into `.cache/models/`: real walls with openings cut, slabs, columns, stairs, roof, furniture; one node per element, named by GlobalId, which is how a mesh finds its scene entity for selection and evidence). The top storey left standing by *Floors shown* is opened from above: its ceilings, beams and the slab over it are lifted off too. Other multi-page drawings show the current page, since nothing says how their pages line up.
 
 
 ## Production workflow integration — 14 November

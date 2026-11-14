@@ -8,7 +8,8 @@ export function fixtureKind(e){
 /** Display-only geometry: preserves page proportions, never supplies measurements.
  *  A drawing shows its current page. A model whose levels say where their page sits in metres (an IFC model: frame_*_m and
  *  elevation_m on each level) shows every storey in one model: each entity then has its `floor` (0 is the lowest), the
- *  storey's `elevation` and `storey` height in metres, and `spanM`, the true length of the model's longest side. */
+ *  storey's `elevation` and `storey` height in metres, `spanM`, the true length of the model's longest side, and `origin`,
+ *  the model point [east, up, -north] in metres that sits at the scene's centre (what the model's own GLB is moved by). */
 export function displayGeometry(snapshot){
  if(snapshot.mode==='pending')return [];
  const levels=snapshot.entities.filter(e=>e.type==='level'&&e.attrs?.frame_w_m>0&&e.attrs.frame_h_m>0).sort((a,b)=>(a.attrs.elevation_m??0)-(b.attrs.elevation_m??0));
@@ -23,7 +24,7 @@ export function displayGeometry(snapshot){
  return placed.filter(([,p])=>Math.abs(p.reduce((a,q,i)=>{const r=p[(i+1)%p.length];return a+q[0]*r[1]-r[0]*q[1];},0))>1e-8*(stacked?span*span:1)).map(([e,p])=>{
   const f=stacked?frames.get(e.page??0):null;
   return {id:e.id,label:e.label,type:e.type,kind:fixtureKind(e),m2:e.qty?.m2??(e.unit==='m²'?e.quantity:undefined),height:e.attrs?.height_m,uncertain:e.uncertain,points:p.map(([x,y])=>[(x-cx)*10/span,(y-cy)*10/span]),depth:e.type==='room'?.65:.045,
-   ...(f?{floor:f.floor,elevation:(f.elevation_m??0)-ground,storey:f.height_m,spanM:span}:{})};
+   ...(f?{floor:f.floor,elevation:(f.elevation_m??0)-ground,storey:f.height_m,spanM:span,ref:e.ref,origin:[cx,ground,cy]}:{})};
  });
 }
 
@@ -125,7 +126,7 @@ export function estimateSpan(geometry){
  const rooms=geometry.filter(e=>e.type==='room'&&e.m2>0),ratios=geometry.filter(e=>FIXTURES[e.kind]?.nominal).map(e=>FIXTURES[e.kind].nominal/fitFootprint(e.points).length).sort((a,b)=>a-b);
  const perUnit=rooms.length?Math.sqrt(rooms.reduce((a,e)=>a+e.m2,0)/rooms.reduce((a,e)=>a+Math.abs(signedArea(e.points)),0)):ratios[ratios.length>>1];
  const {min,max,step,value}=SANDBOX[1];
- if(geometry[0]?.spanM>0)return Math.round(geometry[0].spanM*10)/10;  // a stacked model is already in metres
+ if(geometry[0]?.spanM>0)return geometry[0].spanM;  // a stacked model is already in metres
  return perUnit>0?Math.min(max,Math.max(min,Math.round(perUnit*10/step)*step)):value;
 }
 /** A starting wall height in metres: the median room height when the scene reports one (IFC models do), else the slider default. */
