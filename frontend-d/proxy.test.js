@@ -14,3 +14,24 @@ test('new upload, plan and recompute routes preserve their team contracts',async
  assert.deepEqual(JSON.parse(calls[2].body),{scene:{},plan:{}});
  }finally{if(proxy)await stop(proxy);await stop(upstream);}
 });
+test('voice proxy preserves recorded audio content type and speech response bytes',async()=>{
+ const calls=[],wav=Buffer.from('RIFF0000WAVE');
+ const upstream=http.createServer(async(req,res)=>{
+  const parts=[];for await(const part of req)parts.push(part);
+  calls.push({url:req.url,type:req.headers['content-type'],body:Buffer.concat(parts)});
+  if(req.url==='/api/voice/speak'){res.writeHead(200,{'Content-Type':'audio/wav'});res.end(wav);}
+  else{res.setHeader('Content-Type','application/json');res.end(JSON.stringify({configured:true,text:'Count windows'}));}
+ });
+ let proxy;try{
+  proxy=createFrontendServer({apiOrigin:await listen(upstream),timeout:1000});const base=await listen(proxy);
+  assert.equal((await (await fetch(base+'/api/voice/config')).json()).configured,true);
+  const audio=Buffer.from('recorded-webm');
+  const transcript=await fetch(base+'/api/voice/transcribe?language=fi-FI',{
+   method:'POST',headers:{'Content-Type':'audio/webm;codecs=opus'},body:audio,
+  });
+  assert.equal((await transcript.json()).text,'Count windows');
+  assert.equal(calls[1].type,'audio/webm;codecs=opus');assert.deepEqual(calls[1].body,audio);
+  const speech=await fetch(base+'/api/voice/speak',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:'19 windows'})});
+  assert.equal(speech.headers.get('content-type'),'audio/wav');assert.deepEqual(Buffer.from(await speech.arrayBuffer()),wav);
+ }finally{if(proxy)await stop(proxy);await stop(upstream);}
+});

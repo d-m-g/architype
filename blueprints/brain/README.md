@@ -15,6 +15,41 @@ You turn a question into a `QueryPlan`, handle what the cheap path cannot, and o
 
 ## What lane C provides to the other lanes
 
+### Google voice: push-to-talk and spoken answers
+
+With `GEMINI_API_KEY` configured on the server, the site's existing Dictate question
+and Read aloud controls use Google's Interactions API. Dictate records up to 30
+seconds, then sends the recording to `/api/voice/transcribe`; the transcript goes
+into the composer for review, never directly to the drawing API. Read aloud sends
+the exact displayed answer summary to `/api/voice/speak`, which returns WAV audio.
+The drawing detector remains responsible for counting. No Google key is sent to
+the browser; the same login middleware protects voice requests. Audio/interaction
+storage is disabled in the provider request (`store: false`), and this server does
+not save recordings. Google voice requires HTTPS or localhost microphone access.
+
+Defaults: `gemini-3.5-transcribe` and `gemini-3.8-flash-tts`, with voice `Kore`.
+Override via `BLUEPRINTS_TRANSCRIBE_MODEL`, `BLUEPRINTS_TTS_MODEL`, and
+`BLUEPRINTS_TTS_VOICE`. The key's project must have access/quota for these models.
+No new SDK dependency is required. Restart the API after setting its key.
+
+The picker offers English, Finnish, Swedish, German, French, Italian and Spanish,
+plus automatic input-language detection. Answer-summary templates follow the
+selected language; raw answer text/provider errors are not translated. Auto uses
+the English summary template. If server voice is unconfigured or the browser lacks
+recording support, existing browser dictation/read-aloud remain available where
+supported. Continuous Gemini Live conversations are not part of this feature.
+
+API: `GET /api/voice/config`, `POST /api/voice/transcribe?language=fi-FI` (raw audio,
+8 MiB limit), `POST /api/voice/speak {text}` (4,000-character limit). Input formats
+include WebM/Opus, OGG and M4A. Provider errors are surfaced with API keys redacted.
+Cancellation discards late replies and releases microphone tracks. Development
+proxy routes preserve audio bodies and content types.
+
+Offline checks: `python -m unittest blueprints.brain.test_voice` (needs httpx as a
+test dependency), and `node --test frontend-d/voice.test.js`. Provider calls are
+mocked; actual transcription/speech quality must be checked with event credentials.
+
+
 **HTTP API** (`blueprints/api.py`; the demo serves it with the UI on one origin):
 
 | Endpoint | Use |

@@ -291,6 +291,9 @@ def image(path: str) -> FileResponse:
     return FileResponse(file)
 
 
+from .brain.voice import router as voice_router
+app.include_router(voice_router)
+
 # The viewer on the same origin, so the demo is one container. Mounted last: /api/* routes win.
 from .frontend import PublicFrontend  # noqa: E402
 from pathlib import Path  # noqa: E402
