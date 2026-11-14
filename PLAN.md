@@ -209,10 +209,16 @@ Voice only changes how the question arrives and how the answer leaves. `/ask` st
 
 ## Stoa's answers (13 November)
 
-1. **Accuracy is judged only on the given dataset.** There are no new drawings, so the scans and anything else without questions are demo material only.
+1. ~~**Accuracy is judged only on the given dataset.**~~ **Superseded on 14 November (Eino from Stoa, Discord, 11:56):** the final evaluation uses "a few complex drawings and questions", run through whatever interface each team provides, and real questions "can be more complex than the ones in the dataset". Stoa will post a few example questions later that day. The dataset score still matters, but the judged run is a handful of hard, live questions in our UI.
 2. **The CubiCasa5K SVG annotations may be used for training, not to answer.** Lane B trains the detector on them. At question time the system sees only the image, and never looks anything up by filename.
 3. **Sibling files may be used.** A Swiss PDF question can be answered from the same-name DXF, and an ifc_models plan PDF from the IFC model it was rendered from.
 4. **Inference cost is self-reported.** We report it ourselves, so it has to be credible: list prices for every model, and the first question on a drawing shown separately from later ones.
+
+What the 14 November update changes:
+
+- The upload path (any PDF, image or scan), free-form and multi-step questions (formulas, take-offs) and the UI are now judged, not only the demo.
+- Scans are no longer demo-only: a complex judged drawing could be a scan (see `blueprints/brain/HANDDRAWN.md`).
+- When Stoa's examples arrive, add them to the eval as a separate set.
 
 How we apply answers 1 and 2:
 
