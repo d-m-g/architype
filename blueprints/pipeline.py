@@ -113,4 +113,9 @@ def answer(path: str, question: str) -> Answer:
             result = escalate(question, path, scene, result)
         except NotImplementedError:
             pass
+    if result.answer is not None:
+        from .reliability import measured
+        seen = measured(result.tier, result.confidence)
+        if seen:
+            result.confidence_note = f"{result.confidence_note or ''} {seen}".strip()
     return result

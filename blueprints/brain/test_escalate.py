@@ -25,7 +25,7 @@ def tile_plan():
 
 def reply(arguments):
     call = SimpleNamespace(id="final", function=SimpleNamespace(name="answer", arguments=json.dumps(arguments)))
-    message = SimpleNamespace(tool_calls=[call], model_dump=lambda **_: {"role": "assistant", "tool_calls": [
+    message = SimpleNamespace(content=None, tool_calls=[call], model_dump=lambda **_: {"role": "assistant", "tool_calls": [
         {"id": call.id, "type": "function", "function": {"name": "answer", "arguments": call.function.arguments}}]})
     return SimpleNamespace(choices=[SimpleNamespace(message=message)], usage=SimpleNamespace(prompt_tokens=1, completion_tokens=1))
 
@@ -103,6 +103,7 @@ class VerifiedAgentAnswers(unittest.TestCase):
         source.entities[0].conf = .2
         result, _ = self.run_agent([{"answer": 11, "plan": json.dumps(tile_plan())}], source=source)
         self.assertAlmostEqual(result.confidence, .2)
+        self.assertIn("capped at 60%", result.confidence_note)
 
     def test_explicit_abstention_and_non_numeric_answers_still_work(self):
         result, _ = self.run_agent([{"answer": "cannot answer", "explanation": "Ceiling height is not given."}])

@@ -130,7 +130,31 @@ class Unsupported(NotImplementedError):
         self.reason, self.steps = reason, steps
 
 
+def describe(plan: QueryPlan) -> str:
+    """The plan in one line for the answer card: "a = sum m2 of room:kitchen; ceil(a * 1.1 / tile_m2)"."""
+    def one(q):
+        filters = [f"{k} {v}" for k in ("label", "number", "level", "apartment") if (v := getattr(q, k))]
+        filters += ["outdoor" if q.outdoor else "indoor"] if q.outdoor is not None else []
+        filters += [f"{k} = {v}" for k, v in q.where.items()]
+        what = q.type + (f":{q.subtype}" if q.subtype else "")
+        return f"{q.op} {q.qty + ' of ' if q.qty else ''}{what}" + (f" where {', '.join(filters)}" if filters else "")
+    parts = [f"{n} = {one(q)}" for n, q in plan.queries.items()] if plan.formula else [one(next(iter(plan.queries.values())))]
+    return "; ".join(parts + ([plan.formula] if plan.formula else []))
+
+
 def plan_with_trace(question: str, scene: Scene | None) -> tuple[QueryPlan, list[TraceStep]]:
+    """The plan and what it cost; the last step's detail says what the plan is."""
+    try:
+        plan, steps = _plan_with_trace(question, scene)
+    except Unsupported as e:
+        if e.steps:
+            e.steps[-1].detail = f"No plan fits: {e.reason}"
+        raise
+    steps[-1].detail = describe(plan)
+    return plan, steps
+
+
+def _plan_with_trace(question: str, scene: Scene | None) -> tuple[QueryPlan, list[TraceStep]]:
     """The plan and what it cost: a $0 cached step on a cache hit, Gemini's steps otherwise.
     Raises Unsupported (a NotImplementedError) for questions no plan can express, so the pipeline escalates them."""
     template, slots = mask(question)

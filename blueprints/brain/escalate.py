@@ -106,6 +106,8 @@ def answer_from_vision(question: str, path: str, draft: Answer | None = None) ->
     return result.model_copy(update={
         "tier": "llm",
         "confidence": VISION_CONFIDENCE if result.answer is not None else 0.0,
+        "confidence_note": f"A fixed {VISION_CONFIDENCE:.0%} for answers on the vision model's reading of the drawing; "
+                           f"the model gives no per-item score." if result.answer is not None else None,
         "extra_entities": [e for e in vision.entities if e.id in hits],  # the viewer has no scene to look these up in
         "trace": draft.trace + plan_steps + (vision.trace if fresh else []) + result.trace,
     })
@@ -285,6 +287,8 @@ def _agent_loop(question, scene, draft, inline_evidence, url, key, model, extra,
         steps.append(llm_step("escalate", model, reply.usage.prompt_tokens, reply.usage.completion_tokens,
                               (time.perf_counter() - t0) * 1000))
         msg = reply.choices[0].message
+        if msg.content:  # the model's own words between tool calls, when it gives any
+            steps[-1].detail = msg.content.strip()[:400]
         messages.append(msg.model_dump(exclude_none=True))
         if not msg.tool_calls:
             messages.append({"role": "user", "content": "Call answer now with your result, its unit, the evidence ids and a one-sentence explanation."})
@@ -318,23 +322,31 @@ def _agent_loop(question, scene, draft, inline_evidence, url, key, model, extra,
                         continue
                     return verified.model_copy(update={
                         "tier": "llm", "confidence": min(AGENT_CONFIDENCE, verified.confidence),
+                        "confidence_note": (f"Agent confidence is capped at {AGENT_CONFIDENCE:.0%}, or lower when source scores are lower. "
+                                            + (verified.confidence_note or "")),
                         "interpretation": _calculation_sources(verified, scene),
                         "extra_entities": [e for e in scene.entities if e.id in set(verified.evidence)] if inline_evidence else [],
                         "trace": draft.trace + steps + verified.trace,
                     })
+                note = (f"A fixed {AGENT_CONFIDENCE:.0%} for answers the agent reasons out; it is not derived from "
+                        f"this drawing.") if value is not None else None
+                if value is not None and _same_value(value, draft.answer):
+                    note += f" It agrees with the first route's answer ({draft.confidence:.0%})."
                 if _same_value(value, draft.answer) and draft.evidence:
                     # The agent confirmed the cheap path's number: keep its full evidence. Models trim long id
                     # lists (99 of 124 doors cited), which left counted items marked "not cited" in the viewer.
                     evidence = draft.evidence + [i for i in evidence if i not in set(draft.evidence)]
                 return Answer(
                     answer=value, unit=args.get("unit") if value is not None else None,
-                    confidence=AGENT_CONFIDENCE if value is not None else 0.0, tier="llm", evidence=evidence,
+                    confidence=AGENT_CONFIDENCE if value is not None else 0.0, confidence_note=note, tier="llm", evidence=evidence,
                     extra_entities=[e for e in scene.entities if e.id in set(evidence)] if inline_evidence else [],
                     interpretation=args.get("explanation"), error=None if value is not None else args.get("explanation"),
                     trace=draft.trace + steps)
             t1 = time.perf_counter()
             text, costed = _tool(call.function.name, args, scene)
-            steps.append(TraceStep(step=f"tool:{call.function.name}", ms=(time.perf_counter() - t1) * 1000))
+            asked = ", ".join(f"{k}={v}" for k, v in args.items())
+            steps.append(TraceStep(step=f"tool:{call.function.name}", ms=(time.perf_counter() - t1) * 1000,
+                                   detail=f"{asked[:300]} → {text[:400]}"))
             steps += costed
             messages.append({"role": "tool", "tool_call_id": call.id, "content": text[:8000]})
     return Answer(tier="llm", error="Could not verify a final answer against the drawing. No unverified number is shown.",
