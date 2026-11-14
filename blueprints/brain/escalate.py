@@ -177,7 +177,7 @@ def _tool(name: str, args: dict, scene: Scene) -> tuple[str, list[TraceStep]]:
                                    "conf": round(e.conf, 2),
                                    "connections": {k: v for k, v in e.attrs.items() if k in (
                                        "room_id", "room_id2", "room", "room2", "room_label", "room_label2",
-                                       "room_link_status", "room_link_candidates", "room_link_reason")} or None
+                                       "room_link_status", "room_link_candidates", "room_link_reason", "room_link_review")} or None
                                    }.items() if v is not None} for e in hits]
         limit = args.get("limit") if isinstance(args.get("limit"), int) and args["limit"] > 0 else 150
         return json.dumps({"count": len(rows), "entities": rows[:min(limit, 150)]}, ensure_ascii=False), []

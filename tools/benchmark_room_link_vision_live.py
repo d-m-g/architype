@@ -111,6 +111,9 @@ def main():
         if any(r["status"] == "wrong" for r in rows):
             print("Stopping: incorrect model-assisted counts need investigation.", flush=True)
             break
+        if any("Malformed model reply" in t.get("detail", "") for t in item["refinement"]):
+            print("Stopping: malformed model output needs investigation before another paid pilot.", flush=True)
+            break
         if answer.get("answer") is not None and not report.get("cached_repeat"):
             repeated = request("/api/ask", {"path": path, "question": question})
             report["model_capable_requests"] += 1
