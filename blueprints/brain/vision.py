@@ -29,9 +29,9 @@ class _Item(BaseModel):
     box_2d: list[int] = Field(min_length=4, max_length=4)
 
 
-class _Sides(BaseModel):
-    a: float
-    b: float
+class _Sides(BaseModel):  # one rectangle of a room; each side is the chain of numbers printed along it
+    a: list[float]
+    b: list[float]
     unit: Literal["mm", "cm", "m"]
 
 
@@ -40,7 +40,7 @@ class _Room(_Item):
     number: str | None = None
     apartment: str | None = None
     printed_area_m2: float | None = None
-    printed_sides: _Sides | None = None
+    printed_sides: list[_Sides] | None = None
     type: Literal[tuple(ROOM_TYPES)]
 
 
@@ -73,7 +73,7 @@ PROMPT = f"""Look at this drawing. If it is a floor plan, list everything below 
  "apartments": [{{"label": "the apartment's name as written, e.g. A", "box_2d": [...]}}],
  "rooms": [{{"label": "the room's name only", "number": "the room's number, e.g. 3.01, or null",
             "apartment": "the apartment it belongs to, e.g. A, or null", "printed_area_m2": number or null,
-            "printed_sides": {{"a": number, "b": number, "unit": "mm", "cm" or "m"}} or null,
+            "printed_sides": [{{"a": [numbers], "b": [numbers], "unit": "mm", "cm" or "m"}}] or null,
             "type": one of {ROOM_TYPES}, "box_2d": [...]}}],
  "doors": [{{"box_2d": [...]}}],
  "windows": [{{"box_2d": [...]}}],
@@ -81,9 +81,11 @@ PROMPT = f"""Look at this drawing. If it is a floor plan, list everything below 
 box_2d is [ymin, xmin, ymax, xmax] scaled 0-1000 to the image.
 - A room tag often stacks several things, e.g. "Whg. A / Wohnen/Essen / 3.05 / 18.36 m²": split it into
   apartment "A", label "Wohnen/Essen", number "3.05", printed_area_m2 18.36. Copy the label exactly as written.
-- printed_sides: for a rectangular room with no printed area, its width and its length copied as printed from the
-  dimension lines that span exactly that room (e.g. 2480 and 3680 in mm). Copy the numbers, do not add or convert
-  them; use null if either side has no single dimension spanning it, or the room is not rectangular.
+- printed_sides: for a room with no printed area, its sides copied from the dimension lines along it. A rectangular
+  room is one entry: a is the numbers printed along its width, b along its length, e.g. {{"a": [2480], "b": [3680]}}.
+  When a side is covered by a chain of several dimensions, list every number of the chain, e.g. "b": [2000, 1040].
+  An L-shaped or stepped room is split into rectangles that do not overlap, one entry each. Copy the numbers exactly,
+  do not add, multiply or convert them; use null only when the plan prints no dimensions along the room.
 - apartments: one entry per apartment or dwelling unit shown, with its outline (empty for a single home without names).
 - floors: one entry per separate floor plan drawn on the sheet (a sheet may show 2-4 floors side by side).
 - doors: doorways fitted with a door leaf (a swing arc or a leaf); an opening without a leaf is not a door.
@@ -131,6 +133,18 @@ def _geom(box) -> list[tuple[float, float]]:
     return [(xmin, ymin), (xmax, ymin), (xmax, ymax), (xmin, ymax)]
 
 
+def printed_area(rects) -> tuple[float | None, str]:
+    """m² from the rectangles the model copied off the dimension lines: the model copies numbers, the code adds up each
+    chain and multiplies. Any side outside 0.3-50 m means a misread unit or number, so the whole room gets no area."""
+    try:
+        parts = [(sum(map(float, r["a"])) * TO_M[r["unit"]], sum(map(float, r["b"])) * TO_M[r["unit"]]) for r in rects]
+    except (TypeError, KeyError, ValueError):
+        return None, ""
+    if not parts or not all(0.3 <= s <= 50 for part in parts for s in part):
+        return None, ""
+    return round(sum(a * b for a, b in parts), 2), " + ".join(f"{a:g} m x {b:g} m" for a, b in parts)
+
+
 def to_scene(path: str, page: Page, found: dict) -> Scene:
     """Turn the model's list into a Scene. Items with a bad box or an unknown type are skipped, not guessed.
     A drawing the model says is not a floor plan gets an empty scene that covers nothing, marked in the builder name,
@@ -157,13 +171,9 @@ def to_scene(path: str, page: Page, found: dict) -> Scene:
         area, sides, attrs = item.get("printed_area_m2"), item.get("printed_sides"), {}
         if not (isinstance(area, (int, float)) and area > 0):
             area = None
-            try:  # the area from the two printed side lengths: the model copies numbers, the code multiplies
-                a, b = (float(sides[k]) * TO_M[sides["unit"]] for k in ("a", "b"))
-                if 0.5 <= a <= 50 and 0.5 <= b <= 50:  # a room, not a misread unit
-                    area = round(a * b, 2)
-                    attrs = {"area_from": f"printed sides {a:g} m x {b:g} m (dimension lines, may include walls)"}
-            except (TypeError, KeyError, ValueError):
-                pass
+            area, how = printed_area(sides)
+            if area:
+                attrs = {"area_from": f"printed dimensions {how} (dimension lines, may include walls)"}
         add("room", subtype, item, label=item.get("label"), number=item.get("number"), apartment=item.get("apartment"),
             outdoor=subtype == "balcony", qty={"m2": float(area)} if area else {}, attrs=attrs)
     for kind in ("door", "window"):
@@ -176,7 +186,7 @@ def to_scene(path: str, page: Page, found: dict) -> Scene:
     return Scene(path=path, builder=BUILDER, tier="detect", covers=covers, pages=[page], entities=entities)
 
 
-BUILDER = f"vision:{VISION_MODEL}@4"  # bump the version when the prompt or the conversion changes; it keys the cache
+BUILDER = f"vision:{VISION_MODEL}@5"  # bump the version when the prompt or the conversion changes; it keys the cache
 NOT_A_PLAN = ":not-a-floor-plan:"  # builder suffix for drawings the reader refused, followed by what they are
 
 
@@ -287,10 +297,15 @@ if __name__ == "__main__":  # self-check of the conversion, no model call
     assert (bedroom.number, bedroom.apartment, bedroom.qty) == ("3.01", "A", {"m2": 12.5})
     assert next(e for e in s.entities if e.subtype == "balcony").outdoor
     sized = to_scene("data/x.png", page, {"rooms": [
-        {"label": "Kitchen", "type": "kitchen", "box_2d": [0, 0, 9, 9], "printed_sides": {"a": 2480, "b": 3680, "unit": "mm"}},
-        {"label": "K", "type": "kitchen", "box_2d": [0, 0, 9, 9], "printed_sides": {"a": 2480, "b": 3680, "unit": "m"}},
-        {"label": "B", "type": "bedroom", "box_2d": [0, 0, 9, 9], "printed_area_m2": 12.0, "printed_sides": {"a": 1, "b": 1, "unit": "m"}}]})
-    assert [e.qty.get("m2") for e in sized.entities] == [9.13, None, 12.0] and "area_from" in sized.entities[0].attrs
+        {"label": "Kitchen", "type": "kitchen", "box_2d": [0, 0, 9, 9], "printed_sides": [{"a": [2480], "b": [3680], "unit": "mm"}]},
+        {"label": "K", "type": "kitchen", "box_2d": [0, 0, 9, 9], "printed_sides": [{"a": [2480], "b": [3680], "unit": "m"}]},
+        {"label": "B", "type": "bedroom", "box_2d": [0, 0, 9, 9], "printed_area_m2": 12.0, "printed_sides": [{"a": [1], "b": [1], "unit": "m"}]},
+        # an L-shaped room as two rectangles, one side a chain of three dimensions: 3.04 x 7.44 + 1 x 2
+        {"label": "Living", "type": "living_room", "box_2d": [0, 0, 9, 9], "printed_sides": [
+            {"a": [2720, 320], "b": [2000, 1040, 4400], "unit": "mm"}, {"a": [1000], "b": [2000], "unit": "mm"}]},
+        {"label": "Odd", "type": "other", "box_2d": [0, 0, 9, 9], "printed_sides": [{"a": ["x"], "b": [1], "unit": "m"}]}]})
+    assert [e.qty.get("m2") for e in sized.entities] == [9.13, None, 12.0, 24.62, None] and "area_from" in sized.entities[0].attrs
+    assert "3.04 m x 7.44 m + 1 m x 2 m" in sized.entities[3].attrs["area_from"]
     section = to_scene("data/x.png", page, {"is_floor_plan": False, "drawing_kind": "section", "doors": [{"box_2d": [1, 1, 2, 2]}]})
     assert not section.entities and not section.covers and not_a_floor_plan(section) == "section"
     assert not_a_floor_plan(s) is None
