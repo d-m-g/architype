@@ -82,11 +82,42 @@ test('rings report zero and full confidence honestly, omit missing scores, and k
  assert.equal(zero.children.find(n=>n.tag==='text').children[0],'0');
  const full=make({...entity,conf:1});assert.equal(full.children.find(n=>n.tag==='text').children[0],'100');
  assert.equal(full.attrs['data-x'],80);assert.equal(full.attrs['data-y'],20);assert.equal(full.attrs['data-w'],70);
+ for(const [confidence,hue] of [[0,0],[.25,30],[.5,60],[.75,90],[1,120]]){
+  assert.match(make({...entity,id:'door',conf:confidence}).attrs.style,new RegExp(`--confidence-h:${hue}$`));
+ }
+ assert.equal(make({...entity,id:'door'}).attrs['data-entity'],'door');
  assert.equal(make({...entity,conf:undefined}),null);assert.equal(make({...entity,conf:NaN}),null);
  assert.equal(make({...entity,polygon:[]}),null);
  const colour=runInNewContext(code.slice(code.indexOf('const TYPE_COLOUR='),code.indexOf('/** Fit is 100%'))+';typeColour');
  assert.equal(colour({type:'door',conf:0}),colour({type:'door',conf:1}));
  assert.notEqual(colour({type:'room'}),colour({type:'door'}));assert.equal(colour({type:'unknown'}),'var(--zone)');
+ const css=readFileSync(new URL('./app.css',import.meta.url),'utf8');
+ assert.match(css,/\.confidence-track\{fill:none;stroke:hsl\(var\(--confidence-h\)/);
+ assert.match(css,/\.confidence-progress\{fill:none;stroke:hsl\(var\(--confidence-h\)/);
+});
+
+test('selecting overlapping objects lifts only their score above every overlay and preserves polygon order',()=>{
+ const source=readFileSync(new URL('./main.js',import.meta.url),'utf8');
+ const code=source.slice(source.indexOf('function markSelection()'),source.indexOf('const inspectors='));
+ const node=(id,children=[])=>{
+  const classes=new Set();const result={dataset:{entity:id},children,classes,
+   classList:{toggle:(name,on)=>on?classes.add(name):classes.delete(name)},hasAttribute:()=>false};
+  for(const child of children)child.parent=result;return result;
+ };
+ const ringA=node('a'),ringB=node('b'),markA=node('a',[ringA]),markB=node('b',[ringB]),badge=node('b');
+ ringA.classes.add('is-readable');
+ const layer={children:[markA,markB,badge],querySelectorAll:()=>[ringA,ringB],append(ring){
+  if(ring.parent)ring.parent.children=ring.parent.children.filter(n=>n!==ring);
+  this.children.push(ring);ring.parent=this;
+ }};
+ const state={selected:'a'};
+ const context={state,$:()=>layer,document:{querySelectorAll:()=>[markA,markB,badge,ringA,ringB]}};
+ runInNewContext(code,context);context.markSelection();
+ assert.equal(layer.children.at(-1),ringA);assert.equal(markA.children.length,0);assert.equal(ringA.classes.has('is-readable'),true);
+ state.selected='b';context.markSelection();
+ assert.equal(layer.children.at(-1),ringB);assert.equal(ringA.classes.has('selected'),false);assert.equal(ringB.classes.has('selected'),true);
+ assert.deepEqual(layer.children.slice(0,3),[markA,markB,badge]);
+ state.selected=null;context.markSelection();assert.equal(layer.children.at(-1),ringB);
 });
 
 test('answer evidence rows use the same object colour and expose the score outside the zoom-dependent ring',()=>{

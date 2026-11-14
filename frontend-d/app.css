@@ -170,8 +170,8 @@ main>section{height:100%}
 .confidence-ring{transform:translate(calc(var(--x)*1px),calc(var(--y)*1px)) scale(var(--u,1));pointer-events:none;opacity:0;transition:opacity .12s}
 .confidence-ring.is-readable{opacity:1}
 .confidence-ring .confidence-disc{fill:#fff;stroke:#141b24;stroke-width:1}
-.confidence-ring .confidence-track{fill:none;stroke:#dce2eb;stroke-width:3}
-.confidence-ring .confidence-progress{fill:none;stroke:var(--type);stroke-width:3}
+.confidence-ring .confidence-track{fill:none;stroke:hsl(var(--confidence-h) 85% 38%);stroke-opacity:.2;stroke-width:3}
+.confidence-ring .confidence-progress{fill:none;stroke:hsl(var(--confidence-h) 85% 38%);stroke-width:3}
 .confidence-ring text{fill:#141b24;font:600 10px var(--sans)}
 @media(prefers-reduced-motion:reduce){.confidence-ring{transition:none}}
 
