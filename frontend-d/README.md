@@ -2,13 +2,30 @@
 
 All implementation stays in `frontend-d/`. Shared Python schemas, API, parsers, detectors, evaluation code and fixtures are unchanged.
 
-## Run
+## Run with the team API
 
-From this directory: `python -m http.server 5173 --bind 127.0.0.1`, then open http://127.0.0.1:5173. This serves the mock UI and local JSON/JSONL imports. No dependencies or API keys needed.
+From the repository root, start the frontend in one terminal:
 
-For live requests, the frontend host must proxy `/api` to the existing team API (`uv run --extra brain uvicorn blueprints.api:app --reload` from the root). The basic Python static server does NOT provide that proxy. Do not expose the API publicly for this prototype. Missing images/services are reported explicitly; live provider-backed inference has not been verified.
+    node frontend-d/dev-server.js
 
-Tests: `node --test viewer.test.js dashboard.test.js contracts.test.js` (11 checks).
+Open http://127.0.0.1:5173. This serves the existing frontend and proxies `/api/ask`, `/api/scene`, `/api/image` to http://127.0.0.1:8000. Both servers bind only to loopback. Set `PORT` or `BLUEPRINTS_API_ORIGIN` before starting if needed; the API origin must remain a loopback HTTP origin.
+
+Start the unchanged team API in a second terminal using the team's documented uv setup, or the D-local environment prepared for this machine:
+
+    ./frontend-d/start-api.ps1 -DatasetRoot 'C:/Users/alexk/OneDrive/Tiedostot/ChatGPT/Junction 2026/dataset-review/junction-dataset-preview'
+
+For another machine, first prepare this isolated environment (or use the team's uv environment):
+
+    python -m venv frontend-d/.runtime
+    frontend-d/.runtime/Scripts/python.exe -m pip install fastapi uvicorn
+
+The launcher sets BLUEPRINTS_DATA and an ignored D-local cache; it makes no backend source changes. This minimal environment supports API startup and existing stubs. Additional model/parser dependencies belong to their owners' documented extras.
+
+In Sources, select **Check API connection**, enter a dataset path, then **Ask API with current question**. The question is edited in the Editor. Results and errors are visible in the Editor; mock sample buttons restore mock mode. The proxy health endpoint confirms required API routes, not scene-builder readiness.
+
+The Python static-only server remains usable for mocks but cannot proxy API calls. Never seed real caches with handmade fixtures to make a builder appear implemented.
+
+Tests: run `npm test` from this directory, or run the Node test files listed in package.json directly (19 checks).
 
 ## Shared contract integration
 
@@ -35,16 +52,36 @@ Eleven tests passed, including team Scene/Answer fixtures, all 12 example EvalRo
 
 ## Later D work
 
-3D, voice, editable derived assumptions and live run comparisons are not implemented. Backend work remains with A/B/C.
+Voice, editable derived assumptions and live run comparisons are not implemented. Backend work remains with A/B/C.
 
 ## Unified workspace and 3D seam
 
 `index.html` is the single application. Persistent sidebar panels expose Editor, Dashboard, Sources and Settings; on narrow screens the sidebar becomes a compact top navigation. `dashboard.html` now redirects to `index.html#dashboard` for compatibility. Navigation does not remount panels, so viewer zoom, selection, imports, dashboard filters and replay values remain in memory. Existing scenario links and evaluation links are handled inside the workspace.
 
-The editor's 2D / 3D switch hides/shows separate viewport containers without modifying the 2D camera. 3D is explicitly a preview placeholder, not a working model renderer. It displays current evidence selection. No geometry extrusion, inferred heights, or new backend dependencies were introduced.
+The editor's 2D / 3D switch hides/shows separate viewport containers without modifying the 2D camera. 3D now lazily loads a Three.js renderer. It shows source polygons and illustrative room extrusions for the active page. Heights are display-only, not measured; no model scale or floor alignment is inferred.
 
-Future renderer integration: import `register3DRenderer` from `workspace.js`. Pass an object with `mount(container, {selectEntity})`, `update(snapshot)`, and optional `setVisible(boolean)` / `dispose()`. Manage resize in the renderer. The returned cleanup function detaches it. `editor-bridge.js` publishes scene entities, wire Scene (when available), current Answer, selected entity ID, page index, viewport and mock/shared/pending mode. Source geometry is not silently converted to metres; a renderer must use verified units/transforms. Calling `selectEntity(id)` selects an existing contributing evidence ID in the editor.
+Future renderer integration: import `register3DRenderer` from `workspace.js`. Pass an object with `mount(container, {selectEntity})`, `update(snapshot)`, and optional `setVisible(boolean)` / `dispose()`. Manage resize in the renderer. The returned cleanup function detaches it. `editor-bridge.js` publishes scene entities, wire Scene (when available), current Answer, selected entity ID, page index, viewport and mock/shared/pending mode. Source geometry is not silently converted to metres; a renderer must use verified units/transforms. Calling `selectEntity(id)` selects an existing scene entity in the editor without adding it to the answer evidence.
 
 Settings provide session-local numbered-label visibility and compact evidence rows. Existing overlays, accessible evidence list, pan/zoom/fit, answers, imports and all dashboard features remain available.
 
 Verification: 13 Node checks, plus browser checks for viewport/selection preservation across sidebar and 2D/3D switches, retained dashboard filters/threshold, sources panel, settings and 375px layout without horizontal page overflow. No browser console errors observed.
+
+
+## Interactive illustrative 3D
+
+Three.js 0.185.1 and OrbitControls are vendored locally under `vendor/three`, with MIT license and source/version metadata. No CDN requests or package install are needed at runtime. The renderer loads only when 3D is opened; a failed graphics/module initialization leaves 2D usable.
+
+Orbit by dragging, zoom by scrolling or buttons, reset, or switch to top view. The dropdown provides a keyboard-accessible alternative to picking a mesh. Selection synchronizes with the 2D evidence list when the object contributes to the answer; selecting another scene object does not change the answer. Green shows answer evidence, gold the selection, amber uncertain objects. The existing 2D overlay checkbox applies only to 2D overlays.
+
+Current-page polygons preserve their relative page proportions. Rooms receive a fixed illustrative extrusion; other entities are shallow shapes. No measured heights, real volumes, or cross-page floor stacks are claimed. Empty/nonfinite/zero-area polygons are excluded and pending cases show no stale scene. Rendering is on demand and pauses while hidden. Geometry/materials, controls and resize observers are disposed when replacing the renderer.
+
+Verification: 16 Node tests including page isolation, display proportions and immutable source quantities; browser checks confirmed WebGL rendering, room selection synchronizing to 2D, rotate/zoom/reset/top controls. Full IFC geometry, floor stacking and live backend integration remain later work.
+
+
+## API integration verification (14 November)
+
+Pulled origin/main through f049a0c without overwriting local D changes. The unchanged team API runs against the existing preview dataset. Verified through the frontend proxy: connection check succeeds; Swiss scene GET returns 501 with lane A's missing-parser message; POST ask returns answer=null / tier=none and that error; PNG image bytes match the dataset file SHA-256. The team contract script passed 10 checks. Browser verified connection status, API abstention/error in the editor, and return to mock area/3D/dashboard functionality.
+
+All scene builders are still stubs in this checkout, so no real question-to-evidence success is claimed. The proxy and UI are connected and ready for their implementations. No API keys, dataset files, generated caches, or Python environments are committed. Reference answers are never sent to `/api/ask`.
+
+Proxy tests cover upstream response codes/body, byte-preserving images, source path forwarding, unavailable API, private runtime-file exclusion and local-only destination enforcement. Client requests the scene before the answer so a successful scene build can populate the team's cache. Missing-scene responses still allow the API's structured abstention to be shown. Requests have timeouts; a return to mocks aborts pending work and ignores stale replies.

@@ -3,3 +3,5 @@
 .dashboard-link{font-size:12px;color:var(--accent);padding:10px 0}@media(max-width:480px){header{gap:12px}.mock-badge{font-size:9px;padding:7px}.dashboard-link{font-size:11px;max-width:75px}}
 
 .integration{padding:20px;margin-bottom:24px;background:white;border:1px solid var(--line);border-radius:8px;font-size:13px;line-height:1.6}.integration label{display:inline-flex;flex-direction:column;gap:6px;margin:8px 12px 8px 0;max-width:100%}.integration input{max-width:100%;padding:8px;border:1px solid var(--line);border-radius:5px}.integration p{overflow-wrap:anywhere}.integration button{margin:8px 8px 8px 0}#drawing-title{overflow-wrap:anywhere}#recorded-run .card{margin-top:20px}#log-cases td{white-space:pre-line;min-width:120px;max-width:380px;overflow-wrap:anywhere}[hidden]{display:none!important}
+
+.connection-status:empty{display:none}.connection-status{font-size:12px;line-height:1.6;padding:12px 16px;border:1px solid var(--line);background:white;border-radius:7px;overflow-wrap:anywhere}

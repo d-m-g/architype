@@ -1,2 +1,9 @@
-{"name":"stoa-viewer-d","private":true,"type":"module","scripts":{"test":"node --test viewer.test.js dashboard.test.js contracts.test.js workspace.test.js"}}
-
+{
+  "name": "stoa-viewer-d",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test viewer.test.js dashboard.test.js contracts.test.js workspace.test.js geometry-3d.test.js proxy.test.js",
+    "dev": "node dev-server.js"
+  }
+}
