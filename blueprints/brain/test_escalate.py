@@ -149,7 +149,7 @@ class ParsedFilesAreNeverMeasuredFromThePicture(unittest.TestCase):
 
     def test_an_image_scene_keeps_look(self):
         names, system = self.tool_names(measured_scene(tier="detect"))
-        self.assertEqual(names, ["list_entities", "run_plan", "look", "answer"])
+        self.assertEqual(names, ["resolve_room_connections", "list_entities", "run_plan", "look", "answer"])
         self.assertEqual(system, escalate.SYSTEM)
         self.assertIn("Use look only when the scene lacks something you need", system)
 

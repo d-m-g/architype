@@ -66,7 +66,8 @@ or sums one quantity over them (op "sum" with qty). Filters are exact text match
   length. "m3" is volume. Skirting for room 7.03 -> {{"op": "sum", "type": "room", "number": "7.03", "qty": "m"}}.
 - outdoor: false when the question excludes balconies, loggias, terraces or other outdoor spaces; otherwise leave it out.
 - For doors, windows or fixtures connected to a room, use where with connected_room_number, connected_room_label,
-  connected_room_type, connected_room_apartment or connected_room_level. These refer to the ROOM, not the object.
+  connected_room_type, connected_room_apartment, connected_room_level or connected_room_id. These refer to the ROOM, not the object.
+  When an internal room id is explicitly provided (such as vis-room-7), use connected_room_id exactly.
   A connection can be at either endpoint; one object counts once even when both endpoints match.
   Example: doors in room 7.03 -> type door, where {{"connected_room_number": "7.03"}}.
   Windows in bedrooms -> type window, where {{"connected_room_type": "bedroom"}}.

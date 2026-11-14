@@ -109,6 +109,8 @@ def get_scene(path: str) -> Scene:
         from .image_room_links import attach_room_links
         from .brain.vision import drawing_file
         metadata_changed = attach_room_links(scene, drawing_file(path))
+        from .brain.room_link_vision import apply_cached
+        metadata_changed = bool(apply_cached(scene)) or metadata_changed
     if fresh:
         _BUILT_NOW.add(path)
     if fresh or metadata_changed:
@@ -132,7 +134,8 @@ def answer(path: str, question: str, assumptions: dict | None = None) -> Answer:
         if found:  # the free path: a question shape planned before, answered exactly as before
             plan, plan_steps = found
             steps += plan_steps
-            result = execute(plan, scene)
+            from .brain.room_link_vision import execute_with_links
+            result = execute_with_links(plan, scene)
             from .brain.vision import checked
             result = checked(result, plan, scene)  # rooms the vision reader added to an upload: no surer than the reader
         else:  # any other wording: look at what the scene holds, then decide (one model call, none on a repeat)
@@ -143,7 +146,10 @@ def answer(path: str, question: str, assumptions: dict | None = None) -> Answer:
         steps += getattr(e, "steps", [])  # the planner's cost when it judged the question unsupported
         result = Answer(error=str(e) if isinstance(e, NotImplementedError) else f"{type(e).__name__}: {e}")
     result.trace = steps + result.trace
-    if not settled and (result.answer is None or result.confidence < ESCALATE_BELOW):
+    from .brain.room_link_vision import refinement_exhausted
+    if settled or refinement_exhausted(result):
+        return result  # a parsed file's data settled it, or an exact scoped count already tried vision: no paid agent loops
+    if result.answer is None or result.confidence < ESCALATE_BELOW:
         try:
             from .brain.escalate import escalate
             result = escalate(question, path, scene, result)

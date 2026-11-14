@@ -82,7 +82,9 @@ def execute(plan: QueryPlan, scene: Scene) -> Answer:
             cited_rooms = room_queries.targets(q, scene)
             evidence += [r.id for r in cited_rooms]
             confidence = min(confidence, min(r.conf for r in cited_rooms))
-            why.append("Room connections inferred from raster geometry are not independently verified." if any(
+            why.append("Room connections inferred by a vision model are not independently verified." if any(
+                e.attrs.get("room_link_origin") == "vision" for e in hits) else
+                "Room connections inferred from raster geometry are not independently verified." if any(
                 e.attrs.get("room_link_version") for e in hits) else "Room connections resolved from source metadata.")
         if q.op == "count":
             values[name] = len(hits)

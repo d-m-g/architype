@@ -243,7 +243,9 @@ def _image_connections(scene: Scene, path: str) -> bool:
     if not path.lower().endswith(pipeline.IMAGES):
         return False
     from ..image_room_links import attach_room_links
-    return attach_room_links(scene, drawing_file(path))
+    from .room_link_vision import apply_cached
+    changed = attach_room_links(scene, drawing_file(path))
+    return bool(apply_cached(scene)) or changed
 
 
 ADDED_KINDS = ("room", "apartment", "level")  # what add_rooms takes from the vision reader

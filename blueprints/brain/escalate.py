@@ -21,6 +21,7 @@ from ..executor import execute
 from ..room_queries import ROOM_FILTERS
 from ..schemas import Answer, QueryPlan, Scene, TraceStep
 from .plan import GEMINI_URL, plan_with_trace
+from .room_link_vision import execute_with_links, resolve, refinement_exhausted
 
 # ponytail: fixed confidences; replace with per-question-kind accuracy measured on the train split.
 VISION_CONFIDENCE = 0.7
@@ -41,6 +42,11 @@ a scene: a list of entities (rooms, doors, windows, fixtures, apartments, levels
   This checks both endpoints and counts each object once. Room ids distinguish rooms sharing a label.
   list_entities exposes room connection status; unresolved connections can prevent a verified count.
   Never replace an unresolved per-room count with a count of all doors on the page.
+  run_plan automatically attempts bounded vision refinement when room connections prevent a count.
+  For room rankings, call resolve_room_connections first if door/window links are unresolved, then list entities
+  again. If connections remain uncertain, explain the limitation; do not invent a definitive winner.
+  If refinement reports a budget/cooldown limit or leaves a connection unresolved, do not repeat the same
+  refinement or identical run_plan. Only use look again if a specific different crop can resolve the issue.
 - Each entity is one room or object. For "the largest / smallest room" call list_entities with sort and limit 1 and
   report that single entity; never combine rooms that share a label unless the question asks for a total.
 - A size is a recorded quantity, never your estimate. list_entities shows each entity's qty by unit, which run_plan
@@ -68,10 +74,14 @@ def instructions(scene: Scene) -> tuple[str, list[dict]]:
     sizes are the parser's or nobody's. A detected or vision-read image keeps it, the picture being all there is."""
     if scene.tier != "parse":
         return SYSTEM, TOOLS
-    return SYSTEM.replace(LOOK_LINE, PARSED_LINE), [t for t in TOOLS if t["function"]["name"] != "look"]
+    return SYSTEM.replace(LOOK_LINE, PARSED_LINE), [t for t in TOOLS if t["function"]["name"] not in ("look", "resolve_room_connections")]  # both ask a vision model
 
 
 TOOLS = [
+    {"type": "function", "function": {
+        "name": "resolve_room_connections", "description": "Ask vision to resolve uncertain PNG/JPEG room connections; cached and cost bounded. Re-list entities afterwards.",
+        "parameters": {"type": "object", "required": ["type"], "properties": {
+            "type": {"type": "string", "enum": ["door", "window", "fixture"]}}}}},
     {"type": "function", "function": {
         "name": "list_entities", "description": "List scene entities, optionally filtered. Returns id, type, subtype, label, number, apartment, level, area_m2, "
                                           "qty (the other recorded quantities by unit: m, m3, ft2), sizes (width_m, length_m, height_m, thickness_m "
@@ -111,7 +121,7 @@ def escalate(question: str, path: str, scene: Scene | None, draft: Answer) -> An
         result = answer_from_vision(question, path, draft)
         from .vision import not_a_floor_plan, read_scene
         vision = read_scene(path)[0]
-        if result.answer is not None or not_a_floor_plan(vision):
+        if result.answer is not None or not_a_floor_plan(vision) or refinement_exhausted(result):
             return result
         return agent(question, vision, result, inline_evidence=True)
     return agent(question, scene, draft, inline_evidence=False)
@@ -130,7 +140,7 @@ def answer_from_vision(question: str, path: str, draft: Answer | None = None) ->
         plan, plan_steps = plan_with_trace(question, vision)
     except NotImplementedError as e:  # no plan fits (or no planner): escalate() hands it to the agent
         return Answer(tier="llm", error=str(e), trace=draft.trace + getattr(e, "steps", []) + (vision.trace if fresh else []))
-    result = execute(plan, vision)
+    result = execute_with_links(plan, vision)
     hits = set(result.evidence)
     return result.model_copy(update={
         "tier": "llm",
@@ -171,6 +181,10 @@ def _look(scene: Scene, question: str, box: list | None) -> tuple[str, TraceStep
 
 def _tool(name: str, args: dict, scene: Scene) -> tuple[str, list[TraceStep]]:
     """Run one tool call. Returns the text the agent sees and any costed steps."""
+    if name == "resolve_room_connections":
+        steps = resolve(scene, args.get("type", "door"))
+        return json.dumps({"detail": [s.detail for s in steps], "remaining": sum(
+            e.type == args.get("type", "door") and e.attrs.get("room_link_status") in ("partial", "uncertain") for e in scene.entities)}), steps
     if name == "list_entities":
         lo, hi = args.get("min_area_m2"), args.get("max_area_m2")
         want = lambda e: ((not args.get("type") or e.type == args["type"]) and (not args.get("subtype") or e.subtype == args["subtype"])
@@ -189,7 +203,7 @@ def _tool(name: str, args: dict, scene: Scene) -> tuple[str, list[TraceStep]]:
                                    "conf": round(e.conf, 2),
                                    "connections": {k: v for k, v in e.attrs.items() if k in (
                                        "room_id", "room_id2", "room", "room2", "room_label", "room_label2",
-                                       "room_link_status", "room_link_candidates", "room_link_reason")} or None
+                                       "room_link_status", "room_link_candidates", "room_link_reason", "room_link_review")} or None
                                    }.items() if v is not None} for e in hits]
         limit = args.get("limit") if isinstance(args.get("limit"), int) and args["limit"] > 0 else 150
         shown = rows[:min(limit, 150)]
@@ -207,9 +221,9 @@ def _tool(name: str, args: dict, scene: Scene) -> tuple[str, list[TraceStep]]:
         if unknown:  # an invented filter would silently match nothing and read as a confident zero
             return (f"invalid plan: no entity has the attribute(s) {unknown} for `where`. To filter by area use "
                     f"list_entities with min_area_m2 / max_area_m2."), []
-        result = execute(plan, scene)
+        result = execute_with_links(plan, scene)
         return json.dumps({"answer": result.answer, "unit": result.unit, "formula": result.formula,
-                           "evidence": result.evidence[:100], "error": result.error}), []
+                           "evidence": result.evidence[:100], "error": result.error}), [s for s in result.trace if s.step == "resolve_room_connections"]
     if name == "look":
         if scene.tier == "parse":  # not offered for a parsed file; refused if a model calls it anyway
             return ("look is not available: this scene was parsed from the drawing's file, and sizes come only from its "
@@ -236,6 +250,7 @@ def _verified_plan(text: str, scene: Scene) -> Answer:
     unknown = sorted({k for q in plan.queries.values() for k in q.where} - known)
     if unknown:
         raise ValueError(f"no entity has the attribute(s) {unknown} for `where`")
+    # Final validation must not hide paid refinement costs in an exception. run_plan owns those calls.
     result = execute(plan, scene)
     if result.answer is None:
         raise ValueError(result.error or "the scene cannot support this calculation")
@@ -363,8 +378,8 @@ def _agent_loop(question, scene, draft, inline_evidence, url, key, model, extra,
                         verified = _verified_plan(args.get("plan", ""), scene)
                     except (ValueError, TypeError, ArithmeticError, SyntaxError) as error:
                         messages.append({"role": "tool", "tool_call_id": call.id,
-                                         "content": f"Final answer not verified: {error}. Call answer again with plan containing the complete final QueryPlan JSON, or answer 'cannot answer'."})
-                        force_answer = True
+                                         "content": f"Final answer not verified: {error}. Use run_plan to attempt room-connection refinement if needed, then call answer again with the complete final QueryPlan JSON, or answer 'cannot answer'."})
+                        force_answer = "per-room count" not in str(error)
                         continue
                     return verified.model_copy(update={
                         "tier": "llm",
