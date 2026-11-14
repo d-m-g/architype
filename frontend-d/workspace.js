@@ -1,4 +1,5 @@
 import {subscribeEditor,selectEditorEntity} from './editor-bridge.js';
+import {imageURL} from './contracts.js';
 const $=id=>document.getElementById(id);
 let loading3D=false;
 async function load3D(){if(renderer||loading3D)return;loading3D=true;try{const {RoomRenderer}=await import('./room-renderer.js');register3DRenderer(new RoomRenderer());}catch(error){$('three-placeholder').hidden=false;$('three-placeholder').querySelector('h3').textContent='3D could not start.';$('three-placeholder').querySelector('p:not(.eyebrow)').textContent='The graphics module or WebGL is unavailable. The 2D editor remains fully usable.';$('view-status').textContent='3D unavailable';}finally{loading3D=false;}}
@@ -14,6 +15,32 @@ subscribeEditor(state=>{const entity=state.entities.find(e=>e.id===state.selecte
 document.addEventListener('click',event=>{const link=event.target.closest('a');if(!link||event.ctrlKey||event.metaKey||event.shiftKey||event.altKey||event.button!==0)return;const url=new URL(link.href,location.href);if(url.origin!==location.origin)return;if(link.matches('.skip')){event.preventDefault();history.replaceState(null,'',location.pathname+location.search+'#editor');showPanel('editor');const heading=$('panel-editor').querySelector('h1');heading.focus();heading.scrollIntoView({block:'start'});return;}if(link.matches('[data-panel]')){showPanel(link.dataset.panel,true);return;}if(url.pathname.endsWith('/index.html')||url.pathname.endsWith('/')){if(url.searchParams.has('path')){event.preventDefault();history.pushState(null,'',url.pathname+url.search+'#editor');window.dispatchEvent(new CustomEvent('stoa:open-case',{detail:{path:url.searchParams.get('path'),question:url.searchParams.get('question')??''}}));showPanel('editor',true);setView('2d');}else if(url.hash.startsWith('#scenario=')){event.preventDefault();if(location.hash===url.hash)window.dispatchEvent(new Event('hashchange'));else location.hash=url.hash;}else if(!url.hash){event.preventDefault();location.hash='editor';showPanel('editor',true);}}});
 window.addEventListener('popstate',route);
 route();
+
+// Figma's page rail uses only pages actually supplied by the active scene.
+// The synthetic example retains its real illustration and an explicit label.
+let pageRailSignature='';
+subscribeEditor(state=>{
+ const pages=state.wireScene?.pages??(state.mode==='mock'?[{image:'plan.svg'}]:[]);
+ const signature=JSON.stringify([state.mode,state.wireScene?.path,pages.map(p=>p.image)]);
+ if(signature!==pageRailSignature){
+  pageRailSignature=signature;
+  $('sheet-thumbnails').replaceChildren();
+  pages.forEach((page,index)=>{
+   const button=document.createElement('button');button.type='button';button.className='sheet-thumb';button.dataset.page=String(index);
+   button.setAttribute('aria-label',`${state.mode==='mock'?'Mock drawing':'Source page'} ${index+1}`);
+   const image=document.createElement('img');image.src=state.mode==='mock'?'plan.svg':imageURL(page.image);image.alt='';image.loading='lazy';
+   image.addEventListener('error',()=>{image.hidden=true;button.classList.add('image-unavailable');});
+   const title=document.createElement('strong');title.textContent=`Page ${index+1}`;
+   const subtitle=document.createElement('span');subtitle.textContent=state.mode==='mock'?'Synthetic example':'Source drawing';
+   button.append(image,title,subtitle);
+   button.onclick=()=>{if(state.mode==='mock'){$('fit').click();return;}$('page-select').value=String(index);$('page-select').dispatchEvent(new Event('change',{bubbles:true}));};
+   $('sheet-thumbnails').append(button);
+  });
+ }
+ $('sheet-count').textContent=pages.length?`Page ${state.pageIndex+1} of ${pages.length}`:'No loaded pages';
+ document.querySelectorAll('.sheet-thumb').forEach(button=>button.setAttribute('aria-pressed',String(Number(button.dataset.page)===state.pageIndex)));
+});
+$('add-drawing-shortcut').onclick=()=>{const intake=document.querySelector('.drawing-intake');intake.open=true;intake.scrollIntoView({block:'nearest',behavior:'auto'});$('drawing-file').focus();};
 /** Attach an optional real renderer later; no synthetic heights or model units are invented.
  * renderer.mount(container, {selectEntity}); renderer.update(snapshot);
  * renderer.setVisible(boolean); renderer.dispose();

@@ -47,3 +47,158 @@ html{scroll-padding-top:88px}
 }
 
 .floor-stack{background:#edf2ed;min-width:0}.stack-heading{display:grid;gap:4px;padding:14px 16px;background:#fff8e6;color:#785014;font-size:12px;line-height:1.5}.stack-controls{display:flex;flex-wrap:wrap;gap:12px;align-items:end;padding:12px 16px;background:white}.stack-controls label{display:grid;gap:4px;min-width:130px;flex:1;font-size:12px}.stack-controls input,.stack-controls select{width:100%}.stack-stage{position:relative;min-height:430px;overflow:hidden;display:grid;place-items:center;perspective:850px;padding:35px 20px 80px}.stack-plate{position:absolute;width:min(64%,550px);aspect-ratio:1.414;transform:rotateX(56deg) rotateZ(-26deg) translateY(calc(-1 * var(--stack-offset)));background:#fff;border:2px solid #789484;box-shadow:0 15px 28px #183b2b45;transition:transform .2s;overflow:visible}.stack-plate.active{border-color:#2459a6}.stack-plate img,.stack-plate svg{position:absolute;inset:0;width:100%;height:100%}.stack-plate img{object-fit:fill}.stack-plate svg polygon{fill:#2459a62b;stroke:#2459a6;stroke-width:3;vector-effect:non-scaling-stroke;cursor:pointer}.stack-plate svg polygon.evidence{stroke:#17694e;fill:#17694e44}.stack-plate svg polygon.uncertain{stroke:#925613;stroke-dasharray:6 4}.stack-plate svg polygon.selected,.stack-plate svg polygon:focus-visible{stroke:#d18a16;stroke-width:5;outline:none}.stack-plate button{position:absolute;top:calc(100% + 5px);left:0;min-height:44px;transform:rotateZ(26deg);font-size:12px}.stack-image-error{background:repeating-linear-gradient(45deg,#f7f7f2,#f7f7f2 10px,#e8ebe6 10px,#e8ebe6 20px)}#stack-status{padding:12px 16px;margin:0;font-size:12px;line-height:1.5}@media(max-width:650px){.stack-stage{min-height:330px}.stack-plate{width:72%}}
+/* Adapted from the supplied Figma Make export. Source data and UI contracts stay live. */
+.figma-workspace{--ink:#172620;--muted:#60726a;--accent:#173f34;--accent-soft:#edf4f0;--bg:#eef1ef;--line:#dfe5e2;--paper:#fff;background:var(--bg);font-family:"DM Sans","Segoe UI",Arial,sans-serif}
+.figma-workspace :is(button,a,input,select,textarea){-webkit-tap-highlight-color:transparent}
+.figma-workspace button{border-radius:7px}
+.figma-workspace a{text-decoration:none}
+.figma-workspace>header.topbar{height:68px;padding:0 24px;display:grid;grid-template-columns:250px minmax(180px,1fr) auto;gap:24px;background:#fff}
+.figma-workspace .brand{gap:10px;font-size:23px;font-weight:700;letter-spacing:-.7px;font-family:Manrope,"Segoe UI",sans-serif}
+.figma-workspace .brand-mark{width:28px;height:29px;position:relative;display:block;background:none;border-radius:0}
+.figma-workspace .brand-mark span{position:absolute;width:8px;bottom:4px;background:var(--accent);border-radius:1px;transform:skewY(-27deg)}
+.figma-workspace .brand-mark span:nth-child(1){height:13px;left:2px}.figma-workspace .brand-mark span:nth-child(2){height:20px;left:10px}.figma-workspace .brand-mark span:nth-child(3){height:26px;left:18px}
+.brand-product{margin-left:5px;padding-left:14px;border-left:1px solid var(--line);color:var(--muted);font-size:13px;letter-spacing:0;font-weight:400}
+.project-context{justify-self:start;display:flex;align-items:center;gap:10px;border:1px solid #e4e8e6;background:#fafbfa;border-radius:9px;padding:6px 14px 6px 7px;min-width:205px}
+.project-icon{display:grid;place-items:center;width:32px;height:32px;background:var(--accent);color:white;border-radius:7px}
+.project-context>div{display:grid;gap:3px}.project-context>div>span{font-size:9px;color:var(--muted);letter-spacing:.65px}.project-context strong{font-size:12px;font-weight:600}
+.top-actions{display:flex;align-items:center;gap:16px;min-width:0}.figma-workspace .mock-badge{margin:0;max-width:280px;padding:7px 10px;font-size:10px;letter-spacing:.35px;border-radius:20px;overflow-wrap:anywhere}
+.header-sources{color:var(--accent);font-size:12px;display:flex;align-items:center;gap:12px;min-height:44px}.header-sources:hover{text-decoration:underline}
+.figma-workspace>.app-shell{grid-template-columns:80px minmax(0,1fr)}
+.figma-workspace .sidebar{padding:16px 9px 12px;background:#fff;align-items:center;z-index:9}
+.figma-workspace .sidebar>.eyebrow{display:none}.figma-workspace .sidebar nav{gap:8px;margin:0;width:100%}
+.figma-workspace .sidebar nav a{position:relative;flex-direction:column;justify-content:center;gap:6px;padding:10px 3px;min-height:63px;border:0;border-radius:9px;font-size:11px}
+.figma-workspace .sidebar nav a span{font-size:10px}.figma-workspace .sidebar nav a[aria-current]{background:#ebf3f0;color:var(--accent)}
+.figma-workspace .sidebar nav a[aria-current]:before{content:"";position:absolute;left:-9px;width:3px;height:28px;background:var(--accent);border-radius:0 3px 3px 0}
+.figma-workspace .sidebar-note{display:grid;justify-items:center;gap:10px;padding:16px 0;font-size:9px;text-align:center;line-height:1.5}
+.rail-monogram{display:grid;place-items:center;border-radius:50%;width:32px;height:32px;background:#e4ece7;color:var(--accent);font-size:11px!important;font-weight:650}
+.figma-workspace #workspace-main{padding:16px 20px 20px}
+.figma-workspace #panel-editor>.page-heading{margin-bottom:12px;min-height:24px;align-items:center}
+.figma-workspace #panel-editor>.page-heading .eyebrow,.figma-workspace #panel-editor>.page-heading .muted{display:none}
+.figma-workspace #panel-editor>.page-heading h1{font-size:16px;letter-spacing:-.25px;margin:0;font-weight:600}
+.figma-workspace #panel-editor>.page-heading .source-pill{display:flex;font-size:11px;max-width:55%;text-align:right;line-height:1.5}
+.figma-workspace .drawing-intake{margin:0 0 12px;padding:0 16px;border:1px solid var(--line);border-radius:8px;box-shadow:none}
+.drawing-intake>summary{display:flex;align-items:center;gap:10px;min-height:48px;padding:6px 0;list-style:none;font-size:12px}
+.drawing-intake>summary::-webkit-details-marker{display:none}.drawing-intake>summary>span:last-child{margin-left:auto;color:var(--muted);font-size:11px;font-weight:400}
+.drawing-intake>summary:after{content:"⌄";margin-left:8px;color:var(--muted)}.drawing-intake[open]>summary:after{content:"⌃"}
+.intake-icon{font-size:21px;font-weight:400;line-height:1;color:var(--accent)}
+.drawing-intake[open]{padding-bottom:12px}.drawing-intake[open]>summary{border-bottom:1px solid var(--line)}
+.figma-workspace #editor-connection-status:empty{display:none}
+.figma-workspace #panel-editor .workspace{grid-template-columns:minmax(0,1fr) 370px;gap:0;align-items:start;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff}
+.figma-workspace .drawing-panel,.figma-workspace .answer-panel{border:0;border-radius:0}
+.figma-workspace .drawing-panel{border-right:1px solid var(--line)}
+.figma-workspace .view-switch{min-height:54px;padding:0 14px;gap:14px;flex-wrap:wrap}
+.figma-workspace .view-switch>button{position:relative;border:0;border-radius:0;min-height:54px;padding:0 3px;background:none;font-weight:500;white-space:nowrap}
+.figma-workspace .view-switch>button[aria-pressed=true]{background:none;border-color:transparent;color:var(--accent)}
+.figma-workspace .view-switch>button[aria-pressed=true]:after{content:"";position:absolute;bottom:0;height:2px;left:0;right:0;background:var(--accent)}
+.figma-workspace .view-switch>button span{font-size:9px;padding:3px 4px;background:#f0f3f1;border-radius:3px}
+.figma-workspace .view-switch .control-group{margin-left:auto;gap:1px}.figma-workspace .view-switch .control-group button{font-size:12px;min-width:40px;border-color:transparent;padding:7px}
+.figma-workspace .view-switch .control-group output{font-size:11px;min-width:40px}
+.figma-workspace #view-status{flex-basis:100%;margin:0 0 8px;font-size:10px;display:none}
+.figma-workspace #panel-editor .panel-heading{padding:14px 18px;min-height:68px;gap:10px;box-shadow:0 3px 9px #14261f06;position:relative;z-index:1}
+.figma-workspace .panel-heading>div{min-width:0}.figma-workspace .panel-heading .eyebrow{font-size:9px;margin:0 0 5px;letter-spacing:.7px}
+.figma-workspace #drawing-title{font-size:13px;overflow-wrap:anywhere;font-weight:600;line-height:1.4;max-width:70ch}
+.figma-workspace .sheet-tag{font:10px "Segoe UI",sans-serif;color:var(--muted);flex-shrink:0}
+.figma-workspace .viewer-toolbar{background:#fff;padding:0 18px;min-height:40px;font-size:11px;border-top:0;border-bottom:1px solid var(--line)}
+.figma-workspace .viewer-toolbar .toggle{min-height:40px}.figma-workspace .viewer-toolbar>span>span{display:none}
+.viewer-body{display:grid;grid-template-columns:108px minmax(0,1fr);min-width:0}
+.sheet-strip{padding:12px 8px;background:#f8f9f8;border-right:1px solid var(--line);min-width:0;max-height:640px;overflow-y:auto}
+.sheet-strip>.eyebrow{font-size:9px;letter-spacing:.8px;margin:0 4px 10px}
+.sheet-thumb{display:flex;flex-direction:column;align-items:stretch;gap:4px;width:100%;border:1px solid transparent;background:transparent;text-align:left;padding:5px;margin-bottom:9px;border-radius:7px;min-height:105px}
+.sheet-thumb img{height:65px;width:100%;object-fit:contain;background:white;border:1px solid #dce1df;pointer-events:none}
+.sheet-thumb strong{font-size:11px;font-weight:600;padding:0 2px}.sheet-thumb>span{font-size:9px;color:var(--muted);padding:0 2px}
+.sheet-thumb[aria-pressed=true]{background:#fff;border-color:#87a69c;box-shadow:0 2px 6px #1b392f0f}
+.sheet-thumb.image-unavailable:before{content:"Image unavailable";padding:18px 3px;background:#edf0ee;font-size:10px;color:var(--muted);text-align:center}
+.add-sheet{border:1px dashed #b9c8c0;width:100%;font-size:10px;padding:7px 3px;color:var(--muted);background:transparent}
+.drawing-stage{min-width:0;position:relative;background:#e9ecea}
+.figma-workspace .canvas-wrap{background-color:#e9ecea;background-size:13px 13px;padding:24px}
+.figma-workspace #panel-editor #drawing{height:clamp(390px,calc(100vh - 360px),650px);background:#fff;box-shadow:0 10px 30px #1f2e281c,0 1px 3px #1f2e281a}
+.figma-workspace .canvas-label{font-size:9px;bottom:8px;left:24px;padding:5px 7px;background:#ffffffdf;border-radius:4px;letter-spacing:.6px;max-width:calc(100% - 48px)}
+.figma-workspace .canvas-label span{font-size:9px}
+.figma-workspace .viewer-controls{padding:4px 10px;justify-content:flex-end;background:#f4f6f4;border:0}
+.figma-workspace .viewer-controls button{min-height:36px;min-width:36px;padding:6px;border:0;background:transparent;color:var(--muted);font-size:13px}
+.figma-workspace .legend{padding:10px 16px;font-size:10px;background:#fff;gap:14px;min-height:35px}
+.figma-workspace .legend-hint{display:none}.figma-workspace .selection{font-size:11px;padding:10px 16px;min-height:48px;background:#fafbfa}
+.figma-workspace .drawing-panel>.correction-panel{padding:0 16px;background:#fff}
+.figma-workspace .drawing-panel>.correction-panel>summary{display:flex;align-items:center;font-size:11px;min-height:42px;font-weight:500}
+.figma-workspace .answer-panel{display:flex;flex-direction:column;height:calc(100vh - 190px);min-height:650px;max-height:1000px;background:white;min-width:0}
+.assistant-header{display:flex;align-items:center;gap:10px;min-height:72px;flex-shrink:0;padding:15px 18px;border-bottom:1px solid var(--line)}
+.assistant-header h2{font-size:14px;font-weight:650;letter-spacing:-.25px}.assistant-header p{color:var(--muted);font-size:11px;margin:4px 0 0;line-height:1.4}
+.ai-symbol{width:33px;height:33px;display:grid;place-items:center;color:#b57c20;background:#fff4df;border:1px solid #f7e4bd;border-radius:8px;flex-shrink:0}
+.assistant-conversation{flex:1;min-height:200px;overflow-y:auto;overscroll-behavior:contain}
+.figma-workspace .result-section{padding:20px 20px 16px;background:white;border:0}
+.figma-workspace .result-heading{gap:10px;margin-bottom:16px}.figma-workspace .result-heading .eyebrow{font-size:9px;letter-spacing:.6px}
+.figma-workspace .status{font-size:9px;font-weight:500;border-radius:5px;padding:5px 7px;max-width:58%;line-height:1.5;text-align:right}
+.figma-workspace .answer{font-size:38px;font-weight:550;margin-bottom:10px;letter-spacing:-1.2px;line-height:1.22}.figma-workspace .answer.empty{font-size:22px;letter-spacing:-.5px}
+.figma-workspace .answer span{font-size:16px;font-weight:400;letter-spacing:0}
+.figma-workspace #explanation{font-size:12px;line-height:1.65;color:#53675d}
+.figma-workspace .answer-meta{margin-top:16px;padding-top:13px;border-top:1px solid #edf0ee;gap:24px;font-size:10px}.figma-workspace .answer-meta strong{font-size:11px;line-height:1.5;font-weight:500;max-width:150px;overflow-wrap:anywhere}
+.figma-workspace .evidence-section{padding:4px 20px 18px}.figma-workspace .evidence-heading h2{font-size:12px}.figma-workspace #evidence-count{font:10px "Segoe UI",sans-serif}
+.figma-workspace .evidence-section>.small{font-size:10px;margin:7px 0 12px}
+.figma-workspace .evidence-row{margin-top:7px;padding:10px;border:1px solid #dce4e1;min-height:59px;gap:10px;border-radius:8px;transition:background .15s,border-color .15s,box-shadow .15s}
+.figma-workspace .evidence-row:hover{border-color:#90aa9f;box-shadow:0 3px 10px #1a3a2f0b;background:#f8fbf9}
+.figma-workspace .evidence-row.selected{background:#edf4f0;border-color:var(--accent)}
+.figma-workspace .evidence-number{height:31px;width:31px;font-size:11px;background:#edf4f0;color:var(--accent);border:1px solid #dce7e0}
+.figma-workspace .evidence-text{font-size:12px;font-weight:500;line-height:1.4}.figma-workspace .evidence-text small{font-size:10px;font-weight:400;line-height:1.5;color:#60726a}
+.figma-workspace .trace,.figma-workspace .answer-history{padding:8px 20px;border-top:1px solid #edf0ee;font-size:11px}
+.figma-workspace .trace>summary,.figma-workspace .answer-history>summary{font-size:11px;font-weight:500;min-height:32px;padding:7px 0}
+.figma-workspace .ask-section{border-top:1px solid var(--line);padding:15px 18px 10px;flex-shrink:0;background:#fff}
+.figma-workspace .ask-section>.eyebrow{font-size:9px;letter-spacing:.7px;margin-bottom:10px}
+.figma-workspace #ask-form{border:1px solid #bdcac5;border-radius:9px;padding:10px;box-shadow:0 3px 11px #1a342c0b}
+.figma-workspace #ask-form:focus-within{border-color:#6d9184;box-shadow:0 0 0 3px #32695712}
+.figma-workspace #ask-form>label{font-size:10px;font-weight:500;color:var(--muted);margin:0 3px 6px}
+.figma-workspace #question{border:0;background:transparent;resize:vertical;min-height:58px;font-size:13px;line-height:1.5;padding:4px;box-shadow:none;max-height:160px}
+.figma-workspace #question:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.figma-workspace #ask-submit{margin-top:6px;min-height:40px;font-size:12px;justify-content:center;border-radius:6px}
+.figma-workspace .voice-controls{margin-top:8px;padding:0;border:0;font-size:11px}.figma-workspace .voice-controls>summary{min-height:32px;padding:7px 0}
+.figma-workspace .voice-controls select,.figma-workspace .voice-actions button{font-size:12px}
+.figma-workspace .demo-note{font-size:10px;margin:7px 0;line-height:1.5}.figma-workspace .samples{gap:5px}
+.figma-workspace .samples button{min-height:32px;font-size:10px;padding:5px 8px;background:#fff;border-color:var(--line);border-radius:5px}
+.figma-workspace .samples button.active{background:#edf4f0;border-color:#a2b8ac}
+.assistant-disclaimer{flex-shrink:0;font-size:9px;color:var(--muted);text-align:center;line-height:1.5;margin:0;padding:0 18px 12px}
+.figma-workspace .demo-entry{margin:12px 0 0;gap:12px}.figma-workspace .demo-entry button{font-size:11px;min-height:36px;background:transparent;border-color:transparent;padding:6px 0;text-decoration:underline;text-underline-offset:3px}.figma-workspace .demo-entry span{font-size:10px}
+.figma-workspace footer{padding-top:8px;font-size:10px}.figma-workspace footer>span:last-child{display:none}
+.figma-workspace #panel-dashboard,.figma-workspace #panel-sources,.figma-workspace #panel-settings{padding:18px 10px}
+.figma-workspace [data-workspace-panel][hidden]{display:none}
+@media(min-width:1600px){.figma-workspace #panel-editor .workspace{grid-template-columns:minmax(0,1fr) 410px}.viewer-body{grid-template-columns:125px minmax(0,1fr)}}
+@media(max-width:1150px){.figma-workspace>header.topbar{grid-template-columns:210px 1fr;gap:14px}.project-context{display:none}.top-actions{justify-self:end}.figma-workspace #panel-editor .workspace{grid-template-columns:minmax(0,1fr) 330px}.figma-workspace #workspace-main{padding:14px}.viewer-body{grid-template-columns:88px minmax(0,1fr)}.figma-workspace .canvas-wrap{padding:18px}.figma-workspace .view-switch{gap:8px;padding:0 10px}.figma-workspace .view-switch>button{font-size:11px}.figma-workspace .view-switch>button span{display:none}.figma-workspace .view-switch .control-group button{min-width:36px}.figma-workspace .sheet-tag{font-size:9px}}
+@media(max-width:950px){.figma-workspace #panel-editor .workspace{grid-template-columns:minmax(0,1fr) 310px}.figma-workspace #panel-editor .view-switch .control-group{flex-basis:100%;margin:0;justify-content:flex-end;border-top:1px solid #edf0ee}.figma-workspace .view-switch>button{min-height:44px}.figma-workspace #panel-editor .view-switch{gap:0 16px;padding-bottom:4px}.figma-workspace .viewer-toolbar{flex-wrap:wrap;padding:4px 12px}.figma-workspace .canvas-wrap{padding:14px}.figma-workspace .viewer-controls .pan{margin:0}.figma-workspace .evidence-section,.figma-workspace .result-section{padding-inline:16px}.figma-workspace .sheet-tag{white-space:normal!important}}
+@media(max-width:800px){.figma-workspace>.app-shell{grid-template-columns:64px minmax(0,1fr)}.figma-workspace .sidebar{padding-inline:6px}.figma-workspace .sidebar nav a{min-height:58px}.figma-workspace #panel-editor .workspace{grid-template-columns:1fr}.figma-workspace .drawing-panel{border-right:0;border-bottom:1px solid var(--line)}.figma-workspace .answer-panel{height:auto;max-height:none;min-height:0;display:block}.assistant-conversation{overflow:visible;min-height:0}.figma-workspace .ask-section{position:relative}.viewer-body{grid-template-columns:95px minmax(0,1fr)}.figma-workspace #panel-editor .view-switch .control-group{flex-basis:auto;margin-left:auto;border:0}.figma-workspace #panel-editor #drawing{height:420px}.figma-workspace #panel-editor .page-heading .source-pill{max-width:50%;font-size:10px}.figma-workspace .assistant-conversation .result-section{padding-top:20px}.figma-workspace .samples button{min-height:40px}}
+@media(max-width:650px){.figma-workspace>header.topbar{height:60px;grid-template-columns:1fr auto;padding:0 14px;gap:10px}.figma-workspace .brand{font-size:21px}.brand-product,.header-sources{display:none}.figma-workspace .mock-badge{font-size:9px;max-width:180px;line-height:1.4}.figma-workspace>.app-shell{display:block}.figma-workspace .sidebar{height:auto;position:sticky;top:60px;display:block;padding:5px 10px;border-bottom:1px solid var(--line)}.figma-workspace .sidebar nav{flex-direction:row;gap:4px}.figma-workspace .sidebar nav a{flex:1;min-height:48px;flex-direction:row;padding:6px;gap:7px;font-size:11px}.figma-workspace .sidebar nav a span{display:inline;font-size:10px}.figma-workspace .sidebar nav a[aria-current]:before{display:none}.figma-workspace .sidebar-note{display:none}.figma-workspace #workspace-main{padding:12px 10px}.figma-workspace #panel-editor>.page-heading h1{font-size:14px}.figma-workspace #panel-editor>.page-heading{flex-wrap:nowrap;gap:10px}.figma-workspace #panel-editor>.page-heading .source-pill{font-size:9px}.drawing-intake>summary>span:last-child{display:none}.figma-workspace .drawing-intake{padding-inline:12px}.drawing-intake>summary:after{margin-left:auto}.viewer-body{grid-template-columns:76px minmax(0,1fr)}.sheet-strip{padding:10px 5px}.sheet-thumb{padding:4px;min-height:92px}.sheet-thumb img{height:51px}.sheet-thumb strong{font-size:10px}.sheet-thumb>span{font-size:8px}.add-sheet{font-size:9px;padding:5px 2px;min-height:44px}.figma-workspace .canvas-wrap{padding:12px}.figma-workspace #panel-editor #drawing{height:360px}.figma-workspace #panel-editor .panel-heading{padding:12px;flex-wrap:nowrap}.figma-workspace .sheet-tag{font-size:9px}.figma-workspace #drawing-title{font-size:12px}.figma-workspace .view-switch .control-group button{min-height:44px}.figma-workspace .viewer-toolbar .toggle{font-size:10px}.figma-workspace .legend{padding:9px 12px;font-size:9px;gap:10px}.figma-workspace .selection{padding:10px 12px;font-size:10px}.figma-workspace .assistant-header{padding:16px}.figma-workspace #question{font-size:16px}.figma-workspace #ask-submit{min-height:44px}.figma-workspace .status{max-width:65%}.figma-workspace footer{font-size:9px}}
+@media(max-width:380px){.figma-workspace #panel-editor .view-switch .control-group{flex-basis:100%;margin-left:0;justify-content:flex-end}.figma-workspace .brand{font-size:19px}.figma-workspace .mock-badge{max-width:150px}.figma-workspace .sidebar nav svg{width:16px;height:16px}.figma-workspace .sidebar nav a{gap:4px}.figma-workspace #panel-editor .page-heading .source-pill{display:none}.figma-workspace .canvas-label{left:12px;max-width:calc(100% - 24px)}.figma-workspace .sheet-tag{max-width:65px}.figma-workspace #drawing-title{font-size:11px}}
+@media(prefers-reduced-motion:reduce){.figma-workspace *{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
+/* Keep the source rail independent of the application's global navigation styles. */
+.figma-workspace .sheet-strip{display:block;margin:0;align-self:stretch}
+.figma-workspace .answer-panel{height:calc(100dvh - 195px);min-height:520px}
+@media(min-width:801px){.figma-workspace #editor-workspace{align-items:stretch}.figma-workspace .drawing-panel{max-height:calc(100dvh - 195px);min-height:520px;overflow-y:auto;overscroll-behavior:contain}}
+@media(max-width:800px){.figma-workspace .answer-panel{height:auto;min-height:0}}
+.figma-workspace .assistant-conversation>.voice-controls,.figma-workspace .examples-panel{margin:0;padding:8px 20px;border-top:1px solid #edf0ee;font-size:11px}
+.figma-workspace .examples-panel>summary{font-size:11px;font-weight:500;min-height:32px;padding:7px 0}
+@media(min-width:801px){.figma-workspace #panel-editor #drawing{height:clamp(240px,calc(100dvh - 420px),560px)}}
+/* Leave room for a source card beside the composer on laptop screens. */
+.figma-workspace .result-section{padding:16px 20px 12px}
+.figma-workspace .result-heading{margin-bottom:10px}
+.figma-workspace .answer-meta{margin-top:10px;padding-top:8px}
+.figma-workspace .ask-section{padding:12px 18px 8px}
+.figma-workspace .ask-section>.eyebrow{display:none}
+.figma-workspace #question{min-height:46px;height:46px}
+.figma-workspace .assistant-disclaimer{padding-bottom:10px}
+@media(max-width:650px){
+ .figma-workspace .viewer-body{grid-template-columns:1fr}
+ .figma-workspace .sheet-strip{display:flex;align-items:center;gap:8px;padding:8px 12px;border-right:0;border-bottom:1px solid var(--line);overflow-x:auto;max-height:none}
+ .sheet-strip>.eyebrow{display:none}
+ #sheet-thumbnails{display:flex;gap:8px;flex-shrink:0}
+ .sheet-thumb{width:76px;min-height:76px;margin:0;flex-shrink:0;padding:4px}
+ .sheet-thumb img{height:38px}
+ .sheet-thumb>span{font-size:8px}
+ .add-sheet{width:auto;flex-shrink:0;padding:8px 10px;min-height:44px}
+ .figma-workspace #panel-editor #drawing{height:300px}
+}
+.figma-workspace [hidden]{display:none!important}
+/* The rail's Add drawing control opens intake without displacing the initial view. */
+.figma-workspace .drawing-intake:not([open]){display:none}
+@media(min-width:801px){
+ .figma-workspace .answer-panel{height:calc(100dvh - 135px)}
+ .figma-workspace .drawing-panel{max-height:calc(100dvh - 135px)}
+ .figma-workspace #panel-editor #drawing{height:clamp(240px,calc(100dvh - 360px),620px)}
+}
+.figma-workspace.compact-evidence .evidence-row{min-height:44px;margin-top:2px;padding:6px 9px}
