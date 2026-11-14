@@ -1,0 +1,8 @@
+junction-dataset*/
+.cache/
+runs/
+.venv/
+.env
+.git/
+frontend-d/node_modules/
+frontend-d/.runtime/

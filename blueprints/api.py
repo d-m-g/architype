@@ -104,3 +104,10 @@ def image(path: str) -> FileResponse:
     if not file.is_relative_to(pages) or not file.is_file():
         raise HTTPException(404, f"no such image: {path}")
     return FileResponse(file)
+
+
+# The viewer on the same origin, so the demo is one container. Mounted last: /api/* routes win.
+from fastapi.staticfiles import StaticFiles  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+app.mount("/", StaticFiles(directory=Path(__file__).parent.parent / "frontend-d", html=True), name="viewer")
