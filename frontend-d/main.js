@@ -75,6 +75,10 @@ function updateView(sync=true){
  // --u is drawing units per screen pixel, so number badges keep one size at every zoom.
  if(box.width)svg.style.setProperty('--u',Math.max(view.w/box.width,view.h/box.height));
  svg.classList.toggle('dense',view.w>pageSize().w*.6&&$('overlays').querySelectorAll('.badge').length>12);
+ for(const ring of $('overlays').querySelectorAll('.confidence-ring')){
+  const bounds={x:Number(ring.dataset.x),y:Number(ring.dataset.y),w:Number(ring.dataset.w),h:Number(ring.dataset.h)};
+  ring.classList.toggle('is-readable',confidenceRingVisible(bounds,view,box,pageSize().w));
+ }
  $('zoom-label').textContent=Math.round(pageSize().w*MARGIN*100/view.w)+'%';
  if(sync)publish();
 }
@@ -153,18 +157,39 @@ const previewLoader=createSourcePreviewLoader(path=>new Promise((resolve,reject)
 
 // ───────── marks on the drawing ─────────
 const kindOf=entity=>entity.type;
-/** Every box's colour follows its own confidence: hue 0 (red) at 0%, 60 (amber) at 50%, 120 (green) at 100%. */
-const hue=entity=>Math.round((entity.conf??1)*120);
+/** Object colour is stable; the ring separately encodes the reader's confidence score. */
+const TYPE_COLOUR={room:'var(--room)',door:'var(--door)',window:'var(--window)',fixture:'var(--fixture)'};
+const typeColour=entity=>TYPE_COLOUR[entity.type]??'var(--zone)';
+/** Fit is 100%. Small objects wait until their on-screen footprint can support a readable ring. */
+export function confidenceRingVisible(bounds,viewport,screen,pageWidth){
+ const scale=Math.min(screen.width/viewport.w,screen.height/viewport.h);
+ return Number.isFinite(scale)&&scale>0&&pageWidth*1.06/viewport.w>=1.75&&
+  Math.max(bounds.w,bounds.h)*scale>=48&&Math.min(bounds.w,bounds.h)*scale>=10&&
+  bounds.x>=viewport.x&&bounds.x<=viewport.x+viewport.w&&bounds.y>=viewport.y&&bounds.y<=viewport.y+viewport.h;
+}
+function confidenceRing(entity){
+ if(!Number.isFinite(entity.conf)||entity.polygon.length<3)return null;
+ const xs=entity.polygon.map(p=>p[0]),ys=entity.polygon.map(p=>p[1]);
+ const x=Math.max(...xs),y=Math.min(...ys),w=x-Math.min(...xs),h=Math.max(...ys)-y;
+ const score=Math.round(Math.max(0,Math.min(1,entity.conf))*100);
+ return el('g',{class:'confidence-ring','aria-hidden':'true',style:`--x:${x};--y:${y}`,
+  'data-x':x,'data-y':y,'data-w':w,'data-h':h},
+  el('circle',{class:'confidence-disc',r:17}),
+  el('circle',{class:'confidence-track',r:13}),
+  el('circle',{class:'confidence-progress',r:13,pathLength:100,'stroke-dasharray':`${score} 100`,transform:'rotate(-90)'}),
+  el('text',{'text-anchor':'middle',dy:'.35em'},String(score)));
+}
 const area=e=>Math.abs(e.polygon.reduce((sum,p,i,points)=>{const q=points[(i+1)%points.length];return sum+p[0]*q[1]-q[0]*p[1];},0));
 const evidenceIds=()=>{const known=new Set(state.scene?.entities.map(entity=>entity.id)??[]);return state.result?[...new Set(state.result.evidence)].filter(id=>known.has(id)):[];};
 export function entityById(id){return state.scene?.entities.find(e=>e.id===id);}
 function hover(id,on){for(const node of document.querySelectorAll('[data-entity]'))if(node.dataset.entity===id)node.classList.toggle('hot',on);}
 function mark(entity,className,label){
- const group=el('g',{class:className+(entity.uncertain?' review':''),style:`--h:${hue(entity)}`,role:'button',tabindex:'0','aria-label':label,'data-entity':entity.id,
+ const group=el('g',{class:className+(entity.uncertain?' review':''),style:`--type:${typeColour(entity)}`,role:'button',tabindex:'0','aria-label':label,'data-entity':entity.id,
   onclick:()=>select(entity.id,{focusEvidence:true}),onmouseenter:()=>hover(entity.id,true),onmouseleave:()=>hover(entity.id,false),
   onkeydown:event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();event.stopPropagation();select(entity.id,{focusEvidence:true});}}},
   ...['halo-dark','halo-light','region-shape'].map(kind=>el('polygon',{class:kind,points:entity.polygon.map(p=>p.join(',')).join(' ')})));
  group.append(el('title',{},label));
+ const ring=confidenceRing(entity);if(ring)group.append(ring);
  return group;
 }
 /** Switch the drawing overview without clearing the question, answer or history. */
@@ -183,11 +208,11 @@ function drawMarks(){
  if(!state.scene||state.editing)return;
  const answerCited=evidenceIds(),cited=state.generalView?[]:answerCited,onPage=state.scene.entities.filter(e=>e.page===state.page&&e.polygon.length>=3).sort((a,b)=>area(b)-area(a));
  for(const entity of onPage)if(!cited.includes(entity.id)&&state.layers.has(kindOf(entity)))
-  layer.append(mark(entity,`mark other kind-${entity.type}`,`${entity.label}, ${Math.round(entity.conf*100)}% sure, ${answerCited.includes(entity.id)?'counted in the answer':'not part of the answer'}`));
+  layer.append(mark(entity,`mark other kind-${entity.type}`,`${entity.label}, model score ${Number.isFinite(entity.conf)?Math.round(entity.conf*100)+'/100':'unavailable'}, ${answerCited.includes(entity.id)?'counted in the answer':'not part of the answer'}`));
  const badges=[];
  for(const entity of onPage){
   const n=cited.indexOf(entity.id);if(n<0)continue;
-  layer.append(mark(entity,'mark evidence',`${n+1}. ${entity.label}, ${Math.round(entity.conf*100)}% sure`));
+  layer.append(mark(entity,'mark evidence',`${n+1}. ${entity.label}, model score ${Number.isFinite(entity.conf)?Math.round(entity.conf*100)+'/100':'unavailable'}`));
   const xs=entity.polygon.map(p=>p[0]),ys=entity.polygon.map(p=>p[1]);
   badges.push(el('g',{class:`badge${entity.uncertain?' review':''}`,'data-entity':entity.id,style:`--x:${Math.min(...xs)};--y:${Math.min(...ys)}`},
    el('circle',{r:9,cx:-5,cy:-5}),el('text',{x:-5,y:-5,dy:'.35em'},String(n+1))));
@@ -218,7 +243,7 @@ export function select(id,{zoomTo=false,focusEvidence=false}={}){
   el('strong',{},entity.label),
   el('p',{},[KINDS[entity.type]?.[0]??entity.type,entity.quantityText,entity.context].filter(Boolean).join(', ')),
   el('p',{class:'muted small'},[n>=0?`Counted in the answer as number ${n+1}`:'Not part of this answer',
-   entity.conf<1?`${Math.round(entity.conf*100)}% sure it is real`:null,entity.ref?`source ${entity.ref}`:null].filter(Boolean).join(' · ')));
+   Number.isFinite(entity.conf)?`Model score ${Math.round(entity.conf*100)}/100 (uncalibrated)`:'Model score unavailable',entity.ref?`source ${entity.ref}`:null].filter(Boolean).join(' · ')));
  for(const fn of inspectors)fn(entity,box);
  const row=[...$('evidence-list').children].find(node=>node.dataset.entity===entity.id);
  row?.scrollIntoView({block:'nearest',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
@@ -296,7 +321,7 @@ function renderDrawingSide(){
  $('drawing-meta').textContent=`${readerName(raw)}${cost?`, ${money(cost)} once`:', no model cost'}${raw.pages.length>1?`. Page ${state.page+1} of ${raw.pages.length}`:''}.`;
  $('layers').append(...counts().map(([kind,n])=>el('button',{type:'button',class:'chip','aria-pressed':String(state.layers.has(kind)),title:'Show or hide on the drawing',
   onclick:()=>{state.layers.has(kind)?state.layers.delete(kind):state.layers.add(kind);renderDrawingSide();drawMarks();}},
-  el('span',{},KINDS[kind]?.[1]??kind),el('b',{},String(n)))));
+  el('i',{class:'type-key',style:`--type:${typeColour({type:kind})}`,'aria-hidden':'true'}),el('span',{},KINDS[kind]?.[1]??kind),el('b',{},String(n)))));
 }
 function suggest(){
  const raw=state.raw,list=[];
