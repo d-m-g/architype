@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plain-model baselines</title>
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7; --surface: #fcfcfb; --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
+  --grid: #e1e0d9; --axis: #c3c2b7; --ring: rgba(11,11,11,0.10);
+  --series: #2a78d6; --ref: #c3c2b7;
+  --s0: #f0efec; --s1: #cde2fb; --s2: #b7d3f6; --s3: #9ec5f4; --s4: #86b6ef; --s5: #5598e7;
+  --s6: #2a78d6; --s7: #1c5cab; --s8: #0d366b;
+  --t-light: #0b0b0b; --t-dark: #ffffff;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --axis: #383835; --ring: rgba(255,255,255,0.10);
+    --series: #3987e5; --ref: #52514e;
+    --s0: #232322; --s1: #0d366b; --s2: #104281; --s3: #184f95; --s4: #1c5cab; --s5: #256abf;
+    --s6: #3987e5; --s7: #6da7ec; --s8: #b7d3f6;
+    --t-light: #ffffff; --t-dark: #0b0b0b;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
+  --grid: #2c2c2a; --axis: #383835; --ring: rgba(255,255,255,0.10);
+  --series: #3987e5; --ref: #52514e;
+  --s0: #232322; --s1: #0d366b; --s2: #104281; --s3: #184f95; --s4: #1c5cab; --s5: #256abf;
+  --s6: #3987e5; --s7: #6da7ec; --s8: #b7d3f6;
+  --t-light: #ffffff; --t-dark: #0b0b0b;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--ink);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 1040px; margin: 0 auto; padding: 32px 16px 64px; }
+h1 { font-size: 28px; font-weight: 650; margin: 0 0 4px; letter-spacing: -0.01em; }
+h2 { font-size: 17px; font-weight: 600; margin: 0 0 2px; }
+.sub { color: var(--ink-2); margin: 0; }
+.note { color: var(--muted); font-size: 13px; margin: 0; }
+.card { background: var(--surface); border: 1px solid var(--ring); border-radius: 12px; padding: 20px; margin-top: 16px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-top: 24px; }
+.tile { background: var(--surface); border: 1px solid var(--ring); border-radius: 12px; padding: 16px 18px; }
+.tile .label { color: var(--ink-2); font-size: 13px; }
+.tile .value { font-size: 34px; font-weight: 650; line-height: 1.15; margin-top: 4px; }
+.tile.hero .value { font-size: 52px; }
+.tile .meta { color: var(--muted); font-size: 13px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 820px) { .grid2 { grid-template-columns: 1fr; } }
+svg { display: block; width: 100%; height: auto; overflow: visible; }
+svg text { font-family: inherit; }
+.tick { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.lbl { fill: var(--ink); font-size: 12px; }
+.lbl2 { fill: var(--ink-2); font-size: 12px; font-variant-numeric: tabular-nums; }
+.hit { fill: transparent; cursor: default; }
+.scroll { overflow-x: auto; margin-top: 12px; }
+table.heat { border-collapse: separate; border-spacing: 2px; font-size: 13px; min-width: 760px; width: 100%; }
+.heat th { font-weight: 500; color: var(--ink-2); text-align: left; padding: 4px 6px; vertical-align: bottom; }
+.heat thead th.m { text-align: center; font-size: 12px; line-height: 1.2; width: 66px; }
+.heat td.c { text-align: center; border-radius: 4px; padding: 7px 4px; font-variant-numeric: tabular-nums; font-weight: 550; }
+.heat td.n { color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; padding-right: 10px; }
+.heat td.plan { color: var(--ink-2); padding-left: 12px; white-space: nowrap; }
+.heat tr.sep td, .heat tr.sep th { padding-top: 10px; }
+.keyrow { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; margin-top: 10px; }
+.keyrow .ramp { display: flex; gap: 2px; }
+.keyrow .ramp span { width: 18px; height: 10px; border-radius: 2px; }
+ul.take { margin: 8px 0 0; padding-left: 18px; }
+ul.take li { margin: 6px 0; }
+ul.take b { font-weight: 600; }
+#tip { position: fixed; pointer-events: none; background: var(--surface); color: var(--ink);
+  border: 1px solid var(--ring); border-radius: 8px; padding: 6px 10px; font-size: 12px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.12); opacity: 0; transition: opacity .1s; max-width: 260px; z-index: 9; }
+#tip b { font-weight: 600; }
+footer { margin-top: 24px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Plain-model baselines</h1>
+  <p class="sub">300 held-out test questions · each model sees only the page image and the question · 14 November 2026</p>
+
+  <div class="tiles" id="tiles"></div>
+
+  <div class="grid2">
+    <section class="card">
+      <h2>Accuracy</h2>
+      <p class="note">Share of the 300 questions answered correctly</p>
+      <svg id="bars" role="img" aria-label="Accuracy by model"></svg>
+    </section>
+    <section class="card">
+      <h2>Accuracy against cost</h2>
+      <p class="note">USD per 1,000 questions, list prices</p>
+      <svg id="scatter" role="img" aria-label="Accuracy against cost per model"></svg>
+    </section>
+  </div>
+
+  <section class="card">
+    <h2>Where the models fail</h2>
+    <p class="note">Accuracy by question kind · n = questions of that kind in the sample · small n, so read rows, not single cells</p>
+    <div class="scroll"><table class="heat" id="heat"></table></div>
+    <div class="keyrow">0%<div class="ramp" id="ramp"></div>100%</div>
+  </section>
+
+  <section class="card">
+    <h2>What it means</h2>
+    <ul class="take">
+      <li><b>The bar is 78.3%</b>, not the free 43.3%: plain Gemini 4 Carbon, at $2.62 per 1,000 questions.</li>
+      <li><b>Every model fails at raster windows (≤ 44%) and Swiss areas (≤ 46%)</b>. That is where the detector and the DXF/IFC parsers win.</li>
+      <li><b>Room types and floors are solved</b> by any Gemini (≥ 90%): one Gemini Flash call per drawing.</li>
+      <li><b>Nemotron reads labels but miscounts</b>: use it as an agent over the scene, not as a pixel counter.</li>
+    </ul>
+  </section>
+
+  <footer>
+    <p class="note">Sample: <code>eval.py --limit 300</code> (seed 0, test split). Script: <code>blueprints/brain/baseline.py</code>. Free baseline = most common training answer per question template. Nemotron priced at Together's rate. A gap under ~5 points is within noise.</p>
+  </footer>
+</main>
+<div id="tip" role="tooltip"></div>
+
+<script>
+const DATA = {"kinds": ["Raster windows", "Raster doors", "Raster fixtures", "Raster room types", "Raster floors", "Swiss areas", "Swiss windows", "Swiss doors", "Swiss fixtures", "Swiss rooms & apartments", "IFC & schedules"], "models": [{"name": "Gemini 4 Carbon", "acc": 78.3, "acc_answered": 80.2, "answered": 97.7, "usd_per_1k": 2.62, "kinds": {"Raster windows": [8, 18], "Raster doors": [15, 19], "Raster fixtures": [55, 68], "Raster room types": [56, 59], "Raster floors": [30, 31], "Swiss areas": [11, 24], "Swiss windows": [4, 7], "Swiss doors": [0, 3], "Swiss fixtures": [16, 21], "Swiss rooms & apartments": [39, 39], "IFC & schedules": [1, 11]}}, {"name": "Gemini 4 Argon", "acc": 76.7, "acc_answered": 76.7, "answered": 100.0, "usd_per_1k": 2.61, "kinds": {"Raster windows": [7, 18], "Raster doors": [13, 19], "Raster fixtures": [56, 68], "Raster room types": [55, 59], "Raster floors": [30, 31], "Swiss areas": [4, 24], "Swiss windows": [1, 7], "Swiss doors": [0, 3], "Swiss fixtures": [19, 21], "Swiss rooms & apartments": [39, 39], "IFC & schedules": [6, 11]}}, {"name": "Gemini 3.8 Flash", "acc": 72.7, "acc_answered": 72.7, "answered": 100.0, "usd_per_1k": 0.95, "kinds": {"Raster windows": [7, 18], "Raster doors": [10, 19], "Raster fixtures": [53, 68], "Raster room types": [53, 59], "Raster floors": [31, 31], "Swiss areas": [7, 24], "Swiss windows": [0, 7], "Swiss doors": [1, 3], "Swiss fixtures": [14, 21], "Swiss rooms & apartments": [39, 39], "IFC & schedules": [3, 11]}}, {"name": "Gemini 3.1 Pro", "acc": 70.7, "acc_answered": 73.4, "answered": 96.3, "usd_per_1k": 2.6, "kinds": {"Raster windows": [4, 18], "Raster doors": [8, 19], "Raster fixtures": [55, 68], "Raster room types": [53, 59], "Raster floors": [30, 31], "Swiss areas": [3, 24], "Swiss windows": [1, 7], "Swiss doors": [0, 3], "Swiss fixtures": [15, 21], "Swiss rooms & apartments": [39, 39], "IFC & schedules": [4, 11]}}, {"name": "Gemini 4 Hydrogen", "acc": 70.0, "acc_answered": 81.7, "answered": 85.7, "usd_per_1k": 1.94, "kinds": {"Raster windows": [6, 18], "Raster doors": [12, 19], "Raster fixtures": [54, 68], "Raster room types": [53, 59], "Raster floors": [30, 31], "Swiss areas": [2, 24], "Swiss windows": [1, 7], "Swiss doors": [0, 3], "Swiss fixtures": [12, 21], "Swiss rooms & apartments": [39, 39], "IFC & schedules": [1, 11]}}, {"name": "Nemotron 3.5 Super VL", "acc": 55.3, "acc_answered": 70.3, "answered": 78.7, "usd_per_1k": 1.98, "kinds": {"Raster windows": [1, 18], "Raster doors": [2, 19], "Raster fixtures": [34, 68], "Raster room types": [45, 59], "Raster floors": [30, 31], "Swiss areas": [2, 24], "Swiss windows": [0, 7], "Swiss doors": [0, 3], "Swiss fixtures": [13, 21], "Swiss rooms & apartments": [36, 39], "IFC & schedules": [3, 11]}}, {"name": "Nemotron, thinking off", "acc": 55.3, "acc_answered": 61.7, "answered": 89.7, "usd_per_1k": 0.96, "kinds": {"Raster windows": [3, 18], "Raster doors": [4, 19], "Raster fixtures": [41, 68], "Raster room types": [37, 59], "Raster floors": [29, 31], "Swiss areas": [3, 24], "Swiss windows": [0, 7], "Swiss doors": [0, 3], "Swiss fixtures": [14, 21], "Swiss rooms & apartments": [34, 39], "IFC & schedules": [1, 11]}}, {"name": "Free baseline", "acc": 43.3, "acc_answered": 43.9, "answered": 98.7, "usd_per_1k": 0.0, "kinds": {"Raster windows": [2, 18], "Raster doors": [2, 19], "Raster fixtures": [42, 68], "Raster room types": [37, 59], "Raster floors": [25, 31], "Swiss areas": [0, 24], "Swiss windows": [0, 7], "Swiss doors": [0, 3], "Swiss fixtures": [7, 21], "Swiss rooms & apartments": [13, 39], "IFC & schedules": [2, 11]}}]};
+const PLAN = {"Raster windows": "Detector", "Raster doors": "Detector", "Raster fixtures": "Detector",
+  "Raster room types": "Gemini Flash, once per drawing", "Raster floors": "Gemini Flash, once per drawing",
+  "Swiss areas": "DXF parser (exact)", "Swiss windows": "DXF parser", "Swiss doors": "DXF parser",
+  "Swiss fixtures": "DXF parser", "Swiss rooms & apartments": "DXF parser", "IFC & schedules": "IFC parser + Nemotron agent"};
+const SHORT = {"Gemini 4 Carbon": "4 Carbon", "Gemini 4 Argon": "4 Argon", "Gemini 3.8 Flash": "3.8 Flash",
+  "Gemini 3.1 Pro": "3.1 Pro", "Gemini 4 Hydrogen": "4 Hydrogen", "Nemotron 3.5 Super VL": "Nemotron",
+  "Nemotron, thinking off": "Nemotron no-think", "Free baseline": "Free baseline"};
+const M = DATA.models, NS = "http://www.w3.org/2000/svg";
+const usd = v => v === 0 ? "$0" : "$" + v.toFixed(2);
+
+function el(tag, attrs, parent, text) {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (text != null) e.textContent = text;
+  if (parent) parent.appendChild(e);
+  return e;
+}
+const tip = document.getElementById("tip");
+function hover(target, html) {
+  target.addEventListener("mousemove", ev => {
+    tip.innerHTML = html; tip.style.opacity = 1;
+    const x = Math.min(ev.clientX + 14, innerWidth - tip.offsetWidth - 8);
+    tip.style.left = x + "px"; tip.style.top = (ev.clientY + 14) + "px";
+  });
+  target.addEventListener("mouseleave", () => tip.style.opacity = 0);
+}
+const modelTip = m => `<b>${m.name}</b><br>${m.acc}% correct · ${m.answered}% answered<br>${m.acc_answered}% right when it answered<br>${usd(m.usd_per_1k)} per 1,000 questions`;
+
+// Tiles
+const byName = Object.fromEntries(M.map(m => [m.name, m]));
+const tiles = [
+  ["hero", "Bar to beat", "78.3%", "Gemini 4 Carbon · $2.62 / 1k questions"],
+  ["", "Best value", "72.7%", "Gemini 3.8 Flash · $0.95 / 1k questions"],
+  ["", "Nemotron, image only", "55.3%", "reads labels, miscounts"],
+  ["", "Free baseline", "43.3%", "most common answer · $0"],
+];
+document.getElementById("tiles").innerHTML = tiles.map(([c, l, v, m]) =>
+  `<div class="tile ${c}"><div class="label">${l}</div><div class="value">${v}</div><div class="meta">${m}</div></div>`).join("");
+
+// Bars: one series, sorted, value at the tip; the free baseline drawn as a reference in gray.
+(function () {
+  const svg = document.getElementById("bars"), W = 480, rowH = 34, left = 150, right = 54, top = 6;
+  const H = top + M.length * rowH + 22;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const x = v => left + (W - left - right) * v / 100;
+  for (const t of [0, 25, 50, 75, 100]) {
+    el("line", {x1: x(t), x2: x(t), y1: top, y2: H - 22, stroke: "var(--grid)", "stroke-width": 1}, svg);
+    el("text", {x: x(t), y: H - 6, "text-anchor": "middle", class: "tick"}, svg, t + "%");
+  }
+  M.forEach((m, i) => {
+    const y = top + i * rowH + (rowH - 18) / 2, w = x(m.acc) - left, r = 4;
+    el("text", {x: left - 10, y: y + 13, "text-anchor": "end", class: "lbl"}, svg, m.name);
+    const fill = m.name === "Free baseline" ? "var(--ref)" : "var(--series)";
+    el("path", {d: `M${left},${y} h${w - r} a${r},${r} 0 0 1 ${r},${r} v${18 - 2 * r} a${r},${r} 0 0 1 ${-r},${r} h${-(w - r)} z`, fill}, svg);
+    el("text", {x: x(m.acc) + 6, y: y + 13, class: "lbl2"}, svg, m.acc.toFixed(1) + "%");
+    hover(el("rect", {x: 0, y: top + i * rowH, width: W, height: rowH, class: "hit"}, svg), modelTip(m));
+  });
+})();
+
+// Scatter: accuracy (y) against cost (x); names placed by hand so close points don't collide.
+(function () {
+  const svg = document.getElementById("scatter"), W = 480, H = 300, l = 40, r = 16, t = 10, b = 30;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const x = v => l + (W - l - r) * v / 3, y = v => t + (H - t - b) * (1 - (v - 40) / 45);
+  for (const v of [40, 50, 60, 70, 80]) {
+    el("line", {x1: l, x2: W - r, y1: y(v), y2: y(v), stroke: "var(--grid)", "stroke-width": 1}, svg);
+    el("text", {x: l - 6, y: y(v) + 4, "text-anchor": "end", class: "tick"}, svg, v + "%");
+  }
+  for (const v of [0, 1, 2, 3]) el("text", {x: x(v), y: H - 8, "text-anchor": "middle", class: "tick"}, svg, "$" + v);
+  el("line", {x1: l, x2: W - r, y1: H - b, y2: H - b, stroke: "var(--axis)", "stroke-width": 1}, svg);
+  const place = {"Gemini 4 Carbon": [-8, -6, "end"], "Gemini 4 Argon": [-8, 14, "end"], "Gemini 3.8 Flash": [10, -6, "start"],
+    "Gemini 3.1 Pro": [-8, 14, "end"], "Gemini 4 Hydrogen": [-8, -8, "end"], "Nemotron 3.5 Super VL": [-8, -8, "end"],
+    "Nemotron, thinking off": [10, 4, "start"], "Free baseline": [10, 4, "start"]};
+  for (const m of M) {
+    const cx = x(m.usd_per_1k), cy = y(m.acc), [dx, dy, a] = place[m.name];
+    el("text", {x: cx + dx, y: cy + dy, "text-anchor": a, class: "lbl2"}, svg, SHORT[m.name]);
+    el("circle", {cx, cy, r: 5, fill: m.name === "Free baseline" ? "var(--ref)" : "var(--series)", stroke: "var(--surface)", "stroke-width": 2}, svg);
+    hover(el("circle", {cx, cy, r: 14, class: "hit"}, svg), modelTip(m));
+  }
+})();
+
+// Heatmap: one sequential hue, nine steps, text white or near-black by step.
+(function () {
+  const step = p => Math.min(8, Math.floor(p / 11.2));
+  const ink = s => s >= 6 ? "var(--t-dark)" : "var(--t-light)";
+  const n = k => M[0].kinds[k][1];
+  let h = "<thead><tr><th>Question kind</th><th></th>" + M.map(m => `<th class="m">${SHORT[m.name].replace(" ", "<br>")}</th>`).join("") + "<th>Our path</th></tr></thead><tbody>";
+  DATA.kinds.forEach((k, i) => {
+    const sep = i === 5 || i === 10 ? ' class="sep"' : "";
+    h += `<tr${sep}><th>${k}</th><td class="n">${n(k)}</td>`;
+    for (const m of M) {
+      const [ok, tot] = m.kinds[k], p = 100 * ok / tot, s = step(p);
+      h += `<td class="c" style="background:var(--s${s});color:${ink(s)}" data-tip="<b>${m.name}</b><br>${k}: ${ok} of ${tot} correct">${Math.round(p)}</td>`;
+    }
+    h += `<td class="plan">${PLAN[k]}</td></tr>`;
+  });
+  const table = document.getElementById("heat");
+  table.innerHTML = h + "</tbody>";
+  table.querySelectorAll("td.c").forEach(td => hover(td, td.dataset.tip));
+  document.getElementById("ramp").innerHTML = [...Array(9).keys()].map(s => `<span style="background:var(--s${s})"></span>`).join("");
+})();
+</script>
+</body>
+</html>

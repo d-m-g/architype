@@ -8,6 +8,9 @@ TOKEN_PRICES: dict[str, tuple[float, float]] = {
     "gemini-3.5-flash-lite": (0.30, 2.50),
     "gemini-3.8-flash": (0.75, 3.75),  # rises to (1.50, 7.50) on 2027-01-01
     "gemini-3.1-pro-preview": (2.00, 12.00),  # prompts <= 200k tokens; (4.00, 18.00) above
+    "gemini-4-hydrogen": (1.50, 7.50),
+    "gemini-4-argon": (2.00, 10.00),  # rises to (4.00, 20.00) on 2026-12-01
+    "gemini-4-carbon": (2.00, 10.00),  # rises to (4.00, 20.00) on 2026-12-01
     # https://www.together.ai/models/nemotron-3-5-super-vl, read 2026-11-13. Together's id for the model.
     # NVIDIA's own endpoint (integrate.api.nvidia.com) lists no per-token price, so its id is left unpriced.
     "nvidia/NVIDIA-Nemotron-3.5-Super-VL": (0.15, 0.50),
