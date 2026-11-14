@@ -142,8 +142,11 @@ _LOGIN_PAGE = """<!doctype html>
  });
 </script></body></html>"""
 
-UPLOAD_TYPES = {".pdf", ".png", ".jpg", ".jpeg", ".dxf"}  # DXF and vector PDF go to lane A's parsers; IFC waits for its reader
+UPLOAD_TYPES = {".pdf", ".png", ".jpg", ".jpeg", ".dxf", ".ifc"}  # DXF, IFC and vector PDF go to lane A's parsers
 UPLOAD_MAX_BYTES = 50 * 1024 * 1024
+# IFC models are text and large: the dataset's go up to 343 MB, the ones it asks questions about up to 85 MB.
+# The 85 MB one builds in ~160 s at 1.7 GB peak; the viewer waits 300 s for /api/scene, so 100 MB leaves headroom.
+IFC_MAX_BYTES = 100 * 1024 * 1024
 
 
 class Ask(BaseModel):
@@ -203,7 +206,7 @@ def _vision_only(path: str) -> bool:
     """Uploads only the vision reader can read. DXF uploads are parsed and PNG/JPEG uploads detected through the
     pipeline (which escalates to the vision reader and agent when it cannot answer); a PDF goes through the pipeline
     when the vector parser recognises it, and to the vision reader otherwise (a scan, a section, a document)."""
-    if not path.startswith("uploads/") or path.lower().endswith((".dxf", ".png", ".jpg", ".jpeg")):
+    if not path.startswith("uploads/") or path.lower().endswith((".dxf", ".ifc", ".png", ".jpg", ".jpeg")):
         return False
     if not path.lower().endswith(".pdf"):
         return True
@@ -249,16 +252,18 @@ async def upload(request: Request, filename: str) -> dict:
     suffix = "." + filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     if suffix not in UPLOAD_TYPES:
         raise HTTPException(415, f"supported uploads: {', '.join(sorted(UPLOAD_TYPES))}")
+    limit = IFC_MAX_BYTES if suffix == ".ifc" else UPLOAD_MAX_BYTES
     data = await request.body()
-    if not data or len(data) > UPLOAD_MAX_BYTES:
-        raise HTTPException(413, "empty file or larger than 50 MB")
+    if not data or len(data) > limit:
+        raise HTTPException(413, f"empty file or larger than {limit // 2**20} MB")
     from .brain.vision import BUILDER, UPLOADS
     name = hashlib.sha256(data).hexdigest()[:20] + suffix  # content-addressed: the user's filename never touches the disk
     UPLOADS.mkdir(parents=True, exist_ok=True)
     (UPLOADS / name).write_bytes(data)
+    from .parsers.ifc import BUILDER as IFC_BUILDER
     from .parsers.pdf import BUILDER as PDF_BUILDER
     path = f"uploads/{name}"
-    reader = (BUILDER if _vision_only(path) else "swiss_dxf_upload@1" if suffix == ".dxf"
+    reader = (BUILDER if _vision_only(path) else "swiss_dxf_upload@1" if suffix == ".dxf" else IFC_BUILDER if suffix == ".ifc"
               else "fixtures-6:tiled" if suffix in (".png", ".jpg", ".jpeg") else PDF_BUILDER)
     return {"path": path, "reader": reader}
 

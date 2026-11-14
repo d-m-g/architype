@@ -14,7 +14,7 @@ export function displayGeometry(snapshot){
  const minX=Math.min(...xs),maxX=Math.max(...xs),minY=Math.min(...ys),maxY=Math.max(...ys),span=Math.max(maxX-minX,maxY-minY);
  if(!span)return [];
  const cx=(minX+maxX)/2,cy=(minY+maxY)/2;
- return entities.filter(e=>Math.abs(e.polygon.reduce((a,p,i)=>{const q=e.polygon[(i+1)%e.polygon.length];return a+p[0]*q[1]-q[0]*p[1];},0))>1e-8).map(e=>({id:e.id,label:e.label,type:e.type,kind:fixtureKind(e),m2:e.qty?.m2??(e.unit==='m²'?e.quantity:undefined),uncertain:e.uncertain,points:e.polygon.map(([x,y])=>[(x-cx)*10/span,(y-cy)*10/span]),depth:e.type==='room'?.65:.045}));
+ return entities.filter(e=>Math.abs(e.polygon.reduce((a,p,i)=>{const q=e.polygon[(i+1)%e.polygon.length];return a+p[0]*q[1]-q[0]*p[1];},0))>1e-8).map(e=>({id:e.id,label:e.label,type:e.type,kind:fixtureKind(e),m2:e.qty?.m2??(e.unit==='m²'?e.quantity:undefined),height:e.attrs?.height_m,uncertain:e.uncertain,points:e.polygon.map(([x,y])=>[(x-cx)*10/span,(y-cy)*10/span]),depth:e.type==='room'?.65:.045}));
 }
 
 // ───────── placement: everything below works in scene units (the footprint's longest side is 10) ─────────
@@ -91,7 +91,7 @@ export function placeFixture(points,kind,edges=[]){
 }
 
 // ───────── sandbox ─────────
-/** Sandbox sliders. Lengths are metres and the drawing carries none of them: every default is an assumption a person can drag. */
+/** Sandbox sliders. Lengths are metres and a drawing carries none of them: every default is an assumption a person can drag. An IFC model's room heights set the wall height (estimateWallHeight). */
 export const SANDBOX=[
  {key:'sun',label:'Time of day',unit:'h',min:6,max:20,step:.25,value:14},
  {key:'span',label:'Footprint, longest side',unit:'m',min:4,max:100,step:.5,value:12},
@@ -113,6 +113,11 @@ export function estimateSpan(geometry){
  const perUnit=rooms.length?Math.sqrt(rooms.reduce((a,e)=>a+e.m2,0)/rooms.reduce((a,e)=>a+Math.abs(signedArea(e.points)),0)):ratios[ratios.length>>1];
  const {min,max,step,value}=SANDBOX[1];
  return perUnit>0?Math.min(max,Math.max(min,Math.round(perUnit*10/step)*step)):value;
+}
+/** A starting wall height in metres: the median room height when the scene reports one (IFC models do), else the slider default. */
+export function estimateWallHeight(geometry){
+ const heights=geometry.filter(e=>e.type==='room'&&e.height>0).map(e=>e.height).sort((a,b)=>a-b),{min,max,step,value}=SANDBOX[2];
+ return heights.length?Math.min(max,Math.max(min,Math.round(heights[heights.length>>1]/step)*step)):value;
 }
 /** Where the sun stands at an hour of the day: east at 6, high in the south at 13, west at 20. A unit-ish direction, y up. */
 export function sunPosition(hour){

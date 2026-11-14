@@ -45,9 +45,10 @@ $('drawing-file').onchange = async () => {
     $('local-content').replaceChildren();
     if (fileURL) URL.revokeObjectURL(fileURL);
     fileURL = URL.createObjectURL(uploadFile);
-    const dxf = type === 'image/vnd.dxf',pdf=type==='application/pdf';
+    const ifc=type==='application/x-step',dxf = type === 'image/vnd.dxf'||ifc,pdf=type==='application/pdf';
     let preview=document.createElement(dxf?'p':'img'),pdfNote='';
-    if(dxf){preview.className='muted';preview.textContent='DXF drawings cannot be previewed in the browser. Upload it: the server reads its layers and draws the page.';}
+    if(ifc){preview.className='muted';preview.textContent='IFC models cannot be previewed in the browser. Upload it: the server reads the model and draws a plan of each storey.';}
+    else if(dxf){preview.className='muted';preview.textContent='DXF drawings cannot be previewed in the browser. Upload it: the server reads its layers and draws the page.';}
     else if(pdf){
       $('upload-status').textContent='Rendering PDF page 1 for the drawing viewer...';
       try{
@@ -59,7 +60,7 @@ $('drawing-file').onchange = async () => {
     $('local-content').append(preview);
     $('local-name').textContent=file.name;
     $('local-file-meta').textContent=(file.size/1024/1024).toFixed(2)+' MB'+(prepared.converted?' - converted to PNG':'')+(prepared.resized?' - resized to '+prepared.width+' x '+prepared.height+' px':'')+pdfNote;
-    $('local-analysis-note').textContent=pdf?'PDF analysis covers page 1 only. Other pages are not analysed.':dxf?'The server will render this CAD drawing and extract its available areas.':'Detected areas appear after the drawing opens and analysis finishes.';
+    $('local-analysis-note').textContent=pdf?'PDF analysis covers page 1 only. Other pages are not analysed.':ifc?'The server will draw each storey and read its rooms, doors, windows and quantities. Large models take a minute.':dxf?'The server will render this CAD drawing and extract its available areas.':'Detected areas appear after the drawing opens and analysis finishes.';
     intakeStage('review');
     $('local-preview').hidden = false;
     $('editor-workspace').hidden = true;

@@ -6,7 +6,7 @@ function requireValue(condition,message){if(!condition)throw new Error(message);
 export function validateScene(scene){requireValue(scene?.schema_version===1,'Unsupported Scene schema_version (expected 1).');requireValue(typeof scene.path==='string'&&Array.isArray(scene.pages)&&Array.isArray(scene.entities),'Invalid Scene shape.');const ids=new Set();for(const p of scene.pages)requireValue(typeof p.image==='string'&&finite(p.width)&&p.width>0&&finite(p.height)&&p.height>0,'Invalid page dimensions/image.');for(const e of scene.entities){requireValue(typeof e.id==='string'&&!ids.has(e.id),'Duplicate or invalid entity ID.');ids.add(e.id);validateEntity(e,scene.pages);}return scene;}
 function validateEntity(e,pages){requireValue(typeof e.id==='string','Invalid entity ID.');requireValue(Number.isInteger(e.page??0)&&(e.page??0)>=0&&(pages===null||(e.page??0)<pages.length),'Entity page index is unavailable.');requireValue(Array.isArray(e.geom??[])&&(e.geom??[]).every(p=>Array.isArray(p)&&p.length===2&&p.every(n=>finite(n)&&n>=0&&n<=1)),'Geometry must use normalized 0..1 coordinates.');requireValue(e.conf===undefined||(finite(e.conf)&&e.conf>=0&&e.conf<=1),'Invalid entity confidence.');}
 const title=s=>s?s[0].toUpperCase()+s.slice(1).replace(/_/g,' '):s;
-const roomName=(label,number)=>[label,number].filter(Boolean).join(' ');
+const roomName=(label,number)=>[label,label?.includes(`(${number})`)?null:number].filter(Boolean).join(' ');  // IFC labels already read "Kitchen (A103)"
 /** A reader-facing name and context line built only from fields the scene reports. */
 export function describeEntity(e){
  const a=e.attrs??{},room=roomName(a.room_label,a.room),room2=roomName(a.room_label2,a.room2);

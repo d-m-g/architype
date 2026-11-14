@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {validateLocalDrawing,MAX_LOCAL_BYTES,validateImageSize,fitImageSize,createSourcePreviewLoader,sourcePreviewKind,pdfPreviewSize,renderPDFPreview} from './local-file.js';
+import {validateLocalDrawing,prepareLocalDrawing,MAX_LOCAL_BYTES,MAX_IFC_BYTES,validateImageSize,fitImageSize,createSourcePreviewLoader,sourcePreviewKind,pdfPreviewSize,renderPDFPreview} from './local-file.js';
 import {requestDrawing,getConnectionStatus,requestJSON,createSceneLoader} from './api-client.js';
 
 test('connection check reads production OpenAPI and verifies route methods',async(t)=>{
@@ -25,7 +25,14 @@ test('local preview checks file content, empty files and size before displaying'
  await assert.rejects(validateLocalDrawing(new Blob(['0\nnot a dxf'])),/not a supported/);
  await assert.rejects(validateLocalDrawing(new Blob(['<script>fake.pdf</script>'])),/not a supported/);
  await assert.rejects(validateLocalDrawing(new Blob([])),/non-empty/);
- await assert.rejects(validateLocalDrawing({size:MAX_LOCAL_BYTES+1}),/25 MB/);
+ await assert.rejects(validateLocalDrawing(new Blob(['%PDF-1.7\n',new Uint8Array(MAX_LOCAL_BYTES)])),/25 MB/);
+ // IFC models are STEP text, read on the server, and may be larger than what the browser previews
+ const ifc='ISO-10303-21;\nHEADER;\nFILE_SCHEMA((\'IFC4\'));\n';
+ assert.equal(await validateLocalDrawing(new Blob([ifc])),'application/x-step');
+ assert.equal(await validateLocalDrawing(new Blob(['\xEF\xBB\xBF'+ifc].map(s=>Uint8Array.from(s,c=>c.charCodeAt(0))))),'application/x-step');
+ assert.equal(await validateLocalDrawing(new Blob([ifc,new Uint8Array(MAX_LOCAL_BYTES)])),'application/x-step');
+ await assert.rejects(validateLocalDrawing({size:MAX_IFC_BYTES+1}),/100 MB/);
+ assert.equal((await prepareLocalDrawing(new Blob([ifc]))).name,'drawing.ifc');
 });
 
 test('additional raster formats are identified from bytes rather than the filename',async()=>{

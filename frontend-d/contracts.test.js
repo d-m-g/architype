@@ -22,7 +22,9 @@ test('vision answers can repeat identical scene evidence without duplicate overl
  assert.throws(()=>adaptScene(sharedScene,{extra_entities:[{...original,label:'Conflicting item'}]}),/conflicts/);
 });
 
-import {summarizeScene} from './contracts.js';
+import {summarizeScene,describeEntity} from './contracts.js';
+
+test('room names show the number once, also when the label already carries it (IFC)',()=>{assert.equal(describeEntity({type:'room',label:'Bagno',number:'5.06'}).label,'Bagno 5.06');assert.equal(describeEntity({type:'room',label:'Kitchen (A103)',number:'A103'}).label,'Kitchen (A103)');});
 
 test('overview distinguishes unsupported room detection from a covered zero',()=>{
  const raw={covers:['window'],entities:[]};const unavailable=summarizeScene(raw);

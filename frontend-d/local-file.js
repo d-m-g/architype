@@ -1,10 +1,13 @@
-export const MAX_LOCAL_BYTES = 25 * 1024 * 1024;
-const FORMATS='PDF, PNG, JPEG, WebP, GIF, BMP, AVIF or DXF';
+export const MAX_LOCAL_BYTES = 25 * 1024 * 1024, MAX_IFC_BYTES = 100 * 1024 * 1024;  // IFC: the server's limit, api.IFC_MAX_BYTES
+const FORMATS='PDF, PNG, JPEG, WebP, GIF, BMP, AVIF, DXF or IFC';
 export async function validateLocalDrawing(file) {
   if (!file || file.size === 0) throw new Error(`Choose a non-empty ${FORMATS} drawing.`);
-  if (file.size > MAX_LOCAL_BYTES) throw new Error('Choose a file no larger than 25 MB for local preview.');
+  if (file.size > MAX_IFC_BYTES) throw new Error('Choose a file no larger than 25 MB for local preview, or an IFC model up to 100 MB.');
   const bytes = new Uint8Array(await file.slice(0,256).arrayBuffer());
   const ascii = (start,end) => String.fromCharCode(...bytes.slice(start,end));
+  // IFC is a STEP text file; it is read on the server, so it may be larger than what the browser previews.
+  if (/^(?:\xEF\xBB\xBF)?\s*ISO-10303-21;/.test(ascii(0,bytes.length))) return 'application/x-step';
+  if (file.size > MAX_LOCAL_BYTES) throw new Error('Choose a file no larger than 25 MB for local preview, or an IFC model up to 100 MB.');
   if (ascii(0,5) === '%PDF-') return 'application/pdf';
   if ([137,80,78,71,13,10,26,10].every((n,i)=>bytes[i]===n)) return 'image/png';
   if (bytes[0]===255 && bytes[1]===216 && bytes[2]===255) return 'image/jpeg';
@@ -15,7 +18,7 @@ export async function validateLocalDrawing(file) {
   // ASCII DXF opens with group code 0 and SECTION (optionally after a 999 comment); binary DXF has its own sentinel.
   const head = ascii(0,bytes.length);
   if (/^\s*(?:999\r?\n[^\n]*\n\s*)?0\r?\n\s*SECTION/.test(head) || head.startsWith('AutoCAD Binary DXF')) return 'image/vnd.dxf';
-  throw new Error(`This file is not a supported ${FORMATS}. Export TIFF, HEIC, SVG and DWG files to PNG, JPEG, PDF or DXF first.`);
+  throw new Error(`This file is not a supported ${FORMATS}. Export TIFF, HEIC, SVG and DWG files to PNG, JPEG, PDF or DXF first, and BIM models to IFC.`);
 }
 
 export function validateImageSize(width,height){
@@ -60,6 +63,7 @@ export async function prepareLocalDrawing(file){
   const originalType=await validateLocalDrawing(file),source=new Blob([file],{type:originalType});
   if(originalType==='application/pdf')return {blob:source,type:originalType,name:'drawing.pdf',converted:false};
   if(originalType==='image/vnd.dxf')return {blob:source,type:originalType,name:'drawing.dxf',converted:false};  // parsed on the server
+  if(originalType==='application/x-step')return {blob:source,type:originalType,name:'drawing.ifc',converted:false};  // an IFC model, parsed on the server
   let bitmap;
   // ponytail: an oversized image is decoded in full once (width*height*4 bytes) before it is shrunk; the browser refuses what it cannot hold. Read the header dimensions first if that bites.
   try{bitmap=await createImageBitmap(source);}catch{throw new Error('Your browser could not decode this image. Export it as PNG or JPEG, at a lower resolution if it is very large, and try again.');}

@@ -71,6 +71,8 @@ TOOLS = [
 def escalate(question: str, path: str, scene: Scene | None, draft: Answer) -> Answer:
     """Return a new Answer with tier="llm", keeping draft.trace. Raise NotImplementedError to keep the draft."""
     if scene is None:
+        if path.lower().endswith(".ifc"):  # a model, not a picture: the vision reader cannot read it
+            raise NotImplementedError("the IFC model could not be read")
         result = answer_from_vision(question, path, draft)
         from .vision import not_a_floor_plan, read_scene
         vision = read_scene(path)[0]

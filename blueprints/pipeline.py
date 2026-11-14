@@ -34,8 +34,11 @@ def source_of(path: str) -> str:
 
 def build_scene(path: str) -> Scene:
     """Pick the builder for a drawing. Each builder is build_scene(path, file) -> Scene."""
-    if path.startswith("uploads/"):  # DXF and vector PDF uploads are parsed, raster images detected; the rest go to vision
+    if path.startswith("uploads/"):  # DXF, IFC and vector PDF uploads are parsed, raster images detected; the rest go to vision
         from .brain.vision import drawing_file
+        if path.lower().endswith(".ifc"):
+            from .parsers import ifc
+            return ifc.build_scene(path, drawing_file(path))
         if path.lower().endswith(".dxf"):
             from .parsers import swiss
             return swiss.build_scene(path, drawing_file(path))
@@ -74,7 +77,11 @@ def get_scene(path: str) -> Scene:
     cached = CACHE / "scenes" / source_of(path) / (hashlib.md5(path.encode()).hexdigest() + ".json")
     from .brain.room_types import add_room_types  # room labels in any language -> room types (Küche -> kitchen)
     fresh = not (READ_CACHE and cached.exists())
-    scene = build_scene(path) if fresh else Scene.model_validate_json(cached.read_text())
+    try:
+        scene = None if fresh else Scene.model_validate_json(cached.read_bytes())
+    except ValueError:  # written before scenes were saved as UTF-8 (Windows wrote cp1252): build it again
+        scene, fresh = None, True
+    scene = scene or build_scene(path)
     if path.startswith("uploads/") and scene.tier == "detect" and "room" not in scene.covers:
         # A PNG or JPG upload: the detector finds doors, windows and fixtures, and the vision reader adds rooms by
         # type, apartments and floors, so it gives what a PDF upload gives. Done here, not in build_scene, so scenes
@@ -85,7 +92,7 @@ def get_scene(path: str) -> Scene:
     if fresh:
         _BUILT_NOW.add(path)
         cached.parent.mkdir(parents=True, exist_ok=True)
-        cached.write_text(scene.model_dump_json())
+        cached.write_text(scene.model_dump_json(), encoding="utf-8")  # IFC labels like "Ściana" are not in cp1252
     return scene
 
 
