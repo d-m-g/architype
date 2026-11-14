@@ -128,3 +128,5 @@ function leaveCorrectionMode(){
 }
 document.addEventListener('click',event=>{if(event.target.closest('#demo-start,[data-scenario]'))leaveCorrectionMode();},true);
 window.addEventListener('hashchange',()=>{if($('viewport-2d').hidden)leaveCorrectionMode();});
+
+window.addEventListener('stoa:restore-answer',leaveCorrectionMode);

@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import {adaptScene,adaptAnswer,imageURL} from './contracts.js';
 const [origin='http://127.0.0.1:8001',path,question='How many windows are on this floor?']=process.argv.slice(2);
-if(!path?.startsWith('data/'))throw new Error('Supply an existing data/ drawing path.');
+if(!path?.startsWith('data/')&&!path?.startsWith('uploads/'))throw new Error('Supply an existing data/ drawing path.');
 const url=p=>new URL(p,origin);
 async function request(route,options={}){
  const response=await fetch(url(route),{...options,signal:AbortSignal.timeout(60000)});
