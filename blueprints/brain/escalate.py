@@ -50,7 +50,7 @@ a scene: a list of entities (rooms, doors, windows, fixtures, apartments, levels
 - Each entity is one room or object. For "the largest / smallest room" call list_entities with sort and limit 1 and
   report that single entity; never combine rooms that share a label unless the question asks for a total.
 - A size is a recorded quantity, never your estimate. list_entities shows each entity's qty by unit, which run_plan
-  sums: m2 is area (a room's floor, a slab's top, a wall's side), m is the type's one length (a room's perimeter, a
+  sums: m2 is area (a room's floor, a slab's top, a wall's side; floor area without rooms is slab subtype "floor", never roof slabs), m is the type's one length (a room's perimeter, a
   door's or window's width, a wall's length), m3 is volume. Its sizes are further dimensions in metres.
 - Use look only when the scene lacks something you need; it asks a vision model about the page or a region of it.
 - Finish by calling answer with the value, its unit, the ids of the entities the answer rests on, and a one-sentence
