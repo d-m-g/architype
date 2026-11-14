@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {spokenAnswer, mountVoice} from './voice.js';
+import {spokenAnswer, mountVoice, mountGoogleVoice} from './voice.js';
+import {publishEditor} from './editor-bridge.js';
 test('speech distinguishes mock results, zero answers, uncertainty and abstention', () => {
  assert.match(spokenAnswer({mode:'mock',answer:{answer:0,evidence:['a']},entities:[{id:'a',uncertain:true}]}), /Mock demonstration. 0.*1 evidence items/);
  assert.match(spokenAnswer({mode:'shared',answer:{answer:null,error:'Parser unavailable'}}), /No verified answer. Parser unavailable/);
@@ -48,4 +49,118 @@ test('cancelled playback callbacks cannot overwrite stop status or a newer playb
  assert.equal(get('voice-stop').disabled,true);
  assert.equal(get('voice-status').textContent,'Finished reading.');
  unsubscribe();
+});
+
+const tick=()=>new Promise(resolve=>setImmediate(resolve));
+function googleHarness(fetcher){
+ const elements=new Map(),recorders=[],audios=[],revoked=[];
+ const get=id=>{
+  if(!elements.has(id))elements.set(id,{value:id==='voice-language'?'fi-FI':'',textContent:'',
+   setAttribute(){},addEventListener(){},removeEventListener(){},dispatchEvent(){}});
+  return elements.get(id);
+ };
+ const track={stopped:false,stop(){this.stopped=true;}};
+ class Recorder{
+  static isTypeSupported(type){return type.startsWith('audio/webm');}
+  constructor(stream,options){this.mimeType=options.mimeType;this.state='inactive';recorders.push(this);}
+  start(){this.state='recording';}
+  stop(){this.state='inactive';this.ondataavailable({data:new Blob(['recording'])});this.done=this.onstop();}
+ }
+ class Audio{
+  constructor(url){this.url=url;audios.push(this);}
+  play(){return Promise.resolve();}
+  pause(){this.paused=true;}
+ }
+ const root={getElementById:get,addEventListener(){},removeEventListener(){}};
+ const host={fetch:fetcher,MediaRecorder:Recorder,Audio,Blob,setTimeout,clearTimeout,
+  navigator:{mediaDevices:{getUserMedia:async()=>({getTracks:()=>[track]})}},
+  URL:{createObjectURL:()=>`blob:${audios.length}`,revokeObjectURL:url=>revoked.push(url)},
+  addEventListener(){},removeEventListener(){}};
+ const stop=mountGoogleVoice(root,host);
+ return {get,recorders,audios,revoked,track,stop};
+}
+const configResponse=()=>new Response(JSON.stringify({configured:true,max_record_seconds:30,max_audio_bytes:8388608}));
+test('Google dictation sends recorded audio and preserves edits made during transcription',async()=>{
+ let resolveTranscript,request;
+ const h=googleHarness(async(url,options)=>{
+  if(url.endsWith('config'))return configResponse();
+  request={url,options};return new Promise(resolve=>{resolveTranscript=resolve;});
+ });
+ try{
+  await tick();h.get('question').value='Original';await h.get('voice-dictate').onclick();
+  await h.get('voice-dictate').onclick();
+  assert.match(request.url,/language=fi-FI/);assert.ok(request.options.body instanceof Blob);
+  assert.equal(h.track.stopped,true);
+  h.get('question').value='My typed edit';
+  resolveTranscript(new Response(JSON.stringify({text:'Kuinka monta ovea?'})));
+  await h.recorders[0].done;
+  assert.equal(h.get('question').value,'My typed edit');assert.match(h.get('voice-status').textContent,/discarded/);
+ }finally{h.stop();}
+});
+test('Google dictation inserts text for review and ignores late cancelled replies',async()=>{
+ let resolveTranscript;
+ const h=googleHarness(async url=>url.endsWith('config')?configResponse():new Promise(resolve=>{resolveTranscript=resolve;}));
+ try{
+  await tick();await h.get('voice-dictate').onclick();await h.get('voice-dictate').onclick();
+  resolveTranscript(new Response(JSON.stringify({text:'Kuinka monta ovea?'})));await h.recorders[0].done;
+  assert.equal(h.get('question').value,'Kuinka monta ovea?');assert.match(h.get('voice-status').textContent,/Review/);
+  await h.get('voice-dictate').onclick();await h.get('voice-dictate').onclick();
+  await h.get('voice-dictate').onclick();
+  resolveTranscript(new Response(JSON.stringify({text:'Stale reply'})));await h.recorders[1].done;
+  assert.equal(h.get('question').value,'Kuinka monta ovea?');
+ }finally{h.stop();}
+});
+test('Google playback speaks current answer and stop revokes its audio URL',async()=>{
+ let sent;
+ const h=googleHarness(async(url,options)=>{
+  if(url.endsWith('config'))return configResponse();
+  sent=JSON.parse(options.body);return new Response(new Blob(['wav'],{type:'audio/wav'}));
+ });
+ try{
+  publishEditor({wireScene:{path:'uploads/test.png'},mode:'shared',answer:{answer:19,unit:'count',confidence:.7,evidence:[]}});
+  await tick();await h.get('voice-read').onclick();
+  assert.match(sent.text,/Raportoitu vastaus\. 19/);
+  assert.equal(h.audios.length,1);assert.equal(h.get('voice-stop').disabled,false);
+  h.get('voice-stop').onclick();assert.equal(h.audios[0].paused,true);assert.equal(h.revoked.length,1);
+ }finally{h.stop();publishEditor({wireScene:null,answer:null});}
+});
+test('changing drawings cancels recording and releases microphone tracks',async()=>{
+ const h=googleHarness(async()=>configResponse());
+ try{
+  await tick();
+  // Recording starts normally; changing source cancels it before any transcript is applied.
+  publishEditor({wireScene:{path:'uploads/a.png'},answer:null});
+  await h.get('voice-dictate').onclick();
+  publishEditor({wireScene:{path:'uploads/b.png'},answer:null});
+  assert.equal(h.recorders[0].state,'inactive');assert.equal(h.track.stopped,true);
+  assert.match(h.get('voice-status').textContent,/Drawing or answer changed/);
+ }finally{h.stop();publishEditor({wireScene:null,answer:null});}
+});
+
+function voiceHarness(){
+ const nodes=new Map(),events=new Map();let session;
+ const get=id=>{if(!nodes.has(id))nodes.set(id,{value:'',textContent:'',hidden:true,attrs:{},listeners:new Map(),setAttribute(k,v){this.attrs[k]=v;},addEventListener(k,fn){this.listeners.set(k,fn);},dispatchEvent(event){this.listeners.get(event.type)?.(event);},focus(){}});return nodes.get(id);};
+ class Recognition{constructor(){session=this;}start(){}abort(){this.aborted=true;this.onend?.();}}
+ const stop=mountVoice({getElementById:get,addEventListener(){}},{SpeechRecognition:Recognition,addEventListener:(type,fn)=>events.set(type,fn)});
+ return {get,events,stop,start(){get('voice-dictate').onclick();return session;},result(target,text,isFinal){target.onresult({results:[Object.assign([{transcript:text}],{isFinal})]});}};
+}
+test('live dictation shows interim words separately and only commits a final transcript for review',()=>{
+ const h=voiceHarness();h.get('question').value='Typed draft';assert.equal(h.get('voice-state').textContent,'Ready');
+ const session=h.start();assert.equal(session.interimResults,true);assert.equal(h.get('voice-state').textContent,'Listening');assert.equal(h.get('voice-dictate').attrs['aria-label'],'Cancel dictation');
+ h.result(session,'How many',false);assert.equal(h.get('voice-transcript').textContent,'How many');assert.equal(h.get('voice-preview').hidden,false);assert.equal(h.get('question').value,'Typed draft');
+ h.result(session,'How many windows',false);assert.equal(h.get('voice-transcript').textContent,'How many windows');
+ session.onspeechend();assert.equal(h.get('voice-state').textContent,'Transcribing');
+ h.result(session,'How many windows?',true);assert.equal(h.get('question').value,'How many windows?');assert.equal(h.get('voice-state').textContent,'Review question');assert.equal(h.get('voice-preview').hidden,true);assert.equal(h.get('voice-dictate').attrs['aria-pressed'],'false');assert.match(h.get('voice-status').textContent,/choose Ask/);h.stop();
+});
+test('cancelled and failed interim recognition preserve the typed question and ignore late transcripts',()=>{
+ const h=voiceHarness();h.get('question').value='Keep this';const old=h.start();h.result(old,'unfinished',false);
+ h.get('voice-dictate').onclick();assert.equal(h.get('voice-state').textContent,'Ready');assert.equal(h.get('voice-preview').hidden,true);
+ const current=h.start();h.result(old,'Wrong late final',true);assert.equal(h.get('question').value,'Keep this');assert.equal(h.get('voice-state').textContent,'Listening');
+ current.onerror({error:'network'});assert.equal(h.get('question').value,'Keep this');assert.match(h.get('voice-status').textContent,/could not connect/);assert.equal(h.get('voice-state').textContent,'Ready');h.stop();
+});
+test('typing, drawing changes and recognition ending discard partial speech without overwriting the draft',()=>{
+ const h=voiceHarness();h.get('question').value='Original';let session=h.start();h.result(session,'Partial',false);
+ h.get('question').value='Manual edit';h.get('question').dispatchEvent(new Event('input'));h.result(session,'Late answer',true);assert.equal(h.get('question').value,'Manual edit');assert.equal(session.aborted,true);
+ session=h.start();h.result(session,'Another partial',false);session.onend();assert.equal(h.get('voice-state').textContent,'Ready');assert.equal(h.get('voice-preview').hidden,true);assert.equal(h.get('question').value,'Manual edit');
+ session=h.start();h.events.get('stoa:drawing-reset')();h.result(session,'Wrong drawing',true);assert.equal(h.get('question').value,'Manual edit');assert.equal(h.get('voice-state').textContent,'Ready');h.stop();
 });

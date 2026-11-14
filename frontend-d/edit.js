@@ -30,7 +30,7 @@ function paint(){
  const items=state.scene.entities.filter(e=>e.page===state.page&&e.polygon.length>=3&&!['apartment','level'].includes(e.type)).sort((a,b)=>area(b)-area(a));
  for(const entity of items)layer.append(el('g',{class:`edit-mark${entity.id.startsWith('user-')?' added':''}`,role:'button',tabindex:'0','aria-label':entity.label,'data-entity':entity.id,
   onclick:()=>{if(!drawing)select(entity.id);},onkeydown:event=>{if(event.key==='Enter'){event.preventDefault();select(entity.id);}}},
-  el('polygon',{points:pointsAttr(entity.polygon)})));
+  ...['halo-dark','halo-light','region-shape'].map(kind=>el('polygon',{class:kind,points:pointsAttr(entity.polygon)}))));
  if(first)layer.append(el('circle',{cx:first.x,cy:first.y,r:4,fill:'var(--accent)','vector-effect':'non-scaling-stroke'}));
  paintSelection();
 }
@@ -59,7 +59,7 @@ function stopDrawing(){drawing=false;first=null;svg.classList.remove('drawing-bo
 async function commit(entities,done,keep=null){
  select(null);
  setScene({...state.raw,entities},{keepView:true});
- state.edited=undo.length>0;$('edit-undo').disabled=!undo.length;paint();select(keep);
+ state.edited=true;$('edit-undo').disabled=!undo.length;paint();select(keep);
  if(!state.rawAnswer||!state.question){hint(`${done}. Your next question uses the corrected drawing.`);return;}
  const before=state.rawAnswer.answer;
  hint(`${done}. Recalculating the answer`);
@@ -74,7 +74,7 @@ async function commit(entities,done,keep=null){
  }
 }
 function change(entities,done,keep=null){
- undo.push({entities:state.raw.entities,answer:state.rawAnswer,corrected:state.corrected,ms:state.ms});
+ undo.push({entities:state.raw.entities,answer:state.rawAnswer,corrected:state.corrected,ms:state.ms,edited:state.edited});
  return commit(entities,done,keep);
 }
 /** The other items of the same kind on the page that show the same symbol as this one, by the server's pixel comparison. */
@@ -87,7 +87,7 @@ async function lookAlikes(entity){
 $('edit-undo').onclick=()=>{
  const last=undo.pop();if(!last)return;
  select(null);setScene({...state.raw,entities:last.entities},{keepView:true});
- state.edited=undo.length>0;state.corrected=last.corrected;$('edit-undo').disabled=!undo.length;
+ state.edited=last.edited;state.corrected=last.corrected;$('edit-undo').disabled=!undo.length;
  if(last.answer)showAnswer(last.answer,state.question,last.ms);
  paint();hint('Undone.');
 };
@@ -124,7 +124,7 @@ svg.addEventListener('pointermove',event=>{
  resize.box=[Math.min(fx,x),Math.min(fy,y),Math.max(fx,x),Math.max(fy,y)];
  // Move the outline and its handles in place: rebuilding them would drop the handle the pointer is holding.
  const points=corners(resize.box);
- markOf(resize.id)?.firstChild.setAttribute('points',pointsAttr(points));
+ for(const shape of markOf(resize.id)?.querySelectorAll('polygon')??[])shape.setAttribute('points',pointsAttr(points));
  layer.querySelectorAll('.edit-handle').forEach((node,i)=>node.setAttribute('style',`--x:${points[i][0]};--y:${points[i][1]}`));
 });
 function endResize(event){

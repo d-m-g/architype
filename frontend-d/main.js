@@ -1,6 +1,6 @@
 /** The Ask view: drawing viewer, question flow, answer card, evidence and trace. */
 import {createSourcePreviewLoader,sourcePreviewKind,loadPDFPreview} from './local-file.js';
-import {historyStore} from './history-state.js';
+import {historyStore,createWorkspaceStorage} from './history-state.js';
 import {requestJSON,getDrawingScene,recoveryMessage,LIVE_REQUEST_TIMEOUT_MS} from './api-client.js';
 import {publishEditor,subscribeEditor,selectEditorEntity} from './editor-bridge.js';
 import {zoomAt} from './mock-scene.js';
@@ -21,7 +21,7 @@ export function el(tag,attrs={},...children){
 
 /** One drawing at a time. raw* are the API's objects; scene and result are their display forms. */
 export const state={path:null,name:'',raw:null,scene:null,page:0,rawAnswer:null,result:null,question:'',ms:null,
- preview:null,layers:new Set(),selected:null,readError:null,editing:false,edited:false,corrected:null};
+ preview:null,generalView:true,layers:new Set(),selected:null,readError:null,editing:false,edited:false,corrected:null};
 
 // ───────── progress: every request shows the top bar; long ones also get a clock ─────────
 let busy=0;
@@ -65,6 +65,7 @@ const svg=$('drawing'),image=$('page-image');
 let view={x:0,y:0,w:1000,h:760};
 const pageSize=()=>state.scene?{w:state.scene.width,h:state.scene.height}:{w:state.preview?.width??1000,h:state.preview?.height??760};
 function publish(){
+ scheduleSave();
  publishEditor({wireScene:state.raw,answer:state.rawAnswer,entities:state.scene?.entities??[],selectedId:state.selected,pageIndex:state.page,
   viewport:{...view},sourcePreview:null,mode:state.raw?'shared':'pending'});
 }
@@ -155,23 +156,34 @@ const kindOf=entity=>entity.type;
 /** Every box's colour follows its own confidence: hue 0 (red) at 0%, 60 (amber) at 50%, 120 (green) at 100%. */
 const hue=entity=>Math.round((entity.conf??1)*120);
 const area=e=>Math.abs(e.polygon.reduce((sum,p,i,points)=>{const q=points[(i+1)%points.length];return sum+p[0]*q[1]-q[0]*p[1];},0));
-const evidenceIds=()=>state.result?[...new Set(state.result.evidence)]:[];
+const evidenceIds=()=>{const known=new Set(state.scene?.entities.map(entity=>entity.id)??[]);return state.result?[...new Set(state.result.evidence)].filter(id=>known.has(id)):[];};
 export function entityById(id){return state.scene?.entities.find(e=>e.id===id);}
 function hover(id,on){for(const node of document.querySelectorAll('[data-entity]'))if(node.dataset.entity===id)node.classList.toggle('hot',on);}
 function mark(entity,className,label){
  const group=el('g',{class:className+(entity.uncertain?' review':''),style:`--h:${hue(entity)}`,role:'button',tabindex:'0','aria-label':label,'data-entity':entity.id,
-  onclick:()=>select(entity.id),onmouseenter:()=>hover(entity.id,true),onmouseleave:()=>hover(entity.id,false),
-  onkeydown:event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();event.stopPropagation();select(entity.id);}}},
-  el('polygon',{points:entity.polygon.map(p=>p.join(',')).join(' ')}));
+  onclick:()=>select(entity.id,{focusEvidence:true}),onmouseenter:()=>hover(entity.id,true),onmouseleave:()=>hover(entity.id,false),
+  onkeydown:event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();event.stopPropagation();select(entity.id,{focusEvidence:true});}}},
+  ...['halo-dark','halo-light','region-shape'].map(kind=>el('polygon',{class:kind,points:entity.polygon.map(p=>p.join(',')).join(' ')})));
  group.append(el('title',{},label));
  return group;
 }
+/** Switch the drawing overview without clearing the question, answer or history. */
+export function toggleGeneralView(){
+ if(!state.scene||state.editing)return;
+ state.generalView=!state.generalView;
+ state.layers=state.generalView?new Set(state.scene.entities.map(kindOf)):new Set();
+ select(null);renderDrawingSide();drawMarks();
+ if(state.generalView)fit();else frameEvidence();
+ $('view-status').textContent=state.generalView?'General view: all detected areas. Drag to pan, scroll to zoom':'Answer view: cited areas. Drag to pan, scroll to zoom';
+ publish();
+}
+$('general-view').onclick=toggleGeneralView;
 function drawMarks(){
  const layer=$('overlays');layer.replaceChildren();
  if(!state.scene||state.editing)return;
- const cited=evidenceIds(),onPage=state.scene.entities.filter(e=>e.page===state.page&&e.polygon.length>=3).sort((a,b)=>area(b)-area(a));
+ const answerCited=evidenceIds(),cited=state.generalView?[]:answerCited,onPage=state.scene.entities.filter(e=>e.page===state.page&&e.polygon.length>=3).sort((a,b)=>area(b)-area(a));
  for(const entity of onPage)if(!cited.includes(entity.id)&&state.layers.has(kindOf(entity)))
-  layer.append(mark(entity,`mark other kind-${entity.type}`,`${entity.label}, ${Math.round(entity.conf*100)}% sure, not part of the answer`));
+  layer.append(mark(entity,`mark other kind-${entity.type}`,`${entity.label}, ${Math.round(entity.conf*100)}% sure, ${answerCited.includes(entity.id)?'counted in the answer':'not part of the answer'}`));
  const badges=[];
  for(const entity of onPage){
   const n=cited.indexOf(entity.id);if(n<0)continue;
@@ -192,14 +204,15 @@ function markSelection(){
 const inspectors=[];
 /** Other modules add controls to the inspector: fn(entity, node). */
 export function onInspect(fn){inspectors.push(fn);}
-export function select(id,{zoomTo=false}={}){
+export function select(id,{zoomTo=false,focusEvidence=false}={}){
  const entity=id?entityById(id):null;
  state.selected=entity?.id??null;
- if(entity&&entity.page!==state.page)setPage(entity.page);
+ if(entity&&entity.page!==state.page){setPage(entity.page);renderDrawingSide();drawMarks();}
  markSelection();
  const box=$('inspector');box.hidden=!entity;box.replaceChildren();
- if(!entity){publish();return;}
+ if(!entity){$('evidence-navigation').textContent='Select an item, then use arrow keys to browse.';publish();return;}
  const n=evidenceIds().indexOf(entity.id);
+ $('evidence-navigation').textContent=n>=0?`${n+1} of ${evidenceIds().length}: ${entity.label}. Arrow keys browse items.`:'Selected detection is not cited in this answer.';
  box.append(
   el('button',{class:'btn icon close',type:'button','aria-label':'Close',onclick:()=>select(null)},'×'),
   el('strong',{},entity.label),
@@ -209,6 +222,7 @@ export function select(id,{zoomTo=false}={}){
  for(const fn of inspectors)fn(entity,box);
  const row=[...$('evidence-list').children].find(node=>node.dataset.entity===entity.id);
  row?.scrollIntoView({block:'nearest',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
+ if(focusEvidence)row?.focus({preventScroll:true});
  if(zoomTo&&entity.polygon.length){
   const xs=entity.polygon.map(p=>p[0]),ys=entity.polygon.map(p=>p[1]),{w,h}=pageSize();
   const width=Math.min(w,Math.max((Math.max(...xs)-Math.min(...xs))*4,(Math.max(...ys)-Math.min(...ys))*4*w/h,w*.3));
@@ -217,6 +231,26 @@ export function select(id,{zoomTo=false}={}){
  }
  publish();
 }
+/** Walk the numbered answer order, with stable ends and no changes to the answer itself. */
+export function nextEvidenceId(ids,selected,key){
+ if(!ids.length)return null;
+ if(key==='Home')return ids[0];if(key==='End')return ids.at(-1);
+ const step={ArrowRight:1,ArrowDown:1,ArrowLeft:-1,ArrowUp:-1}[key];if(!step)return null;
+ const current=ids.indexOf(selected),index=current<0?(step>0?0:ids.length-1):Math.max(0,Math.min(ids.length-1,current+step));
+ return ids[index];
+}
+function browseEvidence(event){
+ if(event.defaultPrevented||event.isComposing||event.altKey||event.ctrlKey||event.metaKey||event.shiftKey||asking||state.editing||!state.result||$('workspace').hidden||$('panel-ask').hidden)return;
+ const target=event.target;
+ if(target.isContentEditable||target.closest('input,textarea,select,[contenteditable]:not([contenteditable="false"]),[role="textbox"],[role="slider"],[role="spinbutton"]'))return;
+ if(target!==document.body&&!target.closest('#workspace'))return;
+ const ids=evidenceIds().filter(id=>entityById(id)),next=nextEvidenceId(ids,state.selected,event.key);if(next===null)return;
+ event.preventDefault();event.stopPropagation();
+ if(state.generalView){state.generalView=false;state.layers.clear();renderDrawingSide();drawMarks();}
+ select(next,{zoomTo:true,focusEvidence:true});
+}
+// Capture before the viewer's arrow-to-pan handler. Alt+arrows retain panning on the drawing.
+document.addEventListener('keydown',browseEvidence,true);
 window.addEventListener('stoa:select-entity',event=>select(event.detail.id));
 
 // ───────── pages ─────────
@@ -249,6 +283,9 @@ function counts(){
  return [...tally].sort((a,b)=>Object.keys(KINDS).indexOf(a[0])-Object.keys(KINDS).indexOf(b[0]));
 }
 function renderDrawingSide(){
+ $('counted-legend').hidden=state.generalView;$('other-legend').textContent=state.generalView?'Detected area':'Found, not counted';
+ if($('viewport-3d').hidden)$('view-status').textContent=state.generalView?'General view: all detected areas. Drag to pan, scroll to zoom':'Answer view: cited areas. Drag to pan, scroll to zoom';
+ const overview=$('general-view');overview.hidden=!state.result||!state.scene;overview.disabled=state.editing;overview.textContent=state.generalView?'Answer view':'General view';overview.title=state.generalView?'Return to the answer highlights':'Fit the full drawing and show all detected areas';
  $('drawing-title').textContent=state.name;
  const raw=state.raw,kind=notAPlan(raw);
  $('layers').replaceChildren();
@@ -316,8 +353,9 @@ function renderAnswer(){
  const cited=evidenceIds().map(id=>entityById(id)).filter(Boolean),unsure=cited.filter(e=>e.uncertain).length;
  $('evidence').hidden=!cited.length;
  $('evidence-count').textContent=`${cited.length}${unsure?`, ${unsure} to check`:''}`;
+ $('evidence-navigation').textContent='Select an item, then use arrow keys to browse. Home and End jump to the first and last item.';
  $('evidence-list').replaceChildren(...cited.map((entity,i)=>el('button',{type:'button',class:`evidence-row${entity.uncertain?' review':''}`,style:`--h:${hue(entity)}`,'data-entity':entity.id,'aria-pressed':'false',
-  onclick:()=>select(entity.id,{zoomTo:true}),onmouseenter:()=>hover(entity.id,true),onmouseleave:()=>hover(entity.id,false)},
+  onclick:()=>select(entity.id,{zoomTo:true,focusEvidence:true}),onmouseenter:()=>hover(entity.id,true),onmouseleave:()=>hover(entity.id,false)},
   el('span',{class:'n'},String(i+1)),
   el('span',{class:'what'},entity.label,el('small',{},[entity.quantityText,entity.context,entity.conf<1?`${Math.round(entity.conf*100)}% sure${entity.uncertain?', check it':''}`:null,
    state.scene.pages.length>1?`page ${entity.page+1}`:null,entity.polygon.length?null:'not drawn'].filter(Boolean).join(' · '))))));
@@ -360,14 +398,14 @@ export function showAnswer(raw,question,ms=null){
   state.rawAnswer={answer:null,unit:null,confidence:0,tier:'none',evidence:[],trace:[],error:error.message,cost_usd:0};
   state.result={evidence:[]};
  }
- state.question=question;state.ms=ms;state.selected=null;$('inspector').hidden=true;
+ state.generalView=false;state.question=question;state.ms=ms;state.selected=null;$('inspector').hidden=true;
  if(!state.editing)state.layers.clear();
  renderDrawingSide();renderAnswer();drawMarks();publish();
 }
 
 // ───────── saved results: the last drawings and their answers survive a reload ─────────
 const SAVED='blueprints-results';
-export function savedResults(){try{return JSON.parse(localStorage.getItem(SAVED))??[];}catch{return [];}}
+export function savedResults(){try{const saved=JSON.parse(localStorage.getItem(SAVED));return Array.isArray(saved)?saved.filter(d=>typeof d.path==='string'&&Array.isArray(d.entries)&&d.entries.length):[];}catch{return [];}}
 export function clearSavedResults(){try{localStorage.removeItem(SAVED);}catch{}}
 function saveResult(question,rawAnswer,ms){
  const all=savedResults(),mine=all.find(d=>d.path===state.path)?.entries??[];
@@ -377,27 +415,53 @@ function saveResult(question,rawAnswer,ms){
 }
 
 // ───────── opening a drawing ─────────
+const workspaceStorage=createWorkspaceStorage(),ACTIVE='blueprints-active-drawing';
+let saveTimer,opening=false;
+function storageWarning(error){
+ $('persistence-status').textContent=error?'Browser storage is unavailable or full. This workspace may not survive a reload.':'';
+}
+function persistWorkspace(){
+ clearTimeout(saveTimer);
+ if(opening||!state.path)return;
+ const snapshot={path:state.path,name:state.name,raw:state.raw,rawAnswer:state.rawAnswer,question:state.question,ms:state.ms,
+  draft:$('question').value,page:state.page,view:{...view},layers:[...state.layers],generalView:state.generalView,
+  selected:state.selected,edited:state.edited,corrected:state.corrected,entries:historyStore.list('drawing:'+state.path).reverse()};
+ workspaceStorage.save(snapshot).then(()=>storageWarning(null),storageWarning);
+}
+function scheduleSave(){clearTimeout(saveTimer);if(!opening&&state.path)saveTimer=setTimeout(persistWorkspace,180);}
+window.addEventListener('pagehide',persistWorkspace);
+document.addEventListener('visibilitychange',()=>{if(document.hidden)persistWorkspace();});
+historyStore.subscribe(scheduleSave);
 let generation=0,reading=null;
 function resetDrawing(){
- abortAsk();generation++;previewLoader.cancel();
- Object.assign(state,{raw:null,scene:null,page:0,rawAnswer:null,result:null,question:'',ms:null,preview:null,selected:null,readError:null,editing:false,corrected:null});
+ persistWorkspace();clearTimeout(saveTimer);abortAsk();generation++;previewLoader.cancel();
+ Object.assign(state,{raw:null,scene:null,page:0,rawAnswer:null,result:null,question:'',ms:null,preview:null,selected:null,readError:null,generalView:true,editing:false,edited:false,corrected:null});
  state.layers.clear();shownHistory=null;
  $('overlays').replaceChildren();$('inspector').hidden=true;$('page-rail').hidden=true;
  $('working').hidden=true;
  window.dispatchEvent(new Event('stoa:drawing-reset'));
 }
 export function showStart(){
- resetDrawing();state.path=null;stageStatus(null);
+ resetDrawing();opening=false;state.path=null;stageStatus(null);
+ try{localStorage.removeItem(ACTIVE);}catch(error){storageWarning(error);}
  $('workspace').hidden=true;$('start').hidden=false;$('open-another').hidden=true;
  history.replaceState(null,'',location.pathname+'#ask');showPanel('ask');
 }
 $('open-another').onclick=showStart;
 /** Open a dataset or uploaded drawing: show it at once, then outline what its reader finds. */
 export async function openDrawing(path,{name,question='',preview=null,restore=false}={}){
- resetDrawing();const id=generation,key='drawing:'+path,saved=savedResults().find(d=>d.path===path);
+ resetDrawing();opening=true;const id=generation,key='drawing:'+path,saved=savedResults().find(d=>d.path===path);
+ let snapshot=null;
+ if(restore)try{snapshot=await workspaceStorage.load(path);}catch(error){storageWarning(error);}
+ if(id!==generation)return;
+ try{localStorage.setItem(ACTIVE,path);}catch(error){storageWarning(error);}
+ const url=new URL(location.href);url.searchParams.set('path',path);url.searchParams.delete('question');history.replaceState(null,'',url);
  name??=saved?.name??path.split('/').pop();
  Object.assign(state,{path,name,preview});
+ name=snapshot?.name??name;
+ state.name=name;
  historyStore.setDrawing(key,name);
+ if(snapshot&&!historyStore.list(key).length)for(const entry of snapshot.entries??[])historyStore.add(key,name,entry);
  // Answers saved in an earlier visit come back as this drawing's earlier questions.
  if(saved&&!historyStore.list(key).length)for(const entry of saved.entries)historyStore.add(key,name,{question:entry.question,payload:{rawAnswer:entry.rawAnswer,ms:entry.ms}});
  $('start').hidden=true;$('workspace').hidden=false;$('open-another').hidden=false;
@@ -413,7 +477,7 @@ export async function openDrawing(path,{name,question='',preview=null,restore=fa
  steps([{state:'done',text:'Drawing opened'},{state:'active',text:'Finding rooms, doors, windows and fixtures'}]);
  stageStatus('Reading the drawing');
  try{
-  const raw=await (reading=track(getDrawingScene(path)));
+  const raw=snapshot?.raw??await (reading=track(getDrawingScene(path)));
   if(id!==generation)return;
   setScene(raw);steps(null);
  }catch(error){
@@ -429,6 +493,17 @@ export async function openDrawing(path,{name,question='',preview=null,restore=fa
  if(id!==generation)return;
  const last=restore?historyStore.list(key)[0]:null;
  if(last){shownHistory=last.id;showAnswer(last.payload.rawAnswer,last.question,last.payload.ms);frameEvidence();}
+ if(snapshot){
+  if(snapshot.rawAnswer)showAnswer(snapshot.rawAnswer,snapshot.question,snapshot.ms);
+  state.edited=!!snapshot.edited;state.corrected=snapshot.corrected??null;
+  state.generalView=snapshot.generalView!==false;state.layers=new Set(snapshot.layers??[]);
+  if(state.scene)setPage(Math.max(0,Math.min(snapshot.page??0,state.raw.pages.length-1)));
+  renderDrawingSide();renderAnswer();drawMarks();
+  select(snapshot.selected??null);
+  if(snapshot.view&&['x','y','w','h'].every(k=>Number.isFinite(snapshot.view[k]))&&snapshot.view.w>0&&snapshot.view.h>0){view={...snapshot.view};updateView();}
+  $('question').value=snapshot.draft??'';autosize();
+ }
+ opening=false;persistWorkspace();
  $('question').focus({preventScroll:true});
 }
 $('reading-retry').onclick=()=>openDrawing(state.path,{name:state.name,question:$('question').value,preview:state.preview});
@@ -509,7 +584,7 @@ export async function ask(text){
 }
 function autosize(){const box=$('question');box.style.height='auto';box.style.overflowY=box.scrollHeight>158?'auto':'hidden';box.style.height=Math.min(box.scrollHeight+2,160)+'px';}
 autosize();
-$('question').addEventListener('input',autosize);
+$('question').addEventListener('input',()=>{autosize();scheduleSave();});
 $('question').addEventListener('keydown',event=>{if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing){event.preventDefault();$('ask-form').requestSubmit();}});
 $('ask-form').addEventListener('submit',event=>{event.preventDefault();if(!asking)ask($('question').value);});
 
@@ -557,4 +632,5 @@ window.addEventListener('stoa:theme-change',syncTheme);syncTheme();
 window.addEventListener('stoa:open-case',event=>openDrawing(event.detail.path,event.detail));
 const query=new URLSearchParams(location.search);
 showPanel(location.hash.slice(1));
-if(query.has('path'))openDrawing(query.get('path'),{question:query.get('question')??''});
+if(query.has('path'))openDrawing(query.get('path'),{question:query.get('question')??'',restore:!query.has('question')});
+else {try{const active=localStorage.getItem(ACTIVE);if(active)openDrawing(active,{restore:true});}catch(error){storageWarning(error);}}
