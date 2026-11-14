@@ -21,7 +21,7 @@ export function el(tag,attrs={},...children){
 
 /** One drawing at a time. raw* are the API's objects; scene and result are their display forms. */
 export const state={path:null,name:'',raw:null,scene:null,page:0,rawAnswer:null,result:null,question:'',ms:null,
- preview:null,layers:new Set(),selected:null,readError:null,editing:false,edited:false,corrected:null};
+ preview:null,generalView:true,layers:new Set(),selected:null,readError:null,editing:false,edited:false,corrected:null};
 
 // ───────── progress: every request shows the top bar; long ones also get a clock ─────────
 let busy=0;
@@ -152,31 +152,41 @@ const previewLoader=createSourcePreviewLoader(path=>new Promise((resolve,reject)
 
 // ───────── marks on the drawing ─────────
 const kindOf=entity=>entity.type;
-/** A counted item's colour follows its own confidence: hue 0 (red) at 0%, 60 (amber) at 50%, 120 (green) at 100%. */
+/** Every box's colour follows its own confidence: hue 0 (red) at 0%, 60 (amber) at 50%, 120 (green) at 100%. */
 const hue=entity=>Math.round((entity.conf??1)*120);
 const area=e=>Math.abs(e.polygon.reduce((sum,p,i,points)=>{const q=points[(i+1)%points.length];return sum+p[0]*q[1]-q[0]*p[1];},0));
-const evidenceIds=()=>state.result?[...new Set(state.result.evidence)]:[];
+const evidenceIds=()=>{const known=new Set(state.scene?.entities.map(entity=>entity.id)??[]);return state.result?[...new Set(state.result.evidence)].filter(id=>known.has(id)):[];};
 export function entityById(id){return state.scene?.entities.find(e=>e.id===id);}
 function hover(id,on){for(const node of document.querySelectorAll('[data-entity]'))if(node.dataset.entity===id)node.classList.toggle('hot',on);}
 function mark(entity,className,label){
- const group=el('g',{class:className,role:'button',tabindex:'0','aria-label':label,'data-entity':entity.id,
-  onclick:()=>select(entity.id),onmouseenter:()=>hover(entity.id,true),onmouseleave:()=>hover(entity.id,false),
-  onkeydown:event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();event.stopPropagation();select(entity.id);}}},
+ const group=el('g',{class:className+(entity.uncertain?' review':''),style:`--h:${hue(entity)}`,role:'button',tabindex:'0','aria-label':label,'data-entity':entity.id,
+  onclick:()=>select(entity.id,{focusEvidence:true}),onmouseenter:()=>hover(entity.id,true),onmouseleave:()=>hover(entity.id,false),
+  onkeydown:event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();event.stopPropagation();select(entity.id,{focusEvidence:true});}}},
   el('polygon',{points:entity.polygon.map(p=>p.join(',')).join(' ')}));
  group.append(el('title',{},label));
  return group;
 }
+/** Switch the drawing overview without clearing the question, answer or history. */
+export function toggleGeneralView(){
+ if(!state.scene||state.editing)return;
+ state.generalView=!state.generalView;
+ state.layers=state.generalView?new Set(state.scene.entities.map(kindOf)):new Set();
+ select(null);renderDrawingSide();drawMarks();
+ if(state.generalView)fit();else frameEvidence();
+ $('view-status').textContent=state.generalView?'General view: all detected areas. Drag to pan, scroll to zoom':'Answer view: cited areas. Drag to pan, scroll to zoom';
+ publish();
+}
+$('general-view').onclick=toggleGeneralView;
 function drawMarks(){
  const layer=$('overlays');layer.replaceChildren();
  if(!state.scene||state.editing)return;
- const cited=evidenceIds(),onPage=state.scene.entities.filter(e=>e.page===state.page&&e.polygon.length>=3).sort((a,b)=>area(b)-area(a));
+ const answerCited=evidenceIds(),cited=state.generalView?[]:answerCited,onPage=state.scene.entities.filter(e=>e.page===state.page&&e.polygon.length>=3).sort((a,b)=>area(b)-area(a));
  for(const entity of onPage)if(!cited.includes(entity.id)&&state.layers.has(kindOf(entity)))
-  layer.append(mark(entity,`mark other kind-${entity.type}`,`${entity.label}, not part of the answer`));
+  layer.append(mark(entity,`mark other kind-${entity.type}`,`${entity.label}, ${Math.round(entity.conf*100)}% sure, ${answerCited.includes(entity.id)?'counted in the answer':'not part of the answer'}`));
  const badges=[];
  for(const entity of onPage){
   const n=cited.indexOf(entity.id);if(n<0)continue;
-  const counted=mark(entity,`mark evidence${entity.uncertain?' review':''}`,`${n+1}. ${entity.label}, ${Math.round(entity.conf*100)}% sure`);
-  counted.style.setProperty('--h',hue(entity));layer.append(counted);
+  layer.append(mark(entity,'mark evidence',`${n+1}. ${entity.label}, ${Math.round(entity.conf*100)}% sure`));
   const xs=entity.polygon.map(p=>p[0]),ys=entity.polygon.map(p=>p[1]);
   badges.push(el('g',{class:`badge${entity.uncertain?' review':''}`,'data-entity':entity.id,style:`--x:${Math.min(...xs)};--y:${Math.min(...ys)}`},
    el('circle',{r:9,cx:-5,cy:-5}),el('text',{x:-5,y:-5,dy:'.35em'},String(n+1))));
@@ -193,14 +203,15 @@ function markSelection(){
 const inspectors=[];
 /** Other modules add controls to the inspector: fn(entity, node). */
 export function onInspect(fn){inspectors.push(fn);}
-export function select(id,{zoomTo=false}={}){
+export function select(id,{zoomTo=false,focusEvidence=false}={}){
  const entity=id?entityById(id):null;
  state.selected=entity?.id??null;
- if(entity&&entity.page!==state.page)setPage(entity.page);
+ if(entity&&entity.page!==state.page){setPage(entity.page);renderDrawingSide();drawMarks();}
  markSelection();
  const box=$('inspector');box.hidden=!entity;box.replaceChildren();
- if(!entity){publish();return;}
+ if(!entity){$('evidence-navigation').textContent='Select an item, then use arrow keys to browse.';publish();return;}
  const n=evidenceIds().indexOf(entity.id);
+ $('evidence-navigation').textContent=n>=0?`${n+1} of ${evidenceIds().length}: ${entity.label}. Arrow keys browse items.`:'Selected detection is not cited in this answer.';
  box.append(
   el('button',{class:'btn icon close',type:'button','aria-label':'Close',onclick:()=>select(null)},'×'),
   el('strong',{},entity.label),
@@ -210,6 +221,7 @@ export function select(id,{zoomTo=false}={}){
  for(const fn of inspectors)fn(entity,box);
  const row=[...$('evidence-list').children].find(node=>node.dataset.entity===entity.id);
  row?.scrollIntoView({block:'nearest',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
+ if(focusEvidence)row?.focus({preventScroll:true});
  if(zoomTo&&entity.polygon.length){
   const xs=entity.polygon.map(p=>p[0]),ys=entity.polygon.map(p=>p[1]),{w,h}=pageSize();
   const width=Math.min(w,Math.max((Math.max(...xs)-Math.min(...xs))*4,(Math.max(...ys)-Math.min(...ys))*4*w/h,w*.3));
@@ -218,6 +230,26 @@ export function select(id,{zoomTo=false}={}){
  }
  publish();
 }
+/** Walk the numbered answer order, with stable ends and no changes to the answer itself. */
+export function nextEvidenceId(ids,selected,key){
+ if(!ids.length)return null;
+ if(key==='Home')return ids[0];if(key==='End')return ids.at(-1);
+ const step={ArrowRight:1,ArrowDown:1,ArrowLeft:-1,ArrowUp:-1}[key];if(!step)return null;
+ const current=ids.indexOf(selected),index=current<0?(step>0?0:ids.length-1):Math.max(0,Math.min(ids.length-1,current+step));
+ return ids[index];
+}
+function browseEvidence(event){
+ if(event.defaultPrevented||event.isComposing||event.altKey||event.ctrlKey||event.metaKey||event.shiftKey||asking||state.editing||!state.result||$('workspace').hidden||$('panel-ask').hidden)return;
+ const target=event.target;
+ if(target.isContentEditable||target.closest('input,textarea,select,[contenteditable]:not([contenteditable="false"]),[role="textbox"],[role="slider"],[role="spinbutton"]'))return;
+ if(target!==document.body&&!target.closest('#workspace'))return;
+ const ids=evidenceIds().filter(id=>entityById(id)),next=nextEvidenceId(ids,state.selected,event.key);if(next===null)return;
+ event.preventDefault();event.stopPropagation();
+ if(state.generalView){state.generalView=false;state.layers.clear();renderDrawingSide();drawMarks();}
+ select(next,{zoomTo:true,focusEvidence:true});
+}
+// Capture before the viewer's arrow-to-pan handler. Alt+arrows retain panning on the drawing.
+document.addEventListener('keydown',browseEvidence,true);
 window.addEventListener('stoa:select-entity',event=>select(event.detail.id));
 
 // ───────── pages ─────────
@@ -250,6 +282,9 @@ function counts(){
  return [...tally].sort((a,b)=>Object.keys(KINDS).indexOf(a[0])-Object.keys(KINDS).indexOf(b[0]));
 }
 function renderDrawingSide(){
+ $('counted-legend').hidden=state.generalView;$('other-legend').textContent=state.generalView?'Detected area':'Found, not counted';
+ if($('viewport-3d').hidden)$('view-status').textContent=state.generalView?'General view: all detected areas. Drag to pan, scroll to zoom':'Answer view: cited areas. Drag to pan, scroll to zoom';
+ const overview=$('general-view');overview.hidden=!state.result||!state.scene;overview.disabled=state.editing;overview.textContent=state.generalView?'Answer view':'General view';overview.title=state.generalView?'Return to the answer highlights':'Fit the full drawing and show all detected areas';
  $('drawing-title').textContent=state.name;
  const raw=state.raw,kind=notAPlan(raw);
  $('layers').replaceChildren();
@@ -258,9 +293,9 @@ function renderDrawingSide(){
  if(kind){$('drawing-meta').textContent=`This looks like a ${kind}, not a floor plan, so there is nothing to count on it.`;return;}
  const cost=(raw.trace??[]).reduce((sum,step)=>sum+(step.usd??0),0);
  $('drawing-meta').textContent=`${readerName(raw)}${cost?`, ${money(cost)} once`:', no model cost'}${raw.pages.length>1?`. Page ${state.page+1} of ${raw.pages.length}`:''}.`;
- $('layers').append(...counts().map(([kind,n])=>el('button',{type:'button',class:`chip kind-${kind}`,'aria-pressed':String(state.layers.has(kind)),title:'Show or hide on the drawing',
+ $('layers').append(...counts().map(([kind,n])=>el('button',{type:'button',class:'chip','aria-pressed':String(state.layers.has(kind)),title:'Show or hide on the drawing',
   onclick:()=>{state.layers.has(kind)?state.layers.delete(kind):state.layers.add(kind);renderDrawingSide();drawMarks();}},
-  el('i',{'aria-hidden':'true'}),el('span',{},KINDS[kind]?.[1]??kind),el('b',{},String(n)))));
+  el('span',{},KINDS[kind]?.[1]??kind),el('b',{},String(n)))));
 }
 function suggest(){
  const raw=state.raw,list=[];
@@ -317,8 +352,9 @@ function renderAnswer(){
  const cited=evidenceIds().map(id=>entityById(id)).filter(Boolean),unsure=cited.filter(e=>e.uncertain).length;
  $('evidence').hidden=!cited.length;
  $('evidence-count').textContent=`${cited.length}${unsure?`, ${unsure} to check`:''}`;
+ $('evidence-navigation').textContent='Select an item, then use arrow keys to browse. Home and End jump to the first and last item.';
  $('evidence-list').replaceChildren(...cited.map((entity,i)=>el('button',{type:'button',class:`evidence-row${entity.uncertain?' review':''}`,style:`--h:${hue(entity)}`,'data-entity':entity.id,'aria-pressed':'false',
-  onclick:()=>select(entity.id,{zoomTo:true}),onmouseenter:()=>hover(entity.id,true),onmouseleave:()=>hover(entity.id,false)},
+  onclick:()=>select(entity.id,{zoomTo:true,focusEvidence:true}),onmouseenter:()=>hover(entity.id,true),onmouseleave:()=>hover(entity.id,false)},
   el('span',{class:'n'},String(i+1)),
   el('span',{class:'what'},entity.label,el('small',{},[entity.quantityText,entity.context,entity.conf<1?`${Math.round(entity.conf*100)}% sure${entity.uncertain?', check it':''}`:null,
    state.scene.pages.length>1?`page ${entity.page+1}`:null,entity.polygon.length?null:'not drawn'].filter(Boolean).join(' · '))))));
@@ -361,7 +397,7 @@ export function showAnswer(raw,question,ms=null){
   state.rawAnswer={answer:null,unit:null,confidence:0,tier:'none',evidence:[],trace:[],error:error.message,cost_usd:0};
   state.result={evidence:[]};
  }
- state.question=question;state.ms=ms;state.selected=null;$('inspector').hidden=true;
+ state.generalView=false;state.question=question;state.ms=ms;state.selected=null;$('inspector').hidden=true;
  if(!state.editing)state.layers.clear();
  renderDrawingSide();renderAnswer();drawMarks();publish();
 }
@@ -381,7 +417,7 @@ function saveResult(question,rawAnswer,ms){
 let generation=0,reading=null;
 function resetDrawing(){
  abortAsk();generation++;previewLoader.cancel();
- Object.assign(state,{raw:null,scene:null,page:0,rawAnswer:null,result:null,question:'',ms:null,preview:null,selected:null,readError:null,editing:false,corrected:null});
+ Object.assign(state,{raw:null,scene:null,page:0,rawAnswer:null,result:null,question:'',ms:null,preview:null,selected:null,readError:null,generalView:true,editing:false,corrected:null});
  state.layers.clear();shownHistory=null;
  $('overlays').replaceChildren();$('inspector').hidden=true;$('page-rail').hidden=true;
  $('working').hidden=true;
