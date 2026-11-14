@@ -22,6 +22,12 @@ export function validateImageSize(width,height){
   if(!Number.isInteger(width)||!Number.isInteger(height)||width<1||height<1||width>16384||height>16384||width*height>32000000)throw new Error('This image is too large to process safely in the browser. Export it below 32 megapixels and 16,384 pixels per side.');
 }
 
+/** The largest size, at the same proportions, that passes validateImageSize; unchanged when it already fits. */
+export function fitImageSize(width,height){
+  const scale=Math.min(1,16384/Math.max(width,height),Math.sqrt(32000000/(width*height)));
+  return {width:Math.max(1,Math.floor(width*scale)),height:Math.max(1,Math.floor(height*scale))};
+}
+
 export function sourcePreviewKind(path){
   if(typeof path!=='string'||! /^(data|uploads)\//.test(path))return null;
   if(/\.pdf$/i.test(path))return 'pdf';
@@ -55,18 +61,20 @@ export async function prepareLocalDrawing(file){
   if(originalType==='application/pdf')return {blob:source,type:originalType,name:'drawing.pdf',converted:false};
   if(originalType==='image/vnd.dxf')return {blob:source,type:originalType,name:'drawing.dxf',converted:false};  // parsed on the server
   let bitmap;
-  try{bitmap=await createImageBitmap(source);}catch{throw new Error('Your browser could not decode this image. Export it as PNG or JPEG and try again.');}
+  // ponytail: an oversized image is decoded in full once (width*height*4 bytes) before it is shrunk; the browser refuses what it cannot hold. Read the header dimensions first if that bites.
+  try{bitmap=await createImageBitmap(source);}catch{throw new Error('Your browser could not decode this image. Export it as PNG or JPEG, at a lower resolution if it is very large, and try again.');}
   try{
-    validateImageSize(bitmap.width,bitmap.height);
-    const size={width:bitmap.width,height:bitmap.height};
-    if(['image/png','image/jpeg'].includes(originalType))return {blob:source,type:originalType,name:originalType==='image/png'?'drawing.png':'drawing.jpg',converted:false,...size};
-    const canvas=document.createElement('canvas');canvas.width=bitmap.width;canvas.height=bitmap.height;
+    // Oversized rasters are shrunk to the preview limits; the server reader works at 2,048 px on the long side anyway.
+    const size=fitImageSize(bitmap.width,bitmap.height),resized=size.width<bitmap.width||size.height<bitmap.height,jpeg=originalType==='image/jpeg';
+    const type=jpeg?'image/jpeg':'image/png',name=jpeg?'drawing.jpg':'drawing.png',converted=!jpeg&&originalType!=='image/png';
+    if(!resized&&!converted)return {blob:source,type,name,converted,resized,...size};
+    const canvas=document.createElement('canvas');canvas.width=size.width;canvas.height=size.height;
     const context=canvas.getContext('2d');if(!context)throw new Error('Image conversion is unavailable in this browser. Export as PNG or JPEG.');
-    context.drawImage(bitmap,0,0);
-    const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));
+    context.imageSmoothingQuality='high';context.drawImage(bitmap,0,0,size.width,size.height);
+    const blob=await new Promise(resolve=>canvas.toBlob(resolve,type,0.92));
     if(!blob)throw new Error('This image could not be converted. Export it as PNG or JPEG.');
-    if(blob.size>50*1024*1024)throw new Error('The converted PNG exceeds the server’s 50 MB limit. Reduce the image dimensions and try again.');
-    return {blob,type:'image/png',name:'drawing.png',converted:true,originalType,...size};
+    if(blob.size>50*1024*1024)throw new Error('The converted image exceeds the server’s 50 MB limit. Reduce the image dimensions and try again.');
+    return {blob,type,name,converted,resized,originalType,...size};
   }finally{bitmap.close();}
 }
 
