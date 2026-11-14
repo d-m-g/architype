@@ -4,12 +4,12 @@ Scope: all 2,358 Swiss Dwellings question records in the supplied preview, cover
 
 ## Operational checks
 
-- 65/65 floor plans parsed successfully using the team's unchanged `swiss_dxf@5` reader.
+- 65/65 floor plans parsed successfully using the team's unchanged `swiss_dxf@6` reader.
 - 65/65 source PNGs exist and match reported page dimensions.
 - Every entity has a valid page and normalized coordinates (validated by Scene).
 - Every answer's evidence IDs resolve to its source scene; no missing evidence IDs.
 - All 2,358 questions returned answers through the deterministic cached-plan/executor path, with external model calls disabled.
-- The local HTTP/UI smoke check is run separately before pushing.
+- The local production HTTP/UI check passed for Swiss v6: scene, answer, page image, 26 linked window highlights, source references and the duplicate-count explanation. The file picker, PNG preview, raw-byte upload, upload ID/question handoff and missing-model-key recovery were also checked in the browser.
 
 ## Reference scoring
 
@@ -29,4 +29,6 @@ Only the provided preview is available locally; this does not certify the full c
 
 ## Reproduction
 
-Set `BLUEPRINTS_CACHE` to a fresh directory under `frontend-d/.cache/`. Disable external model keys for this offline check. Run the existing `eval.py` with `--data <preview root> --source swiss_dwellings --split all --out frontend-d/.cache/swiss-dark-mode-verification.jsonl`. Keep reference-bearing JSONL and scene caches out of commits and runtime retrieval.
+Set `BLUEPRINTS_CACHE` to a fresh directory under `frontend-d/.cache/`. Disable external model keys for this offline check. Run the existing `eval.py` with `--data <preview root> --source swiss_dwellings --split all --out frontend-d/.cache/swiss-dark-mode-verification-v6.jsonl`. Keep reference-bearing JSONL and scene caches out of commits and runtime retrieval.
+
+The v6 audit was repeated after pulling the entity-placement, agent-budget and pipeline-trace updates (upstream main a3390c6). Counts and scores were unchanged, and all source images and evidence IDs were rechecked.

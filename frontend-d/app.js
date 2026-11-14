@@ -1,5 +1,5 @@
 import {historyStore} from './history-state.js';
-import {requestDrawing,getConnectionStatus,isDrawingPath,recoveryMessage} from './api-client.js';
+import {requestDrawing,getConnectionStatus,isDrawingPath,recoveryMessage,LIVE_REQUEST_TIMEOUT_MS} from './api-client.js';
 import {publishEditor} from './editor-bridge.js';
 import {scene as mockScene,scenarios,resolveMockQuestion,zoomView} from './mock-scene.js';
 import {adaptScene,adaptAnswer,adaptAnswerEvidence,imageURL} from './contracts.js';
@@ -65,7 +65,7 @@ async function askAPI(){
  window.dispatchEvent(new Event('stoa:close-local'));
  const path=$('api-path').value.trim(),question=$('question').value.trim();
  if(!isDrawingPath(path)||!question){$('contract-status').textContent='Enter a data/ or uploads/ drawing path and a question.';return;}
- lastRequest={path,question};apiAbort?.abort();apiAbort=new AbortController();const controller=apiAbort,id=++requestNumber;const timer=setTimeout(()=>controller.abort(),60000);
+ lastRequest={path,question};apiAbort?.abort();apiAbort=new AbortController();const controller=apiAbort,id=++requestNumber;const timer=setTimeout(()=>controller.abort(),LIVE_REQUEST_TIMEOUT_MS);
  openPending(path,question);setBusy(true);$('contract-status').textContent='Requesting scene and answer from the team API…';
  try{
   const response=await requestDrawing(path,question,controller.signal,message=>{if(id===requestNumber)$('contract-status').textContent=message;});if(id!==requestNumber)return;

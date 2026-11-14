@@ -1,3 +1,5 @@
+// Covers scene extraction plus the backend agent budget; cancellation stays explicit.
+export const LIVE_REQUEST_TIMEOUT_MS=300000;
 export async function requestJSON(url,options={}){
  const response=await fetch(url,{...options,signal:options.signal??AbortSignal.timeout(60000)});
  let value;try{value=await response.json();}catch{throw new Error(`Unexpected response (${response.status}). Run the frontend proxy, not a static-only server.`);}
@@ -17,7 +19,7 @@ export async function requestDrawing(path,question,signal,onProgress=()=>{}){
  onProgress('Loading drawing evidence…');
  const [scene]=await Promise.allSettled([requestJSON(`/api/scene?${new URLSearchParams({path})}`,{signal})]);
  if(signal?.aborted)throw new DOMException('Request cancelled','AbortError');
- onProgress('Asking the live question…');
+ onProgress('Asking the live question… Complex questions may take a few minutes; you can cancel.');
  const [answer]=await Promise.allSettled([requestJSON('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path,question}),signal})]);
  if(signal?.aborted)throw new DOMException('Request cancelled','AbortError');
  return {scene:scene.status==='fulfilled'?scene.value:null,answer:answer.status==='fulfilled'?answer.value:null,errors:[scene.status==='rejected'?`Scene: ${scene.reason.message}`:null,answer.status==='rejected'?`Answer: ${answer.reason.message}`:null].filter(Boolean)};

@@ -4,12 +4,12 @@
  */
 import assert from 'node:assert/strict';
 import {adaptScene,adaptAnswer,imageURL} from './contracts.js';
-import {apiCapabilities} from './api-client.js';
+import {apiCapabilities,LIVE_REQUEST_TIMEOUT_MS} from './api-client.js';
 const [origin='http://127.0.0.1:8001',path,question='How many windows are on this floor?']=process.argv.slice(2);
 if(!path?.startsWith('data/')&&!path?.startsWith('uploads/'))throw new Error('Supply an existing data/ drawing path.');
 const url=p=>new URL(p,origin);
 async function request(route,options={}){
- const response=await fetch(url(route),{...options,signal:AbortSignal.timeout(60000)});
+ const response=await fetch(url(route),{...options,signal:AbortSignal.timeout(LIVE_REQUEST_TIMEOUT_MS)});
  return {status:response.status,ok:response.ok,value:await response.json()};
 }
 const home=await fetch(url('/'));assert.equal(home.status,200);assert.match(await home.text(),/id="drawing"/);

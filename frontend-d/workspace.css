@@ -270,3 +270,4 @@ html{scroll-padding-top:88px}
 @media(max-width:650px){.theme-toggle{width:44px;padding:8px;min-width:44px}.theme-label{display:none}.figma-workspace .top-actions{gap:7px}.figma-workspace .mock-badge{max-width:155px}}
 @media(forced-colors:active){.theme-toggle[aria-pressed=true]{outline:2px solid Highlight}.figma-workspace button{forced-color-adjust:auto}}
 @media(max-width:650px){.figma-workspace .mock-badge{max-width:min(155px,calc(100vw - 190px))}}
+:root[data-theme=dark] .figma-workspace .connection-status{background:var(--paper);color:var(--ink);border-color:var(--line)}

@@ -1,3 +1,4 @@
+import {LIVE_REQUEST_TIMEOUT_MS} from './api-client.js';
 import http from 'node:http';
 import {readFile,realpath,stat} from 'node:fs/promises';
 import path from 'node:path';
@@ -6,7 +7,7 @@ import {fileURLToPath} from 'node:url';
 const root=path.dirname(fileURLToPath(import.meta.url));
 const types={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.json':'application/json','.txt':'text/plain; charset=utf-8'};
 function sendJSON(res,status,value){res.writeHead(status,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify(value));}
-export function createFrontendServer({apiOrigin='http://127.0.0.1:8000',timeout=60000}={}){
+export function createFrontendServer({apiOrigin='http://127.0.0.1:8000',timeout=LIVE_REQUEST_TIMEOUT_MS}={}){
  const target=new URL(apiOrigin);
  if(target.protocol!=='http:'||!['127.0.0.1','localhost','[::1]'].includes(target.hostname)||target.username||target.password||target.pathname!=='/'||target.search||target.hash)throw new Error('API origin must be a loopback HTTP origin without credentials or a path.');
  return http.createServer(async(req,res)=>{

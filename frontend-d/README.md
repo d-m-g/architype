@@ -185,3 +185,5 @@ Use the Dark mode button in the header or Settings → Appearance to choose Ligh
 Navigation, evidence cards, forms, evaluation tables, notices and 3D surroundings share the theme. Source drawing images and their evidence colour conventions are preserved; no inversion filter is applied. Switching appearance keeps the current question, answer and evidence in place. The dashboard redirect returns to the same themed workspace.
 
 Swiss verification results for all 65 floor plans and 2,358 question records in the supplied preview are recorded in SWISS-VERIFICATION.md, including the 150 duplicate-policy reference disagreements. No parser code was modified.
+
+After pulling the updated agent budget, live question requests and the local proxy allow up to five minutes for scene extraction plus agent work. The UI explains the wait and keeps Cancel available; uploads and connection checks retain their shorter limits.
