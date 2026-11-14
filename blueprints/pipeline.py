@@ -106,6 +106,15 @@ def get_scene(path: str) -> Scene:
         # cached before this (or while the reader was down) get their rooms the next time they are opened.
         from .brain.vision import add_rooms
         fresh = add_rooms(scene, path) or fresh
+    if read_as_image(path) and "room" in scene.covers:
+        # The reader's rooms are boxes. The segmenter turns them into outlines, and one printed room area gives the
+        # scale for every other room's area, perimeter and wall area. Skipped when it is down; tried again next time.
+        from .brain.vision import drawing_file
+        from .detector import rooms
+        try:
+            fresh = rooms.outline_rooms(scene, drawing_file(path)) or fresh
+        except NotImplementedError:
+            pass
     scene = add_room_types(scene)
     if fresh:
         _BUILT_NOW.add(path)
