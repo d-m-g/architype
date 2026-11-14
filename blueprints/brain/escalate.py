@@ -89,7 +89,10 @@ def answer_from_vision(question: str, path: str, draft: Answer | None = None) ->
     if kind:
         return Answer(tier="llm", error=f"not a floor plan (read as: {kind}); this tool answers questions about floor plans",
                       trace=draft.trace + (vision.trace if fresh else []))
-    plan, plan_steps = plan_with_trace(question, vision)
+    try:
+        plan, plan_steps = plan_with_trace(question, vision)
+    except NotImplementedError as e:  # no plan fits (or no planner): escalate() hands it to the agent
+        return Answer(tier="llm", error=str(e), trace=draft.trace + getattr(e, "steps", []) + (vision.trace if fresh else []))
     result = execute(plan, vision)
     hits = set(result.evidence)
     return result.model_copy(update={
