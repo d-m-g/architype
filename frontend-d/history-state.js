@@ -23,6 +23,23 @@ export function createHistoryStore(limit=20) {
 }
 export const historyStore=createHistoryStore();
 
+/** The conversation so far, for the server to read a follow-up question against ("and the bedrooms?").
+ *  entries: a drawing's history, newest first, as historyStore.list gives it. after: the id of the last entry that was
+ *  there when the drawing was opened, so opening a drawing starts a fresh conversation. Each turn carries only what
+ *  resolves a reference: never the scene or the full trace. The server cuts and validates it again. */
+export function conversationTurns(entries,{after=0,path=null,limit=4}={}){
+ const text=(value,max)=>typeof value==='string'&&value.trim()?value.trim().slice(0,max):undefined;
+ return entries.filter(entry=>Number(entry.id)>after&&entry.question&&entry.payload?.rawAnswer).slice(0,limit).reverse().map(entry=>{
+  const answer=entry.payload.rawAnswer,evidence=Array.isArray(answer.evidence)?answer.evidence:[];
+  // the plan or query that produced the answer, as the trace describes it
+  const query=(answer.trace??[]).filter(step=>['plan','execute'].includes(step.step)&&step.detail).map(step=>step.detail).join(' | ');
+  const turn={question:text(entry.question,300),answer:answer.answer??undefined,unit:answer.unit??undefined,error:answer.answer==null?text(answer.error,200):undefined,
+   interpretation:text(answer.interpretation,200),query:text(query,800),assumptions:Object.keys(answer.assumptions??{}).length?answer.assumptions:undefined,
+   evidence:evidence.length?evidence.slice(0,12):undefined,evidence_count:evidence.length||undefined,path:path??undefined};
+  return Object.fromEntries(Object.entries(turn).filter(([,value])=>value!==undefined));
+ });
+}
+
 /** Large scenes belong in IndexedDB, rather than the small localStorage quota. */
 export function createWorkspaceStorage(indexedDB=globalThis.indexedDB){
  let database;

@@ -117,21 +117,21 @@ TOOLS = [
 ]
 
 
-def escalate(question: str, path: str, scene: Scene | None, draft: Answer) -> Answer:
+def escalate(question: str, path: str, scene: Scene | None, draft: Answer, history: list | None = None) -> Answer:
     """Return a new Answer with tier="llm", keeping draft.trace. Raise NotImplementedError to keep the draft."""
     if scene is None:
         if path.lower().endswith(".ifc"):  # a model, not a picture: the vision reader cannot read it
             raise NotImplementedError("the IFC model could not be read")
-        result = answer_from_vision(question, path, draft)
+        result = answer_from_vision(question, path, draft, history)
         from .vision import not_a_floor_plan, read_scene
         vision = read_scene(path)[0]
         if result.answer is not None or not_a_floor_plan(vision) or refinement_exhausted(result):
             return result
-        return agent(question, vision, result, inline_evidence=True)
-    return agent(question, scene, draft, inline_evidence=False)
+        return agent(question, vision, result, inline_evidence=True, history=history)
+    return agent(question, scene, draft, inline_evidence=False, history=history)
 
 
-def answer_from_vision(question: str, path: str, draft: Answer | None = None) -> Answer:
+def answer_from_vision(question: str, path: str, draft: Answer | None = None, history: list | None = None) -> Answer:
     """Answer on the Gemini vision scene: for drawings with no builder, and for uploads."""
     draft = draft or Answer()
     from .vision import not_a_floor_plan, read_scene
@@ -147,7 +147,7 @@ def answer_from_vision(question: str, path: str, draft: Answer | None = None) ->
     else:  # any other wording: decided from what the vision scene holds (resolve.py)
         from .resolve import resolve as from_data
         try:
-            result = from_data(question, vision)
+            result = from_data(question, vision, None, history)
         except NotImplementedError as e:  # no model to decide with: escalate() hands it to the agent
             return Answer(tier="llm", error=str(e), trace=draft.trace + getattr(e, "steps", []) + (vision.trace if fresh else []))
     hits = set(result.evidence)
@@ -327,7 +327,7 @@ _down_until: dict[str, float] = {}  # model -> monotonic time until which it is 
 SKIP_AFTER_FAILURE_S = 300  # ponytail: per-process memory; a shared health check if we ever run several workers
 
 
-def agent(question: str, scene: Scene, draft: Answer, inline_evidence: bool) -> Answer:
+def agent(question: str, scene: Scene, draft: Answer, inline_evidence: bool, history: list | None = None) -> Answer:
     """Nemotron with scene tools, falling back to Gemini with the same tools if Nemotron does not respond.
     inline_evidence: return evidence as full entities (the viewer has no scene to look up)."""
     providers = [(NEMOTRON_URL, os.environ.get(NEMOTRON_KEY_VAR), NEMOTRON_MODEL,
@@ -343,7 +343,7 @@ def agent(question: str, scene: Scene, draft: Answer, inline_evidence: bool) -> 
             failures.append(f"{model}: failed recently, skipped")
             continue
         try:
-            return _agent_loop(question, scene, draft, inline_evidence, url, key, model, extra, deadline, failures)
+            return _agent_loop(question, scene, draft, inline_evidence, url, key, model, extra, deadline, failures, history)
         except _Unavailable as e:
             _down_until[model] = time.monotonic() + SKIP_AFTER_FAILURE_S
             failures.append(f"{model}: {e}")
@@ -360,13 +360,14 @@ def _same_value(a, b) -> bool:
         return str(a).strip().casefold() == str(b).strip().casefold()
 
 
-def _agent_loop(question, scene, draft, inline_evidence, url, key, model, extra, deadline, failures) -> Answer:
+def _agent_loop(question, scene, draft, inline_evidence, url, key, model, extra, deadline, failures, history=None) -> Answer:
     import openai
-    from .resolve import inventory
-    context = (f"Question: {question}\n\nInventory of the scene:\n{inventory(scene)}\n\n"
+    from .resolve import HISTORY_RULES, clean_history, history_block, inventory
+    history = clean_history(history, scene)  # the same capped, quoted turns the decision call gets
+    context = (f"{history_block(history)}Question: {question}\n\nInventory of the scene:\n{inventory(scene)}\n\n"
                f"The cheap path said: {draft.answer!r} (confidence {draft.confidence:.2f}){f'; error: {draft.error}' if draft.error else ''}.")
     system, tools = instructions(scene)
-    messages = [{"role": "system", "content": system}, {"role": "user", "content": context}]
+    messages = [{"role": "system", "content": system + (HISTORY_RULES if history else "")}, {"role": "user", "content": context}]
     # A provider that failed first is still on the card: the failed attempt shows as a zero-cost step.
     steps: list[TraceStep] = [TraceStep(step=f"escalate:unavailable {f.split(':')[0]}") for f in failures]
     force_answer = False

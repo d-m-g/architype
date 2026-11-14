@@ -119,8 +119,10 @@ def get_scene(path: str) -> Scene:
     return scene
 
 
-def answer(path: str, question: str, assumptions: dict | None = None) -> Answer:
-    """assumptions: values the user supplies for what the drawing does not hold (a ceiling height, a price)."""
+def answer(path: str, question: str, assumptions: dict | None = None, history: list | None = None) -> Answer:
+    """assumptions: values the user supplies for what the drawing does not hold (a ceiling height, a price).
+    history: the conversation's earlier turns, from the client, so a follow-up question can refer to them. A question
+    whose shape has a cached plan is complete by construction and is answered the same with or without it."""
     scene = None
     steps = []
     settled = False  # the data-first resolver answered or abstained on a parsed file: nothing else may read sizes off it
@@ -140,7 +142,7 @@ def answer(path: str, question: str, assumptions: dict | None = None) -> Answer:
             result = checked(result, plan, scene)  # rooms the vision reader added to an upload: no surer than the reader
         else:  # any other wording: look at what the scene holds, then decide (one model call, none on a repeat)
             from .brain.resolve import resolve
-            result = resolve(question, scene, assumptions)
+            result = resolve(question, scene, assumptions, history)
             settled = scene.tier == "parse"
     except Exception as e:  # a crashed builder (e.g. an undeployed Modal app) escalates instead of failing the answer
         steps += getattr(e, "steps", [])  # the planner's cost when it judged the question unsupported
@@ -152,7 +154,7 @@ def answer(path: str, question: str, assumptions: dict | None = None) -> Answer:
     if result.answer is None or result.confidence < ESCALATE_BELOW:
         try:
             from .brain.escalate import escalate
-            result = escalate(question, path, scene, result)
+            result = escalate(question, path, scene, result, **({"history": history} if history else {}))
         except NotImplementedError:
             pass
     if result.answer is not None:
