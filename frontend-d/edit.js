@@ -1,7 +1,7 @@
 /** Correct what the reader found: remove a false detection (and the ones that look like it), confirm a doubtful
  * one, resize a box by its corners, draw a missed one.
  * The answer is recalculated by the server's executor on the corrected scene, with no model call. */
-import {$,el,state,setScene,showAnswer,answerFromScene,track,onInspect,svgPoint,select} from './main.js';
+import {$,el,state,setScene,showAnswer,answerFromScene,track,onInspect,svgPoint,select,showOnDrawing} from './main.js';
 import {requestJSON,getDrawingScene,recoveryMessage} from './api-client.js';
 import {subscribeEditor} from './editor-bridge.js';
 import {imageURL} from './contracts.js';
@@ -161,22 +161,26 @@ onInspect((entity,box)=>{
   }});
   const sync=()=>{
    for(const id of ids)markOf(id)?.classList.toggle('alike',chosen.has(id));
-   for(const node of crops.children)node.setAttribute('aria-pressed',String(chosen.has(node.dataset.alike)));
+   for(const node of crops.children){const on=chosen.has(node.dataset.alike);node.classList.toggle('kept',!on);node.lastChild.checked=on;}
    remove.textContent=`Remove this and ${chosen.size} like it`;remove.disabled=!chosen.size;
-   note.textContent=`${ids.length} look like it; ${chosen.size} will be removed with it. Click a crop or its outline to keep or remove that one.`;
+   note.textContent=`${ids.length} look like it; ${chosen.size} will be removed with it. Click a crop to see it on the drawing; untick the ones to keep.`;
   };
   alike={ids,toggle:id=>{chosen.has(id)?chosen.delete(id):chosen.add(id);sync();}};
   actions.append(remove);box.append(note,crops);sync();
  }).catch(()=>{});  // no look-alikes offered (a PDF page, the server unreachable); Remove still works
 });
-/** A small crop of the drawing around one item, as a toggle: pressed means it will be removed. Pointing at it lights up its outline. */
+/** One look-alike: a small crop of the drawing that, clicked, moves the view to the item and lights up its outline
+ * (the selection stays), and a tick box: ticked means it is removed with the selected item. */
 function crop(id,toggle){
  const entity=state.scene.entities.find(e=>e.id===id),page=state.raw.pages[entity.page],[x0,y0,x1,y1]=bounds(entity.polygon),pad=Math.max(x1-x0,y1-y0)*.25;
- const node=el('button',{class:'alike-crop',type:'button','data-alike':id,'aria-pressed':'true','aria-label':entity.label,onclick:toggle,
-  onmouseenter:()=>markOf(id)?.classList.add('hot'),onmouseleave:()=>markOf(id)?.classList.remove('hot')});
+ const go=el('button',{class:'alike-go',type:'button','aria-label':`Show this ${entity.label} on the drawing`,title:'Show on the drawing',onclick:()=>{
+  for(const node of layer.querySelectorAll('.hot'))node.classList.remove('hot');
+  showOnDrawing(id);markOf(id)?.classList.add('hot');
+ }});
  // Numbers and an encoded URL only, so this markup is safe to build as text; el() makes no <svg> or <image>.
- node.innerHTML=`<svg viewBox="${x0-pad} ${y0-pad} ${x1-x0+2*pad} ${y1-y0+2*pad}" aria-hidden="true"><image href="${imageURL(page.image)}" width="${page.width}" height="${page.height}"/></svg>`;
- return node;
+ go.innerHTML=`<svg viewBox="${x0-pad} ${y0-pad} ${x1-x0+2*pad} ${y1-y0+2*pad}" aria-hidden="true"><image href="${imageURL(page.image)}" width="${page.width}" height="${page.height}"/></svg>`;
+ return el('span',{class:'alike-crop','data-alike':id},go,
+  el('input',{type:'checkbox',checked:true,'aria-label':`Remove this ${entity.label} too`,title:'Ticked: removed with the selected one',onchange:toggle}));
 }
 
 // Resize: drag a corner handle of the selected box; the opposite corner stays where it is.

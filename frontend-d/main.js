@@ -119,6 +119,12 @@ function updateView(sync=true){
 }
 const MARGIN=1.06;  // "Fit" leaves a little desk around the paper
 export function fit(){const {w,h}=pageSize(),m=(MARGIN-1)/2;view={x:-w*m,y:-h*m,w:w*MARGIN,h:h*MARGIN};updateView();}
+/** Point the camera at one item on this page without selecting it: Correct mode shows a look-alike while the selection stays. */
+export function showOnDrawing(id){
+ const entity=entityById(id);
+ if(!entity?.polygon.length||entity.page!==state.page)return;
+ view=objectFocusViewport(entity.polygon,pageSize(),stageBox());updateView();
+}
 /** Point the camera at what the answer counted, with room around it; a whole-page answer just fits the page. */
 function frameEvidence(){
  const points=evidenceIds().map(entityById).filter(e=>e?.page===state.page).flatMap(e=>e.polygon);
