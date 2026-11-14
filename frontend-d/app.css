@@ -156,6 +156,13 @@ main>section{height:100%}
 .draw-preview polygon.region-shape{stroke-dasharray:6 3;fill-opacity:.18}
 /* The items that show the same symbol as the selected one, offered for removal together. */
 .edit-mark.alike polygon.region-shape{stroke:#c2410c;fill:#c2410c;fill-opacity:.3;stroke-width:3;stroke-dasharray:5 3}
+/* The look-alike a crop in the inspector points at. */
+.edit-mark.hot polygon.region-shape{fill-opacity:.55;stroke-width:5}
+/* The look-alikes as crops of the drawing: orange ones go with the selected item, faded ones are kept. */
+.alike-list{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;max-height:150px;overflow:auto}
+.alike-crop{width:44px;height:44px;padding:0;border:2px solid #c2410c;border-radius:6px;background:#fff;cursor:pointer;overflow:hidden}
+.alike-crop svg{display:block;width:100%;height:100%}
+.alike-crop[aria-pressed=false]{border-color:var(--line);opacity:.4}
 /* Corner handles of the selected box; --u keeps them one size on screen at every zoom, like the number badges. */
 .edit-handle{transform:translate(calc(var(--x)*1px),calc(var(--y)*1px)) scale(var(--u,1));fill:#fff;stroke:#1f4fd8;stroke-width:2;cursor:nwse-resize}
 .edit-handle:is([data-corner="1"],[data-corner="3"]){cursor:nesw-resize}

@@ -4,10 +4,12 @@
 import {$,el,state,setScene,showAnswer,answerFromScene,track,onInspect,svgPoint,select} from './main.js';
 import {requestJSON,getDrawingScene,recoveryMessage} from './api-client.js';
 import {subscribeEditor} from './editor-bridge.js';
+import {imageURL} from './contracts.js';
 
 const ADD=[['door','door',null],['window','window',null],['toilet','fixture','toilet'],['sink','fixture','sink'],['bathtub','fixture','bathtub'],['shower','fixture','shower']];
 const svg=$('drawing'),layer=$('edit-layer');
 let undo=[],drawing=false,drawDrag=null,suppressDrawClick=false,resize=null;  // resize: the corner drag in progress
+let alike=null;  // the selected item's look-alikes: {ids, toggle(id)}; each can be kept or removed with it
 const hint=text=>{$('edit-hint').textContent=text;};
 $('edit-kind').replaceChildren(...ADD.map(([name],i)=>new Option(name,String(i))));
 
@@ -29,7 +31,8 @@ function paint(){
  const area=e=>{const [x0,y0,x1,y1]=bounds(e.polygon);return (x1-x0)*(y1-y0);};
  const items=state.scene.entities.filter(e=>e.page===state.page&&e.polygon.length>=3&&!['apartment','level'].includes(e.type)).sort((a,b)=>area(b)-area(a));
  for(const entity of items)layer.append(el('g',{class:`edit-mark${entity.id.startsWith('user-')?' added':''}`,role:'button',tabindex:'0','aria-label':entity.label,'data-entity':entity.id,
-  onclick:()=>{if(!drawing)select(entity.id);},onkeydown:event=>{if(event.key==='Enter'){event.preventDefault();select(entity.id);}}},
+  // A look-alike of the selected item is ticked or unticked where it is; anything else is selected.
+  onclick:()=>{if(drawing)return;if(alike?.ids.includes(entity.id))alike.toggle(entity.id);else select(entity.id);},onkeydown:event=>{if(event.key==='Enter'){event.preventDefault();select(entity.id);}}},
   ...['halo-dark','halo-light','region-shape'].map(kind=>el('polygon',{class:kind,points:pointsAttr(entity.polygon)}))));
  paintSelection();
 }
@@ -38,7 +41,8 @@ let shown=null;
 function paintSelection(){
  shown=state.selected;
  for(const node of layer.querySelectorAll('.edit-handle'))node.remove();
- for(const node of layer.querySelectorAll('.alike'))node.classList.remove('alike');
+ alike=null;
+ for(const node of layer.querySelectorAll('.alike,.hot'))node.classList.remove('alike','hot');
  const entity=state.editing&&!drawing?state.scene?.entities.find(e=>e.id===state.selected):null;
  if(!resizable(entity))return;
  layer.append(...corners(bounds(entity.polygon)).map(([x,y],i)=>el('circle',{class:'edit-handle',r:6,'data-corner':i,style:`--x:${x};--y:${y}`})));
@@ -142,15 +146,37 @@ onInspect((entity,box)=>{
   entity.uncertain?el('button',{class:'btn',type:'button',onclick:()=>change(state.raw.entities.map(e=>e.id===entity.id?{...e,conf:1}:e),`Confirmed ${entity.label}`)},'It is right'):null);
  box.append(actions);
  if(entity.polygon.length<3)return;
- // One wrong detection is rarely alone: outline the others that show the same symbol and offer to remove them together.
+ // One wrong detection is rarely alone: show the others that look like it, each as a small crop of the drawing, and
+ // offer to remove them together. Some may be right after all, so each can be kept: click its crop or its outline.
  lookAlikes(entity).then(ids=>{
   if(!ids.length||!actions.isConnected)return;  // nothing alike, or the selection moved on
-  for(const id of ids)markOf(id)?.classList.add('alike');
-  const gone=new Set([entity.id,...ids]);
-  actions.append(el('button',{class:'btn',type:'button',title:'The outlined items show the same symbol on the drawing. It is remembered and set aside on drawings you upload from now on.',
-   onclick:()=>change(state.raw.entities.filter(e=>!gone.has(e.id)),`Removed ${entity.label} and ${ids.length} that look like it; the symbol is remembered for later drawings`,null,remember(entity))},`Remove this and ${ids.length} like it`));
+  const chosen=new Set(ids);
+  const note=el('p',{class:'muted small'}),crops=el('div',{class:'alike-list',role:'group','aria-label':'Items that look like it'},...ids.map(id=>crop(id,()=>alike.toggle(id))));
+  const remove=el('button',{class:'btn',type:'button',onclick:()=>{
+   const all=chosen.size===ids.length,gone=new Set([entity.id,...chosen]);
+   // The symbol is remembered for later drawings only when every look-alike was wrong: if some were right, it is no proof.
+   change(state.raw.entities.filter(e=>!gone.has(e.id)),`Removed ${entity.label} and ${chosen.size} that look like it; `+
+    (all?'the symbol is remembered for later drawings':`${ids.length-chosen.size} kept`),null,all?remember(entity):null);
+  }});
+  const sync=()=>{
+   for(const id of ids)markOf(id)?.classList.toggle('alike',chosen.has(id));
+   for(const node of crops.children)node.setAttribute('aria-pressed',String(chosen.has(node.dataset.alike)));
+   remove.textContent=`Remove this and ${chosen.size} like it`;remove.disabled=!chosen.size;
+   note.textContent=`${ids.length} look like it; ${chosen.size} will be removed with it. Click a crop or its outline to keep or remove that one.`;
+  };
+  alike={ids,toggle:id=>{chosen.has(id)?chosen.delete(id):chosen.add(id);sync();}};
+  actions.append(remove);box.append(note,crops);sync();
  }).catch(()=>{});  // no look-alikes offered (a PDF page, the server unreachable); Remove still works
 });
+/** A small crop of the drawing around one item, as a toggle: pressed means it will be removed. Pointing at it lights up its outline. */
+function crop(id,toggle){
+ const entity=state.scene.entities.find(e=>e.id===id),page=state.raw.pages[entity.page],[x0,y0,x1,y1]=bounds(entity.polygon),pad=Math.max(x1-x0,y1-y0)*.25;
+ const node=el('button',{class:'alike-crop',type:'button','data-alike':id,'aria-pressed':'true','aria-label':entity.label,onclick:toggle,
+  onmouseenter:()=>markOf(id)?.classList.add('hot'),onmouseleave:()=>markOf(id)?.classList.remove('hot')});
+ // Numbers and an encoded URL only, so this markup is safe to build as text; el() makes no <svg> or <image>.
+ node.innerHTML=`<svg viewBox="${x0-pad} ${y0-pad} ${x1-x0+2*pad} ${y1-y0+2*pad}" aria-hidden="true"><image href="${imageURL(page.image)}" width="${page.width}" height="${page.height}"/></svg>`;
+ return node;
+}
 
 // Resize: drag a corner handle of the selected box; the opposite corner stays where it is.
 svg.addEventListener('pointerdown',event=>{
