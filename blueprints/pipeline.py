@@ -137,6 +137,9 @@ def answer(path: str, question: str) -> Answer:
         steps += getattr(e, "steps", [])  # the planner's cost when it judged the question unsupported
         result = Answer(error=str(e) if isinstance(e, NotImplementedError) else f"{type(e).__name__}: {e}")
     result.trace = steps + result.trace
+    from .brain.room_link_vision import refinement_exhausted
+    if refinement_exhausted(result):
+        return result  # exact scoped count already tried vision; retain evidence gap without paid agent loops
     if result.answer is None or result.confidence < ESCALATE_BELOW:
         try:
             from .brain.escalate import escalate

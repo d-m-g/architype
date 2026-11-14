@@ -19,7 +19,7 @@ from ..executor import execute
 from ..room_queries import ROOM_FILTERS
 from ..schemas import Answer, QueryPlan, Scene, TraceStep
 from .plan import GEMINI_URL, plan_with_trace
-from .room_link_vision import execute_with_links, resolve
+from .room_link_vision import execute_with_links, resolve, refinement_exhausted
 
 # ponytail: fixed confidences; replace with per-question-kind accuracy measured on the train split.
 VISION_CONFIDENCE = 0.7
@@ -99,7 +99,7 @@ def escalate(question: str, path: str, scene: Scene | None, draft: Answer) -> An
         result = answer_from_vision(question, path, draft)
         from .vision import not_a_floor_plan, read_scene
         vision = read_scene(path)[0]
-        if result.answer is not None or not_a_floor_plan(vision):
+        if result.answer is not None or not_a_floor_plan(vision) or refinement_exhausted(result):
             return result
         return agent(question, vision, result, inline_evidence=True)
     return agent(question, scene, draft, inline_evidence=False)

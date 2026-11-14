@@ -145,6 +145,30 @@ class VisionRoomLinks(unittest.TestCase):
         self.assertEqual((step.in_tokens, step.out_tokens), (1000, 100))
         self.assertGreater(step.usd, 0)
 
+    def test_provider_totals_include_thinking_cost_and_bad_record_does_not_drop_valid_one(self):
+        from PIL import Image
+        file = self.root/"plan.png"
+        Image.new("RGB", (400, 400), "white").save(file)
+        response = SimpleNamespace(usage=SimpleNamespace(prompt_tokens=1000, completion_tokens=100, total_tokens=1500),
+            choices=[SimpleNamespace(finish_reason="stop", message=SimpleNamespace(content=json.dumps({"links": [
+                decision().model_dump(), {"object_id": "bad", "missing": "required fields"}]})))])
+        with patch.object(links, "drawing_file", return_value=file), patch("openai.OpenAI") as client:
+            client.return_value.chat.completions.create.return_value = response
+            records, step = links._request(self.scene, [self.scene.entities[-1]])
+            self.assertEqual(client.return_value.chat.completions.create.call_args.kwargs["reasoning_effort"], "low")
+        self.assertEqual([r.object_id for r in records], ["d"])
+        self.assertEqual(step.out_tokens, 500)
+
+    def test_exact_count_does_not_pay_for_agent_after_negative_vision_review(self):
+        from blueprints.brain import plan, escalate
+        with patch.object(pipeline, "get_scene", return_value=self.scene), \
+             patch.object(plan, "plan_with_trace", return_value=(self.plan, [])), \
+             patch.object(escalate, "escalate", side_effect=AssertionError("no redundant agent")), \
+             self.mock_request([decision(clear=False)]) as request:
+            self.assertIsNone(pipeline.answer(self.scene.path, "How many doors in room 1?").answer)
+            self.assertIsNone(pipeline.answer(self.scene.path, "How many doors in room 1?").answer)
+            self.assertEqual(request.call_count, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

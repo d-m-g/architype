@@ -18,7 +18,7 @@ from ..schemas import TraceStep
 from .plan import GEMINI_URL
 from .vision import VISION_MODEL, drawing_file
 
-VERSION = "room-link-vision@3"
+VERSION = "room-link-vision@4"
 MAX_OBJECTS = 24
 MAX_BATCHES = 3
 _lock = threading.RLock()
@@ -175,14 +175,16 @@ objects, never return a count. Every endpoint needs kind, room_id (null for non-
 """+json.dumps({"rooms": descriptions, "objects": objects})
     client = openai.OpenAI(api_key=os.environ["GEMINI_API_KEY"], base_url=GEMINI_URL, max_retries=0, timeout=60)
     t = time.perf_counter()
-    response = client.chat.completions.create(model=VISION_MODEL, temperature=0, max_tokens=4096,
+    response = client.chat.completions.create(model=VISION_MODEL, temperature=0, max_tokens=8192, reasoning_effort="low",
         response_format={"type": "json_object"},
         messages=[{"role": "user", "content": [
             {"type": "image_url", "image_url": {"url": "data:image/png;base64,"+base64.b64encode(raw.getvalue()).decode()}},
             {"type": "image_url", "image_url": {"url": "data:image/png;base64,"+base64.b64encode(overlay.getvalue()).decode()}},
             {"type": "text", "text": prompt}]}])
     usage = response.usage
-    step = llm_step("resolve_room_connections", VISION_MODEL, usage.prompt_tokens, usage.completion_tokens, (time.perf_counter()-t)*1000)
+    # Some compatible providers report visible completion tokens separately from thinking tokens.
+    output_tokens = max(usage.completion_tokens, (getattr(usage, "total_tokens", 0) or 0)-usage.prompt_tokens)
+    step = llm_step("resolve_room_connections", VISION_MODEL, usage.prompt_tokens, output_tokens, (time.perf_counter()-t)*1000)
     text = response.choices[0].message.content or ""
     links = []
     invalid = 0
@@ -200,6 +202,7 @@ objects, never return a count. Every endpoint needs kind, room_id (null for non-
     except (ValueError, TypeError):
         # This is generated analysis of the user's drawing, never a request/header/provider-error body.
         step.detail = "Malformed model reply: "+text[:600]
+    step.detail += f" Finish: {getattr(response.choices[0], 'finish_reason', None)}; reported completion {usage.completion_tokens}, billed output {output_tokens}."
     return links, step
 
 
@@ -213,7 +216,8 @@ def resolve(scene, kind):
         pending = [e for e in scene.entities if e.type == kind and e.attrs.get("room_link_status") in ("partial", "uncertain")
                    and e.geom and not _file(directory, e).exists()][:MAX_OBJECTS]
         if not pending or not os.environ.get("GEMINI_API_KEY"):
-            return [TraceStep(step="resolve_room_connections", cached=True, detail=f"Reused {reused} vision connections; no new model call.")] if reused else []
+            reviewed = any(e.type == kind and "room_link_review" in e.attrs for e in scene.entities)
+            return [TraceStep(step="resolve_room_connections", cached=True, detail=f"Reused {reused} vision connections and cached reviews; no new model call.")] if reused or reviewed else []
         budget = directory/"budget.json"
         state = json.loads(budget.read_text()) if budget.exists() else {"calls": 0, "retry_after": 0}
         if state["calls"] >= MAX_BATCHES or state.get("retry_after", 0) > time.time():
@@ -255,3 +259,9 @@ def execute_with_links(plan, scene):
         if steps:
             result = execute(plan, scene)
     return result.model_copy(update={"trace": steps+result.trace})
+
+
+def refinement_exhausted(answer):
+    """Another agent cannot verify the same exact count after link refinement still failed."""
+    return (answer.answer is None and (answer.error or "").startswith("Cannot verify the per-room count")
+            and any(step.step == "resolve_room_connections" for step in answer.trace))

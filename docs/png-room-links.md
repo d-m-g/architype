@@ -47,7 +47,7 @@ When unresolved connections block a room-filtered query, `execute_with_links` as
 about uncertain objects of that type. The agent can also call `resolve_room_connections` before a ranking.
 Each call batches at most 24 objects and there are at most three attempts per drawing/geometry/model revision.
 Positive and negative decisions are cached; failed provider requests have a five-minute cooldown. A request
-has a 60-second timeout, no automatic retries, and a 4096-output-token cap. Costs and actual token usage appear
+has a 60-second timeout, no automatic retries, low reasoning effort and an 8192-token generation cap. Costs and actual token usage appear
 in `resolve_room_connections` trace steps; provider failures without usage cannot be priced reliably.
 
 The model sees the original image and an annotated overview plus existing room ids and object boxes. Accepted
@@ -56,6 +56,13 @@ Ambiguous, unmapped, duplicate, missing or invalid model decisions leave the ori
 These checks validate references/geometry, not the model's interpretation of a wall: model links are labelled
 as model-inferred and not independently verified. Original object scores are retained. Cached decisions are
 reapplied on scene loads without rebilling their original cost. `/api/recompute` remains model-free.
+
+The OpenAI-compatible provider can spend generation tokens on thinking before emitting JSON; low reasoning
+effort and the generation allowance prevent truncated link records. Billing uses the greater of completion
+tokens and total tokens minus prompt tokens, so reported thinking tokens are included. See
+[Google's reasoning controls](https://aistudio.google.com/docs/openai#thinking).
+An exact room-filtered count still unresolved after refinement returns its evidence gap directly rather than
+paying for another agent to try the same unverifiable count. Unsupported question types still use the agent.
 
 The 12/26 result above is the **CPU baseline**, not a measured result for this fallback. Real-model results
 must be reported separately, including incorrect answers, abstentions and model/agent costs.
