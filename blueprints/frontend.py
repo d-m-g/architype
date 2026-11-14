@@ -12,6 +12,11 @@ PUBLIC = {
     "app.css", "main.js", "start.js", "edit.js", "evaluation.js",  # the current page; the files above it are the previous one's
     "vendor/three/build/three.module.js", "vendor/three/build/three.core.js",
     "vendor/three/examples/jsm/controls/OrbitControls.js",
+    # the 3D view's fixture models (frontend-d/assets/models/CREDITS.md) and the loader that reads them
+    "vendor/three/examples/jsm/loaders/GLTFLoader.js", "vendor/three/examples/jsm/utils/BufferGeometryUtils.js",
+    "vendor/three/examples/jsm/utils/SkeletonUtils.js",
+    "assets/models/toilet.glb", "assets/models/bathroomSinkSquare.glb", "assets/models/kitchenSink.glb",
+    "assets/models/bathtub.glb", "assets/models/shower.glb",
 }
 
 class PublicFrontend(StaticFiles):
