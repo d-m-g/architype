@@ -40,6 +40,21 @@ test('rings report zero and full confidence honestly, omit missing scores, and k
  assert.notEqual(colour({type:'room'}),colour({type:'door'}));assert.equal(colour({type:'unknown'}),'var(--zone)');
 });
 
+test('answer evidence rows use the same object colour and expose the score outside the zoom-dependent ring',()=>{
+ const code=readFileSync(new URL('./main.js',import.meta.url),'utf8');
+ const colour=code.slice(code.indexOf('const TYPE_COLOUR='),code.indexOf('/** Fit is 100%'));
+ const rows=code.slice(code.indexOf(' const cited=evidenceIds().map'),code.indexOf(' const trace=raw.trace??[];'));
+ const nodes=new Map(),entity={id:'w1',type:'window',label:'Window',conf:.97,polygon:[[0,0],[1,0],[1,1]]};
+ runInNewContext(colour+rows,{
+  evidenceIds:()=>['w1'],entityById:()=>entity,state:{scene:{pages:[{}]}},
+  $:id=>{if(!nodes.has(id))nodes.set(id,{replaceChildren(...children){this.children=children;}});return nodes.get(id);},
+  el:(tag,attrs,...children)=>({tag,attrs,children})
+ });
+ const row=nodes.get('evidence-list').children[0];
+ assert.equal(row.attrs.style,'--type:var(--window)');
+ assert.match(JSON.stringify(row.children),/Model score 97\/100/);
+});
+
 test('reopening a saved upload restores the displayed answer, corrections and camera without invoking a reader',async()=>{
  const code=readFileSync(new URL('./main.js',import.meta.url),'utf8');
  const open=code.slice(code.indexOf('export async function openDrawing'),code.indexOf("$('reading-retry').onclick")).replace('export ','');

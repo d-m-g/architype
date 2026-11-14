@@ -379,10 +379,10 @@ function renderAnswer(){
  $('evidence').hidden=!cited.length;
  $('evidence-count').textContent=`${cited.length}${unsure?`, ${unsure} to check`:''}`;
  $('evidence-navigation').textContent='Select an item, then use arrow keys to browse. Home and End jump to the first and last item.';
- $('evidence-list').replaceChildren(...cited.map((entity,i)=>el('button',{type:'button',class:`evidence-row${entity.uncertain?' review':''}`,style:`--h:${hue(entity)}`,'data-entity':entity.id,'aria-pressed':'false',
+ $('evidence-list').replaceChildren(...cited.map((entity,i)=>el('button',{type:'button',class:`evidence-row${entity.uncertain?' review':''}`,style:`--type:${typeColour(entity)}`,'data-entity':entity.id,'aria-pressed':'false',
   onclick:()=>select(entity.id,{zoomTo:true,focusEvidence:true}),onmouseenter:()=>hover(entity.id,true),onmouseleave:()=>hover(entity.id,false)},
   el('span',{class:'n'},String(i+1)),
-  el('span',{class:'what'},entity.label,el('small',{},[entity.quantityText,entity.context,entity.conf<1?`${Math.round(entity.conf*100)}% sure${entity.uncertain?', check it':''}`:null,
+  el('span',{class:'what'},entity.label,el('small',{},[entity.quantityText,entity.context,Number.isFinite(entity.conf)?`Model score ${Math.round(entity.conf*100)}/100${entity.uncertain?', review':''}`:null,
    state.scene.pages.length>1?`page ${entity.page+1}`:null,entity.polygon.length?null:'not drawn'].filter(Boolean).join(' · '))))));
 
  const trace=raw.trace??[];
