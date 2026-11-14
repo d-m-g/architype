@@ -31,7 +31,7 @@ $('drawing-file').onchange = async () => {
     const type = await validateLocalDrawing(file);
     if (id !== selection) return;
     uploadFile=new Blob([file],{type});
-    const suffix={'application/pdf':'pdf','image/png':'png','image/jpeg':'jpg'}[type];
+    const suffix={'application/pdf':'pdf','image/png':'png','image/jpeg':'jpg','image/vnd.dxf':'dxf'}[type];
     uploadName='drawing.'+(suffix??'webp');$('upload-drawing').disabled=!suffix;$('upload-drawing').textContent='Upload drawing to team server';
     stopVoice();
     window.dispatchEvent(new Event('stoa:cancel-request'));
@@ -39,10 +39,12 @@ $('drawing-file').onchange = async () => {
     $('local-content').replaceChildren();
     if (fileURL) URL.revokeObjectURL(fileURL);
     fileURL = URL.createObjectURL(new Blob([file], {type}));
-    const preview = document.createElement(type === 'application/pdf' ? 'iframe' : 'img');
-    if (type === 'application/pdf') { preview.title = 'Local PDF preview'; }
+    const dxf = type === 'image/vnd.dxf';  // browsers cannot draw CAD; the server renders the page after upload
+    const preview = document.createElement(dxf ? 'p' : type === 'application/pdf' ? 'iframe' : 'img');
+    if (dxf) { preview.className = 'muted'; preview.textContent = 'DXF drawings cannot be previewed in the browser. Upload it: the server reads its layers and draws the page.'; }
+    else if (type === 'application/pdf') { preview.title = 'Local PDF preview'; }
     else { preview.alt = 'Local drawing preview: ' + file.name; preview.onerror = () => { if(id===selection) $('upload-status').textContent = 'This image could not be decoded. Choose another file. Nothing was uploaded.'; }; }
-    preview.src = fileURL;
+    if (!dxf) preview.src = fileURL;
     $('local-content').append(preview);
     $('local-name').textContent = file.name + ' · ' + (file.size/1024/1024).toFixed(2) + ' MB';
     $('local-preview').hidden = false;
@@ -50,7 +52,7 @@ $('drawing-file').onchange = async () => {
     $('source-pill').hidden = true;
     $('editor-connection-status').hidden = true;
     $('mode-label').textContent = 'LOCAL PREVIEW · NOT ANALYSED';
-    $('upload-status').textContent = 'Local preview only until you choose Upload drawing. WebP preview is supported, but the team upload API accepts PDF, PNG and JPEG only.';
+    $('upload-status').textContent = 'Local preview only until you choose Upload drawing. WebP preview is supported, but the team upload API accepts PDF, PNG, JPEG and DXF only.';
     $('local-name').focus();
   } catch(error) { if(id===selection) $('upload-status').textContent = error.message; }
 };
