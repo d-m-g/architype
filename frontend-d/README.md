@@ -124,3 +124,15 @@ Live check (this makes a real ask request; configured providers may incur normal
     node frontend-d/live-smoke.js http://127.0.0.1:8001 data/swiss_dwellings/site1000_bldg2082_floor9385.pdf "How many windows are on this floor?"
 
 Exit 0 verifies a returned answer, scene, evidence IDs and images; exit 2 means a missing reader/API or abstention. Overlay alignment still requires visual checking on real scenes. See PRIORITIES.md for the correction/recompute, upload and floor-stack sequence and required contracts.
+
+## Local correction drafts
+
+Expand **Correct scene · local draft** below the drawing and enable **Edit draft overlays in 2D**. Select an entity in the dropdown or click its draft outline. Delete false positives, change type, edit an area (m² or ft²), or confirm amber items. Add a missed box using two opposite corners or keyboard-accessible percentage coordinates. Escape cancels box placement.
+
+Every action can be undone in reverse order, including deletion and addition. The change history shows before/after values for type and area. Drafts are isolated by source and entity revision and retained in this browser tab while switching panels, questions on the same scene, and 2D/3D; reload clears them. Different scene revisions never share a draft.
+
+Blue/amber draft overlays replace the original overlays only while correction mode is on. The reported answer, original scene, confidence, evidence list, read-aloud and 3D are unchanged. A visible answer-card notice identifies pending user corrections and says that a new answer is unavailable. Switching to 3D or starting the mock demo restores original overlays and retains the draft.
+
+Recalculation is intentionally disabled until C supplies the returned QueryPlan and the recompute contract. No executor runs in JavaScript, no model calls are made, and edits are not uploaded or appended to training JSONL. Logging and editable plan assumptions require the agreed backend contracts.
+
+Validation: 30 Node checks. Browser verified deletion/undo, type changes, area changes, amber confirmation, numeric and pointer-drawn boxes, panel navigation, 3D isolation and complete undo to the original scene.

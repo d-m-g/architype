@@ -7,8 +7,8 @@ The judged interface receives hard live questions. This is the active D ordering
    - start-api.ps1 starts UI and API together. No backend source is changed.
    - live-smoke.js checks the UI, API, scene, answer, evidence IDs and page images. A stub or abstention exits 2, never a false success.
    - Latest checkout: Swiss, raster detector and room builders remain stubs. A successful real-scene walkthrough is still pending A/B.
-2. **Human corrections — next after the real-scene slice.**
-   - Delete false positives, add boxes, change types, edit areas, confirm amber items; display old/new answers, corrected-by-user state and undo.
+2. **Human corrections — local draft tools built; backend integration pending.**
+   - Local delete/add-box/type/area/confirm actions and undo are implemented. The reported answer remains unchanged with a pending-correction notice; old/new answer comparison awaits recompute.
    - Use C's returned QueryPlan and POST /api/recompute {scene, plan}; do not implement the executor in JavaScript.
    - C must define correction persistence/JSONL ownership and provenance, plus the supported plan/assumption editing contract. D supplies edits and UI; no fake recalculation or fabricated training records.
 3. **Upload flow.**
