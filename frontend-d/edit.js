@@ -145,7 +145,8 @@ onInspect((entity,box)=>{
   el('button',{class:'btn',type:'button',onclick:()=>change(state.raw.entities.filter(e=>e.id!==entity.id),`Removed ${entity.label}`)},'Remove'),
   entity.uncertain?el('button',{class:'btn',type:'button',onclick:()=>change(state.raw.entities.map(e=>e.id===entity.id?{...e,conf:1}:e),`Confirmed ${entity.label}`)},'It is right'):null);
  box.append(actions);
- if(entity.polygon.length<3)return;
+ // Look-alikes are for symbols drawn the same way all over a sheet: doors, windows, fixtures. Rooms are each their own shape.
+ if(entity.polygon.length<3||!['door','window','fixture'].includes(entity.type))return;
  // One wrong detection is rarely alone: show the others that look like it, each as a small crop of the drawing, and
  // offer to remove them together. Some may be right after all, so each can be kept: click its crop or its outline.
  lookAlikes(entity).then(ids=>{
