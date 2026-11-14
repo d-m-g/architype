@@ -196,3 +196,9 @@ After upload, the main viewer immediately loads the returned source through /api
 PDFs retain a native browser document preview until the reader provides a rendered page. The UI labels that as a PDF preview, without claiming a page count. Uploading from Sources or 3D returns to the 2D editor. Late image loads cannot replace a newer selected source; history reopens the matching source path without a model call.
 
 Browser verification covered PNG, JPEG, WebP, animated GIF, BMP and AVIF uploads, PNG normalization, immediate display, missing-model-key recovery with the source retained, PDF previews, and switching back to a parsed Swiss Scene with all 26 window overlays. The animated GIF fixture's converted PNG was checked against its first frame. TIFF, HEIC, SVG and CAD uploads require export to a supported format; browser decoding failures are reported before upload.
+
+### Drawing navigation and detected regions
+
+Scroll over the drawing to zoom around the pointer; drag to pan, pinch on touch screens, or double-click to zoom in (Shift-double-click zooms out). Fit drawing restores the whole page. Camera updates are painted once per frame and shared editor updates are deferred during continuous movement.
+
+API scene regions on the current page are clickable even when not cited by the answer. Dashed blue outlines identify these other detections; numbered highlights remain answer evidence. Click or use Enter/Space on a region to inspect its label, type, available quantity and source reference. Clicking a region preserves the camera; selecting an evidence row centres that evidence. No new geometry or quantities are inferred. Correction and calibration tools retain their own gestures.

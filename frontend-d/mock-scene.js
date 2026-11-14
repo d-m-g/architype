@@ -25,3 +25,15 @@ export function zoomView(view,factor){const width=Math.min(1500,Math.max(180,vie
 // Wire-format fixtures conform to shared schema v1; legacy display labels stay frontend-only.
 export const sharedScene={schema_version:1,path:'data/demo/courtyard.svg',builder:'synthetic-demo@1',tier:'parse',covers:['window','door','room'],pages:[{image:'data/demo/courtyard.svg',width:scene.width,height:scene.height}],entities:scene.entities.map(e=>({id:e.id,type:e.type,label:e.label,level:scene.level,page:0,geom:e.polygon.map(([x,y])=>[x/scene.width,y/scene.height]),qty:e.quantity===undefined?{}:{m2:e.quantity},conf:e.uncertain?.55:1,ref:e.sourceRef})),trace:[]};
 export const sharedAnswers=Object.fromEntries(Object.entries(scenarios).map(([key,s])=>[key,{answer:s.answer===null?null:Number(s.answer),unit:key==='area'?'m2':'count',confidence:key==='doors'?.55:key==='missing'?0:1,tier:key==='missing'?'none':'parse',evidence:s.evidence,extra_entities:[],formula:s.formula??null,interpretation:s.explanation,assumptions:{},trace:[],error:s.answer===null?s.explanation:null,cost_usd:0}]));
+
+/** Keep the source point under the cursor fixed while zooming any page size. */
+export function zoomAt(view,factor,anchor,pageWidth){
+ if(!Number.isFinite(factor)||factor<=0)return {...view};
+ const w=Math.max(pageWidth*.04,Math.min(pageWidth*1.5,view.w/factor)),ratio=w/view.w;
+ return {x:anchor.x-(anchor.x-view.x)*ratio,y:anchor.y-(anchor.y-view.y)*ratio,w,h:view.h*ratio};
+}
+/** Broad regions paint first so smaller rooms and fixtures remain clickable. */
+export function detectedAreas(entities,page,evidence=new Set()){
+ const area=e=>Math.abs(e.polygon.reduce((sum,p,i,points)=>{const q=points[(i+1)%points.length];return sum+p[0]*q[1]-q[0]*p[1];},0));
+ return entities.filter(e=>e.page===page&&e.polygon?.length>=3&&!evidence.has(e.id)).sort((a,b)=>area(b)-area(a));
+}
