@@ -97,7 +97,7 @@ Validation: 21 Node tests, including cancelled recognition, concurrent edits, ze
 
 ## Guided mock demo
 
-Use **Start mock demo** above the workspace for seven manually controlled steps covering evidence, quantities, uncertainty, abstention, 3D, voice and dashboard. The guide makes no API calls. Starting replaces the active viewer example; exiting leaves the current demo state. See DEMO.md for presenter cues, honest limitations and the live-data handoff.
+Use **Start mock demo** above the workspace for ten manually controlled steps covering evidence, quantities, uncertainty, corrections with undo, local scale calibration, abstention, 3D, voice, answer history and dashboard. The guide makes no API calls. Starting replaces the active viewer example; exiting leaves the current demo state. See DEMO.md for presenter cues, honest limitations and the live-data handoff.
 
 ## Live judging alignment (14 November update)
 

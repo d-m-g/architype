@@ -120,7 +120,7 @@ window.addEventListener('stoa:restore-answer',event=>{
  $('answer-mode').textContent='ANSWER / SAVED '+entry.origin.toUpperCase();
  $('contract-status').textContent='Viewing a saved result. No inference request was made.';
  historyStore.markViewed(key,id);
- document.querySelector('[data-panel="editor"]').click();$('view-2d').click();
+ if($('panel-editor').hidden)document.querySelector('[data-panel="editor"]').click();$('view-2d').click();
  if(reuse)$('question').focus();else $('history-view-note').focus();
 });
 if(!query.has('path')&&!location.hash.startsWith('#scenario='))recordHistory('mock',$('question').value);

@@ -1,6 +1,6 @@
 # D priorities — 14 November
 
-The judged interface receives hard live questions. This is the active D ordering; the seven-step mock walkthrough is a backup only. Changes remain under frontend-d.
+The judged interface receives hard live questions. This is the active D ordering; the ten-step mock walkthrough is a backup only. Changes remain under frontend-d.
 
 1. **Real-scene integration and one-origin hosting — active.**
    - D entry point serve.py imports the existing FastAPI app and mounts only public browser assets after its API routes.

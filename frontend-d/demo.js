@@ -1,10 +1,14 @@
+import {historyStore} from './history-state.js';
 export const demoSteps = [
   {title:'Count with evidence', scenario:'windows', view:'2d', cue:'Six windows, six numbered highlights. Select a highlight to show its source reference.', say:'Every answer should let a person check the drawing. This synthetic example links each counted window to evidence.'},
   {title:'Show the calculation', scenario:'area', view:'2d', cue:'Select each room and point to 32.4 + 18.6 = 51.0 m².', say:'The answer shows which rooms contributed and how their supplied quantities were added. These are mock quantities, not measurements from this image.'},
   {title:'Make uncertainty visible', scenario:'doors', view:'2d', cue:'Select the amber bathroom-door candidate.', say:'Uncertain candidates remain visible for review. Three candidates does not mean three verified doors.'},
+  {title:'Correct a result, then undo', scenario:'doors', view:'2d', reveal:'correction-panel', cue:'Enable Edit draft overlays in 2D. Select an amber candidate, confirm it, then Undo. Alternatively delete a candidate and undo the deletion. Existing drafts are retained; undo only the change you just made.', say:'People can review and correct the extracted scene. These are local drafts: the reported answer and confidence do not change, and no training labels or model calls are sent. Recalculation awaits the exact answer plan.'},
+  {title:'Calibrate a known distance', scenario:'area', view:'2d', reveal:'calibration-panel', cue:'Select two points and enter an illustrative 5 m length, then Save calibration. Or use page percentages (10, 10) and (60, 10). Reset calibration, then Undo calibration to restore it. This distance is invented for the demo.', say:'Calibration records a local reference distance for this page. It does not measure or change the reported 51.0 m². Reset is undoable, drafts survive view changes, and reload clears them. We assume uniform scale.'},
   {title:'Know when to abstain', scenario:'missing', view:'2d', cue:'Show the whole-building question and the missing answer.', say:'One floor cannot establish a whole-building total. Missing evidence stays missing rather than becoming a confident zero.'},
   {title:'Explore the same evidence in 3D', scenario:'area', view:'3d', cue:'Orbit the model and select a room. If WebGL is unavailable, use 2D and continue.', say:'The same source polygons drive this illustrative 3D view. Heights are not measured and this is not a reconstructed BIM model.'},
   {title:'Ask and listen', scenario:'windows', view:'2d', cue:'Click Read answer. Dictation is optional: review the transcript before submitting. The mock accepts the exact English sample question only.', say:'Voice changes the input and output, not the evidence pipeline. English and Finnish dictation still need a live microphone check; answer narration is English.'},
+  {title:'Revisit an earlier answer', scenario:'windows', view:'2d', reveal:'answer-history', cue:'Open an earlier mock area answer in Questions & answer history. Its 51.0 m² and original room evidence return without a new model call. Try Reuse question: it fills the question and waits for explicit submission. Stay with mock history for this walkthrough.', say:'Each drawing keeps its own recent questions and answer snapshots in this tab. Opening history does not recompute the result. Correction and calibration drafts stay separate. Reload clears history; restoring a live or imported result exits this mock guide.'},
   {title:'Explain the evaluation', panel:'dashboard', cue:'Move the threshold slider and inspect the failure table. All eight cases and costs shown here are synthetic.', say:'The dashboard demonstrates coverage, confidence and cost tradeoffs. Real evaluation logs can be imported separately; we do not present mock metrics as measured performance.'}
 ];
 export function mountDemo(root = document) {
@@ -30,6 +34,7 @@ export function mountDemo(root = document) {
         get('setting-labels').checked = true;
         get('setting-labels').dispatchEvent(new Event('change', {bubbles:true}));
       }
+      if (step.reveal) get(step.reveal).open = true;
       if (step.panel === 'dashboard') { get('show-mock').click(); get('reset').click(); }
       get('demo-guide').hidden = false;
       get('demo-start').hidden = true;
@@ -43,7 +48,11 @@ export function mountDemo(root = document) {
       get('demo-guide').scrollIntoView({block:'start'});
     } finally { applying = false; }
   };
-  window.addEventListener('stoa:restore-answer',()=>{if(index>=0)end();});
+  window.addEventListener('stoa:restore-answer',event=>{
+    if(index<0)return;
+    const entry=historyStore.get(event.detail.key,event.detail.id);
+    if(demoSteps[index].reveal!=='answer-history'||entry?.origin!=='mock')end();
+  });
   get('demo-start').onclick = () => show(0);
   get('demo-back').onclick = () => show(index - 1);
   get('demo-next').onclick = () => { if (index === demoSteps.length - 1) { end(); get('demo-start').focus(); } else show(index + 1); };
