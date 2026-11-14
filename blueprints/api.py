@@ -232,7 +232,7 @@ def image(path: str) -> FileResponse:
 
 
 # The viewer on the same origin, so the demo is one container. Mounted last: /api/* routes win.
-from fastapi.staticfiles import StaticFiles  # noqa: E402
+from .frontend import PublicFrontend  # noqa: E402
 from pathlib import Path  # noqa: E402
 
-app.mount("/", StaticFiles(directory=Path(__file__).parent.parent / "frontend-d", html=True), name="viewer")
+app.mount("/", PublicFrontend(directory=Path(__file__).parent.parent / "frontend-d", html=True), name="viewer")
