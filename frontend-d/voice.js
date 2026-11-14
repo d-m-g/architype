@@ -67,7 +67,7 @@ export function mountBrowserVoice(root = document, host = window) {
     finishPending=new Promise(resolve=>{finishResolve=resolve;});
     const original = question.value;
     originalDraft = original;
-    session.lang = language.value;
+    if(language.value&&language.value!=='auto')session.lang = language.value;
     session.continuous = false;
     session.interimResults = true;
     language.disabled = true;
