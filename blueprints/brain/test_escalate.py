@@ -98,12 +98,18 @@ class VerifiedAgentAnswers(unittest.TestCase):
         self.assertEqual(result.evidence, [])
         self.assertIn("no matching objects", result.interpretation)
 
-    def test_source_uncertainty_is_not_increased(self):
-        source = scene()
-        source.entities[0].conf = .2
-        result, _ = self.run_agent([{"answer": 11, "plan": json.dumps(tile_plan())}], source=source)
-        self.assertAlmostEqual(result.confidence, .2)
-        self.assertIn("capped at 60%", result.confidence_note)
+    def test_verified_answers_keep_source_scores_without_a_fixed_cap_or_inflation(self):
+        for score in [.2, .6, .9, 1.0]:
+            with self.subTest(score=score):
+                source = scene()
+                source.entities[0].conf = score
+                result, _ = self.run_agent([{"answer": 11, "plan": json.dumps(tile_plan())}], source=source)
+                self.assertAlmostEqual(result.confidence, score)
+                self.assertIn("Source-derived score", result.confidence_note)
+                self.assertIn("Arithmetic verified", result.confidence_note)
+                self.assertIn("interpretation is not independently verified", result.confidence_note)
+                self.assertNotIn("capped", result.confidence_note)
+                self.assertIn("verify_answer", [step.step for step in result.trace])
 
     def test_explicit_abstention_and_non_numeric_answers_still_work(self):
         result, _ = self.run_agent([{"answer": "cannot answer", "explanation": "Ceiling height is not given."}])

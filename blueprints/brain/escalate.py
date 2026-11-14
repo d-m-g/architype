@@ -321,12 +321,14 @@ def _agent_loop(question, scene, draft, inline_evidence, url, key, model, extra,
                         force_answer = True
                         continue
                     return verified.model_copy(update={
-                        "tier": "llm", "confidence": min(AGENT_CONFIDENCE, verified.confidence),
-                        "confidence_note": (f"Agent confidence is capped at {AGENT_CONFIDENCE:.0%}, or lower when source scores are lower. "
+                        "tier": "llm",
+                        "confidence_note": ("Source-derived score, not an overall probability of correctness. "
+                                            "Arithmetic verified by the executor; question interpretation is not independently verified. "
                                             + (verified.confidence_note or "")),
                         "interpretation": _calculation_sources(verified, scene),
                         "extra_entities": [e for e in scene.entities if e.id in set(verified.evidence)] if inline_evidence else [],
-                        "trace": draft.trace + steps + verified.trace,
+                        "trace": draft.trace + steps + verified.trace + [TraceStep(step="verify_answer",
+                            detail="Final value, formula and evidence come from the same execution; confidence is source-derived.")],
                     })
                 note = (f"A fixed {AGENT_CONFIDENCE:.0%} for answers the agent reasons out; it is not derived from "
                         f"this drawing.") if value is not None else None

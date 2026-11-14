@@ -2,6 +2,24 @@ import test from 'node:test';import assert from 'node:assert/strict';import {rea
 import {runInNewContext} from 'node:vm';
 import {createHistoryStore} from './history-state.js';
 
+test('verified answers show the uncapped source score separately from arithmetic verification',()=>{
+ const source=readFileSync(new URL('./main.js',import.meta.url),'utf8');
+ const code=source.slice(source.indexOf(' const confidence=Math.round(raw.confidence*100)'),source.indexOf(' const assumptions='));
+ function facts(raw){
+  const output={replaceChildren(...children){this.children=children;}};
+  runInNewContext(code,{raw,failed:raw.answer===null,state:{ms:null},$:()=>output,TIER:{llm:'Agent',parse:'CAD'},money:()=>'$0',
+   el:(tag,attrs,...children)=>({tag,children:children.filter(c=>c!==null)})});
+  return Object.fromEntries(output.children.map(row=>[row.children[0].children[0],row.children[1].children.at(-1)]));
+ }
+ const verified={answer:11,unit:'count',confidence:1,tier:'llm',formula:'ceil(area / tile_m2 * 1.1) gives 11',trace:[{step:'execute'},{step:'verify_answer'}]};
+ assert.equal(facts(verified)['Source score'],'100%');assert.equal(facts(verified).Calculation,'Verified arithmetic');
+ assert.equal(facts({...verified,confidence:.2})['Source score'],'20%');
+ const heuristic=facts({...verified,confidence:.7,trace:[{step:'execute'}]});
+ assert.equal(heuristic.Confidence,'70%, medium');assert.equal(heuristic['Source score'],undefined);
+ const text=facts({...verified,answer:'Bain',formula:null,trace:[]});
+ assert.equal(text['Source score'],undefined);assert.equal(text.Calculation,undefined);
+});
+
 test('object navigation frames symbols closely and keeps wide or tall geometry inside the real viewer',()=>{
  const source=readFileSync(new URL('./main.js',import.meta.url),'utf8');
  const code=source.slice(source.indexOf('export function objectFocusViewport'),source.indexOf('export function select(')).replace('export ','');
