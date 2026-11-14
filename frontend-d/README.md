@@ -151,3 +151,7 @@ Validation: 34 Node checks, including immutable snapshots, drawing isolation, re
 ## Pulled API compatibility check
 
 Aligned D with team commit bdc8893: raw uploads, uploads/ source paths, proxy upload/plan/recompute routes and identical repeated vision evidence. Browser verification confirmed a real PNG upload, the reported reader, and deliberate missing-provider abstention. Automated checks cover byte preservation, route forwarding, evidence deduplication and existing viewer/history/correction behavior.
+
+## Local scale calibration
+
+Expand Scale calibration in the editor. Select two source points, or enter page percentages with the keyboard, then supply a positive known length in m/cm/mm/ft and save. The marked reference is a local uniform-scale draft; it never changes the scene, answers, areas, correction drafts or 3D and makes no API calls. Drafts are isolated by drawing path, page image and dimensions, retained while switching views, and cleared on reload. Undo reverses saves and resets; Escape cancels point selection. Calibration of perspective-distorted scans is not supported.
