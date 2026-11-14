@@ -8,6 +8,6 @@ dependencies = ["pydantic>=2"]
 # One group per lane, so nobody needs another lane's heavy packages to run eval.py.
 # Add to your own group only. Install with: uv sync --extra parsers
 [project.optional-dependencies]
-parsers = ["ezdxf", "ifcopenshell", "pymupdf", "shapely"]
+parsers = ["ezdxf", "ifcopenshell", "pillow", "pymupdf", "shapely"]
 detector = ["modal"]
 brain = ["openai", "fastapi", "uvicorn", "pymupdf"]

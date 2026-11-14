@@ -139,7 +139,7 @@ _LOGIN_PAGE = """<!doctype html>
  });
 </script></body></html>"""
 
-UPLOAD_TYPES = {".pdf", ".png", ".jpg", ".jpeg"}  # IFC and DXF uploads wait for lane A's readers
+UPLOAD_TYPES = {".pdf", ".png", ".jpg", ".jpeg", ".dxf"}  # DXF goes to lane A's parser; IFC waits for its reader
 UPLOAD_MAX_BYTES = 50 * 1024 * 1024
 
 
@@ -163,10 +163,15 @@ def _drawing(path: str):
         raise HTTPException(404, f"no such drawing: {path}") from None
 
 
+def _parsed(path: str) -> bool:
+    """Uploads with a structured parser go through the pipeline like dataset drawings; the rest to the vision reader."""
+    return path.lower().endswith(".dxf")
+
+
 @app.post("/api/ask")
 def ask(body: Ask) -> Answer:
     _drawing(body.path)
-    if body.path.startswith("uploads/"):
+    if body.path.startswith("uploads/") and not _parsed(body.path):
         from .brain.escalate import answer_from_vision
         try:
             return answer_from_vision(body.question, body.path)
@@ -204,14 +209,14 @@ async def upload(request: Request, filename: str) -> dict:
     name = hashlib.sha256(data).hexdigest()[:20] + suffix  # content-addressed: the user's filename never touches the disk
     UPLOADS.mkdir(parents=True, exist_ok=True)
     (UPLOADS / name).write_bytes(data)
-    return {"path": f"uploads/{name}", "reader": BUILDER}
+    return {"path": f"uploads/{name}", "reader": "swiss_dxf_upload@1" if _parsed(name) else BUILDER}
 
 
 @app.get("/api/scene")
 def scene(path: str) -> Scene:
     _drawing(path)
     try:
-        if path.startswith("uploads/"):
+        if path.startswith("uploads/") and not _parsed(path):
             from .brain.vision import read_scene
             return read_scene(path)[0]
         return pipeline.get_scene(path)

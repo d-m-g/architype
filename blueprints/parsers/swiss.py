@@ -66,12 +66,57 @@ def _read_pdf(pdf: Path, anchors: dict[str, tuple[float, float]]):
     return (lambda x, y: (clip((a * x + b) / w), clip((c - a * y) / h))), fills
 
 
+def _render(doc, path: str):
+    """For an uploaded DXF with no sibling PDF or PNG: draw the modelspace onto a page the size of its extents.
+    The page covers the extents exactly, so DXF -> 0..1 page coordinates is linear, with y flipped."""
+    import hashlib
+
+    import pymupdf
+    from ezdxf import bbox
+    from ezdxf.addons.drawing import Frontend, RenderContext, config, layout
+    from ezdxf.addons.drawing.pymupdf import PyMuPdfBackend
+
+    from .. import pipeline
+
+    msp = doc.modelspace()
+    ext = bbox.extents(msp)
+    if not ext.has_data or not ext.size.x or not ext.size.y:
+        raise NotImplementedError("the DXF modelspace is empty")
+    (x0, y0, _), (w, h, _) = ext.extmin, ext.size
+    backend = PyMuPdfBackend()
+    Frontend(RenderContext(doc), backend, config.Configuration(background_policy=config.BackgroundPolicy.WHITE)) \
+        .draw_layout(msp)
+    mm_per_unit = 400 / max(w, h)  # a 400 mm long side whatever the drawing's units
+    page = layout.Page(w * mm_per_unit, h * mm_per_unit, layout.Units.mm, margins=layout.Margins.all(0))
+    png = backend.get_pixmap_bytes(page, fmt="png", settings=layout.Settings(fit_page=False, scale=mm_per_unit), dpi=150)
+    image = f"pages/{hashlib.md5(path.encode()).hexdigest()}.png"
+    (pipeline.CACHE / "pages").mkdir(parents=True, exist_ok=True)
+    (pipeline.CACHE / image).write_bytes(png)
+    pix = pymupdf.Pixmap(png)
+    clip = lambda v: min(max(v, 0.0), 1.0)
+    return (lambda x, y: (clip((x - x0) / w), clip((y0 + h - y) / h))), Page(image=image, width=pix.width, height=pix.height)
+
+
 def build_scene(path: str, file: Path) -> Scene:
+    """A dataset plan (file is the .pdf; the same-name .dxf and .png sit beside it) or an uploaded .dxf on its own."""
     import ezdxf
     from shapely.geometry import Point, Polygon
     from shapely.ops import unary_union
 
-    msp = ezdxf.readfile(file.with_suffix(".dxf")).modelspace()
+    upload = file.suffix.lower() == ".dxf"
+    doc = ezdxf.readfile(file.with_suffix(".dxf"))
+    msp = doc.modelspace()
+    if upload:  # an unknown file: cover only what it has layers for, so a missing layer is never a confident zero
+        has = lambda *layers: all(n in doc.layers for n in layers)
+        covers = ["room"] * has("ROOM_OUTLINE", "ROOM_TEXT") + ["apartment"] * has("UNIT_OUTLINE", "ROOM_TEXT") + \
+                 ["door"] * has("DOOR") + ["window"] * has("WINDOW") + \
+                 [f"fixture:{s}" for s in ("toilet", "sink", "bathtub", "shower") if has("FIXTURE")]
+        if not covers:
+            raise NotImplementedError("this DXF reader knows the layers ROOM_OUTLINE, ROOM_TEXT, UNIT_OUTLINE, DOOR, "
+                                      f"WINDOW and FIXTURE; the file has {', '.join(sorted(l.dxf.name for l in doc.layers))}")
+    else:  # dataset plans: a missing DOOR/WINDOW layer means none
+        covers = ["room", "apartment", "door", "window",
+                  "fixture:toilet", "fixture:sink", "fixture:bathtub", "fixture:shower"]
     polys = lambda layer: [(Polygon(e.get_points("xy")), e.dxf.handle)
                            for e in msp.query(f'LWPOLYLINE[layer=="{layer}"]') if len(e) >= 3]
     outlines, units = polys("ROOM_OUTLINE"), polys("UNIT_OUTLINE")
@@ -110,8 +155,13 @@ def build_scene(path: str, file: Path) -> Scene:
         if free and min(free)[0] < 1:
             unit_label[min(free)[1]] = letter
 
-    to_page, fills = _read_pdf(file, {t: xy for t, xy in seen.items() if xy})
-    shape = lambda poly: [to_page(x, y) for x, y in poly.exterior.coords[:-1]]
+    if upload:  # no PDF, so no grey fills: outdoor rooms come from labels only, shared spaces stay in their unit
+        (to_page, page), fills = _render(doc, path), {OUTDOOR_GREY: [], SHARED_GREY: []}
+    else:
+        to_page, fills = _read_pdf(file, {t: xy for t, xy in seen.items() if xy})
+        width, height = _png_size(file.with_suffix(".png"))
+        page = Page(image=path[:-4] + ".png", width=width, height=height)
+    shape =lambda poly: [to_page(x, y) for x, y in poly.exterior.coords[:-1]]
 
     entities = []
     # Only marked units are apartments: unmarked outlines are detached balconies or non-residential units
@@ -180,12 +230,8 @@ def build_scene(path: str, file: Path) -> Scene:
         found[sub] += 1
         entities.append(Entity(id=f"fixture-{sub}-{found[sub]}", type="fixture", subtype=sub,
                                geom=[to_page(x, y) for x, y in pts], ref=ref, **located("fixture", pts, copies)))
-    png = file.with_suffix(".png")
-    width, height = _png_size(png)
-    return Scene(path=path, builder="swiss_dxf@6", tier="parse",
-                 covers=["room", "apartment", "door", "window",
-                         "fixture:toilet", "fixture:sink", "fixture:bathtub", "fixture:shower"],
-                 pages=[Page(image=path[:-4] + ".png", width=width, height=height)], entities=entities)
+    return Scene(path=path, builder="swiss_dxf_upload@1" if upload else "swiss_dxf@6", tier="parse",
+                 covers=covers, pages=[page], entities=entities)
 
 
 if __name__ == "__main__":

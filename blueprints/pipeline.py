@@ -29,11 +29,17 @@ def dataset_file(path: str) -> Path:
 
 
 def source_of(path: str) -> str:
-    return path.split("/")[1]  # "data/<source>/..."
+    return "uploads" if path.startswith("uploads/") else path.split("/")[1]  # "data/<source>/..."
 
 
 def build_scene(path: str) -> Scene:
     """Pick the builder for a drawing. Each builder is build_scene(path, file) -> Scene."""
+    if path.startswith("uploads/"):  # only DXF uploads have a parser; the API sends the rest to the vision reader
+        if not path.lower().endswith(".dxf"):
+            raise NotImplementedError("no parser for this upload type")
+        from .brain.vision import drawing_file
+        from .parsers import swiss
+        return swiss.build_scene(path, drawing_file(path))
     file, source = dataset_file(path), source_of(path)
     if source == "swiss_dwellings":
         from .parsers import swiss
@@ -55,7 +61,8 @@ def build_scene(path: str) -> Scene:
 @lru_cache(maxsize=16)
 def get_scene(path: str) -> Scene:
     """The scene for a drawing, from .cache/scenes/<source>/ when it was built before."""
-    dataset_file(path)
+    if not path.startswith("uploads/"):  # uploads are checked by build_scene; their names are content hashes
+        dataset_file(path)
     cached = CACHE / "scenes" / source_of(path) / (hashlib.md5(path.encode()).hexdigest() + ".json")
     if READ_CACHE and cached.exists():
         return Scene.model_validate_json(cached.read_text())
