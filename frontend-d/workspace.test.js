@@ -25,9 +25,10 @@ test('follow-device appearance tracks system changes and synchronizes other tabs
 
 test('appearance remains usable when storage is blocked or a saved value is invalid',()=>{
  const blocked=themeHarness({blocked:true});blocked.theme.setPreference('dark');assert.equal(blocked.root.dataset.theme,'dark');assert.equal(blocked.theme.isPersistent(),false);
- const invalid=themeHarness({saved:'invalid',dark:true});assert.equal(invalid.theme.getPreference(),'system');assert.equal(invalid.root.dataset.theme,'dark');
+ const invalid=themeHarness({saved:'invalid',dark:true});assert.equal(invalid.theme.getPreference(),'dark');assert.equal(invalid.root.dataset.theme,'dark');
+ assert.equal(themeHarness({dark:false}).root.dataset.theme,'dark');  // dark is the default until a choice is saved
 });
-test('workspace contains all persistent panels and preserves unique control IDs',()=>{const html=readFileSync(new URL('./index.html',import.meta.url),'utf8');const ids=[...html.matchAll(/\bid="([^"]+)"/g)].map(m=>m[1]);assert.equal(ids.length,new Set(ids).size);for(const id of ['panel-editor','panel-dashboard','panel-sources','panel-settings','drawing','question','threshold','source','run-file','scene-file','answer-file','viewport-2d','viewport-3d'])assert.ok(ids.includes(id),id);assert.equal((html.match(/<main\b/g)||[]).length,1);assert.equal((html.match(/<\/main>/g)||[]).length,1);});
+test('workspace contains all persistent panels and preserves unique control IDs',()=>{const html=readFileSync(new URL('./index.html',import.meta.url),'utf8');const ids=[...html.matchAll(/\bid="([^"]+)"/g)].map(m=>m[1]);assert.equal(ids.length,new Set(ids).size);for(const id of ['panel-ask','panel-evaluation','drawing','drawing-file','question','ask-form','run-file','viewport-2d','viewport-3d'])assert.ok(ids.includes(id),id);assert.equal((html.match(/<main\b/g)||[]).length,1);assert.equal((html.match(/<\/main>/g)||[]).length,1);});
 test('renderer subscription receives current selection and can unsubscribe',()=>{publishEditor({selectedId:'window-1',pageIndex:0});const seen=[];const stop=subscribeEditor(s=>seen.push(s.selectedId));publishEditor({selectedId:'room-1',pageIndex:0});stop();publishEditor({selectedId:'room-2',pageIndex:1});assert.deepEqual(seen,['window-1','room-1']);assert.equal(getEditorSnapshot().pageIndex,1);});
 
 function liveFollowupHarness(response){

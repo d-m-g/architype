@@ -26,7 +26,7 @@ export function mountVoice(root = document, host = window) {
   const cancelOutput = () => { const wasSpeaking = speaking; activeUtterance = null; speaking = false; stop.disabled = true; if (wasSpeaking) synthesis?.cancel(); };
   dictate.disabled = !Recognition;
   read.disabled = !synthesis || !host.SpeechSynthesisUtterance;
-  say(Recognition ? 'Choose a language, then dictate. Review the text before inspecting evidence.' : 'Dictation is unavailable in this browser. You can still type your question.');
+  say(Recognition ? '' : 'Dictation is unavailable in this browser. You can still type your question.');
   dictate.onclick = () => {
     if (recognition) { cancelInput(); say('Dictation stopped. Your question is unchanged.'); return; }
     cancelOutput();

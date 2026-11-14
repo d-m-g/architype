@@ -1,5 +1,23 @@
 # D frontend: evidence viewer and evaluation dashboard
 
+## The current page (14 November, evening)
+
+`index.html` now loads a rewritten shell. Everything below this section describes the page before it, whose files are still here but no longer loaded.
+
+| File | Does |
+|---|---|
+| `index.html`, `app.css` | Markup and the one stylesheet. Dark by default; the moon button switches. |
+| `main.js` | Drawing viewer, the ask flow and its progress states, answer card, evidence list, trace, question history, tabs and 3D toggle. |
+| `start.js` | Start screen: drop or choose a file (it uploads and opens in one step, with upload progress), dataset samples, open by path. |
+| `edit.js` | Correct mode: remove, confirm or draw a detection. The answer is recalculated through `/api/plan` and `/api/recompute`, with no model call. |
+| `evaluation.js` | Evaluation tab: load one or more `runs/*.jsonl` logs and compare them. |
+
+Still loaded unchanged: `api-client.js`, `contracts.js`, `local-file.js`, `editor-bridge.js`, `history-state.js`, `voice.js`, `room-renderer.js`, `geometry-3d.js`, `floor-stack.js`, `floor-stack-state.js`, and `zoomAt` from `mock-scene.js`.
+
+No longer loaded: `app.js`, `intake.js`, `workspace.js`, `corrections.js`, `correction-state.js`, `calibration.js`, `calibration-state.js`, `history.js`, `demo.js`, `dashboard.js`, `shared-dashboard.js`, `mock-evaluation.js`, `dashboard.html`, `plan.svg`, `styles.css`, `workspace.css`, `dashboard.css`. Their tests still run. To go back to the previous page, restore `index.html` from git; nothing else needs to change.
+
+## The previous page
+
 All implementation stays in `frontend-d/`. Shared Python schemas, API, parsers, detectors, evaluation code and fixtures are unchanged.
 
 ## Run with the team API
