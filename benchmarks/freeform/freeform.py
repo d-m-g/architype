@@ -2,7 +2,8 @@
 
 The dataset's questions come in a few fixed wordings. These do not: ranking, comparison, threshold, relationship,
 dimension, derived-cost, other-language and unanswerable questions over real scenes (Swiss DXF, vector PDF, IFC, and a
-few image scenes that need the vision reader).
+few image scenes that need the vision reader), and follow-up conversations of two and three turns, where a question
+only makes sense read against the earlier ones ("and the kitchens?", "which of those is the smallest?").
 
 Each case below holds three independent things:
   ref       hand-written Python over the scene's entities: the expected answer. Never touches the SQL path.
@@ -36,6 +37,7 @@ SCENES = {  # key -> (dataset path, reader)
     "it": ("data/swiss_dwellings/site3667_bldg5654_floor24350.pdf", "pdf_vector"),  # the PDF alone, as an upload is read
     "duplex": ("data/ifc_models/bsc-duplex_duplex-a-20110907.ifc", "ifc"),
     "fzk": ("data/ifc_models/kit-fzk-haus_ac20-fzk-haus.ifc", "ifc"),
+    "clinic": ("data/ifc_models/bsc-clinic_clinic-structural.ifc", "ifc"),  # a structural model: slabs, no rooms
 }
 
 
@@ -346,6 +348,141 @@ CASES = [
      lambda s: E(s, [r for r in of(s, "room") if m2(r) < 10]), "rooms with qty.m2 < 10", listed("m2 < 10")),
     ("fzk", "ranking", "en", "Which wall is the longest?",
      lambda s: E(s, best(of(s, "wall"), lambda w: w.qty.get("m")), top=True), "the wall with the greatest qty.m", ranked("1 = 1", "m", "m", "wall")),
+
+    # ---- IFC structural model with no rooms (clinic): floor area is the floor slabs, never the roofs ----
+    # From a real wrong answer: every slab summed gave 7036.57 m2, 2286.9 m2 of it roof. Rooms first; floor slabs only
+    # when the model has no rooms; roofs never.
+    ("clinic", "derived", "en", "What is the total area of this building?",
+     lambda s: N(total(of(s, "room")) if of(s, "room") else total(of(s, "slab", subtype="floor")), "m2"),
+     "the model has no rooms, so the sum of qty.m2 of slabs of subtype floor (4749.63 m2); roof slabs are not floor area",
+     {**agg("sum(m2)", "subtype = 'floor'", "m2", "slab"), "interpretation": "Floor area: the model has no rooms, so the floor slabs; roof slabs left out."}),
+]
+BEDS = "type = 'room' AND subtype = 'bedroom'"
+WALL_788 = {"p": "SELECT m AS value, id FROM entities WHERE type = 'room' AND number = '7.08'"}
+room = lambda s, number: of(s, "room", number=number)[0]
+indoor = lambda s, apt: total(of(s, "room", apartment=apt, outdoor=False))
+INDOOR = "SELECT sum(m2) AS value, group_concat(id) AS ids FROM entities WHERE type = 'room' AND outdoor = 0 AND apartment = '{}'"
+on_level = lambda kind, lv: agg("count(*)", f"level = '{lv}'", "count", kind)
+# Conversations: (what the follow-up refers by, [turns]); a turn is a case as above. Each follow-up's decision is
+# self-contained: it selects from the scene again, by the earlier conditions or by ids from the earlier evidence.
+CONVERSATIONS = [
+    ("pronoun", [
+        ("de", "derived", "en", "How big are the bathrooms in apartment A?",
+         lambda s: N(total(of(s, "room", subtype="bathroom", apartment="A")), "m2"), "sum of qty.m2 of A's bathrooms",
+         agg("sum(m2)", "subtype = 'bathroom' AND apartment = 'A'", "m2")),
+        ("de", "follow-up", "en", "How many 30 x 30 cm tiles would that take, with 10% waste?",
+         lambda s: N(math.ceil(total(of(s, "room", subtype="bathroom", apartment="A")) * 1.1 / 0.09), "count", exact=True),
+         "ceil(the same sum, derived again, * 1.1 / 0.09)",
+         {**computed("ceil(area * (1 + waste) / tile_m2)", "count", {"tile": "30 x 30 cm", "tile_m2": 0.09, "waste": 0.1},
+                     area="SELECT sum(m2) AS value, group_concat(id) AS ids FROM entities WHERE type = 'room' AND subtype = 'bathroom' AND apartment = 'A'"),
+          "interpretation": "30 x 30 cm floor tiles for the bathrooms of apartment A, with 10% waste"})]),
+    ("omitted subject", [
+        ("de", "relationship", "en", "How many windows do the bedrooms have?",
+         lambda s: N(len(at(s, "window", of(s, "room", subtype="bedroom"))), "count", exact=True), "windows linked to a bedroom",
+         direct(unit="count", **count("type = 'window' AND " + IN_ROOMS.format("r.subtype = 'bedroom'")))),
+        ("de", "follow-up", "en", "And the kitchens?",
+         lambda s: N(len(at(s, "window", of(s, "room", subtype="kitchen"))), "count", exact=True), "windows linked to a kitchen",
+         {**direct(unit="count", **count("type = 'window' AND " + IN_ROOMS.format("r.subtype = 'kitchen'"))), "interpretation": "Number of windows in the kitchens"})]),
+    ("changed scope", [
+        ("de", "derived", "en", "What's the indoor area of apartment A?", lambda s: N(indoor(s, "A"), "m2"), "sum of qty.m2 of A's indoor rooms",
+         direct(INDOOR.format("A"), unit="m2")),
+        ("de", "follow-up", "en", "And B?", lambda s: N(indoor(s, "B"), "m2"), "the same for apartment B",
+         {**direct(INDOOR.format("B"), unit="m2"), "interpretation": "Indoor area of apartment B"}),
+        ("de", "follow-up", "en", "What's the difference between the two?", lambda s: N(indoor(s, "A") - indoor(s, "B"), "m2"),
+         "both sums derived again from the rooms, A minus B",
+         {**computed("a - b", "m2", a=INDOOR.format("A"), b=INDOOR.format("B")), "interpretation": "Indoor area of apartment A minus that of apartment B"})]),
+    ("which of those", [
+        ("de", "threshold", "en", "Which rooms are bigger than 15 m²?", lambda s: E(s, [r for r in of(s, "room") if m2(r) > 15]), "rooms with qty.m2 > 15",
+         listed("m2 > 15")),
+        ("de", "follow-up", "en", "Which of those is the smallest?",
+         lambda s: E(s, best([r for r in of(s, "room") if m2(r) > 15], m2, least=True), top=True), "least qty.m2 among the rooms over 15 m2",
+         {**ranked("m2 > 15", least=True), "interpretation": "The smallest of the rooms bigger than 15 m2"})]),
+    ("changed assumption", [
+        ("de", "derived", "en", "What would parquet for all the bedrooms cost at 85 francs per square metre?",
+         lambda s: N(85 * total(of(s, "room", subtype="bedroom"))), "85 times the sum of qty.m2 of the bedrooms",
+         computed("area * price_per_m2", assumptions={"price_per_m2": 85}, area=f"SELECT sum(m2) AS value, group_concat(id) AS ids FROM entities WHERE {BEDS}")),
+        ("de", "follow-up", "en", "And at 110?", lambda s: N(110 * total(of(s, "room", subtype="bedroom"))), "110 times the same sum, derived again",
+         {**computed("area * price_per_m2", assumptions={"price_per_m2": 110}, area=f"SELECT sum(m2) AS value, group_concat(id) AS ids FROM entities WHERE {BEDS}"),
+          "interpretation": "Parquet for all the bedrooms at 110 francs per m2"})]),
+    ("supplies what was missing", [
+        ("de", "unanswerable", "en", "How much wall area is there to paint in bedroom 7.08?", lambda s: X("height"),
+         "wall area needs the ceiling height, which the plan does not record",
+         {**missing("the ceiling height of room 7.08: no height_m is recorded for rooms", ceiling_height_m="the ceiling height in metres"),
+          "queries": WALL_788, "formula": "p * ceiling_height_m", "unit": "m2"}),
+        ("de", "follow-up", "en", "The ceilings are 2.6 m high.", lambda s: N(room(s, "7.08").qty["m"] * 2.6, "m2"),
+         "qty.m (perimeter) of room 7.08 times the 2.6 m the user states",
+         {**computed("p * ceiling_height_m", "m2", {"ceiling_height_m": 2.6}, **WALL_788), "interpretation": "Wall area of bedroom 7.08 with a 2.6 m ceiling, openings not deducted"}),
+        ("de", "follow-up", "en", "And with the door and window openings taken off?", lambda s: X("height"),
+         "the openings' widths are recorded, their heights are not: still not answerable",
+         missing("the heights of the doors and windows of room 7.08: no height_m is recorded for doors or windows", opening_height_m="the height of the openings in metres"))]),
+    ("pronoun", [
+        ("de", "ranking", "en", "Which room is the largest?", lambda s: E(s, best(of(s, "room"), m2), top=True), "the room with the greatest qty.m2", ranked("1 = 1")),
+        ("de", "follow-up", "en", "How many doors does it have?", lambda s: N(len(at(s, "door", best(of(s, "room"), m2))), "count", exact=True),
+         "doors linked to that room (room-7.03, from the earlier evidence)",
+         {**direct(unit="count", **count("type = 'door' AND id IN (SELECT entity_id FROM links WHERE room_id = 'room-7.03')")), "interpretation": "Number of doors of Wohnen 7.03"}),
+        ("de", "follow-up", "en", "And windows?", lambda s: N(len(at(s, "window", best(of(s, "room"), m2))), "count", exact=True),
+         "windows linked to that room: none, and windows are covered, so zero",
+         {**direct(unit="count", **count("type = 'window' AND id IN (SELECT entity_id FROM links WHERE room_id = 'room-7.03')")), "interpretation": "Number of windows of Wohnen 7.03"})]),
+    ("the same for", [
+        ("de", "dimension", "en", "What is the perimeter of kitchen 7.02?", lambda s: N(room(s, "7.02").qty["m"], "m"), "qty.m of room 7.02", value("number = '7.02'", "m", "m")),
+        ("de", "follow-up", "en", "The same for 7.13.", lambda s: N(room(s, "7.13").qty["m"], "m"), "qty.m of room 7.13",
+         {**value("number = '7.13'", "m", "m"), "interpretation": "Perimeter of room 7.13"})]),
+    ("those", [
+        ("de", "relationship", "en", "Which room has the most doors?",
+         lambda s: E(s, best(of(s, "room"), lambda r: len(at(s, "door", [r]))), top=True), "per room, the doors linked to it; most first",
+         direct(PER_ROOM.format(agg="count(x.id)", kind="door", where=""), answer="top", unit="count")),
+        ("de", "follow-up", "en", "Which rooms do those doors lead to?",
+         lambda s: E(s, [r for r in of(s, "room") if r.number != "7.06" and any(r.id in endpoints(d, s) for d in at(s, "door", [room(s, "7.06")]))]),
+         "the other endpoint of each door linked to Korridor 7.06",
+         {**direct("SELECT DISTINCT r.id FROM entities r JOIN links l ON l.room_id = r.id WHERE r.type = 'room' AND r.id <> 'room-7.06' AND l.entity_id IN "
+                   "(SELECT d.id FROM entities d JOIN links k ON k.entity_id = d.id WHERE d.type = 'door' AND k.room_id = 'room-7.06')", answer="rows"),
+          "interpretation": "The rooms on the other side of the doors of Korridor 7.06"})]),
+    ("omitted subject", [
+        ("fr", "other-language", "fr", "Quelle est la surface totale des chambres à coucher ?",
+         lambda s: N(total(of(s, "room", label="Chambre à coucher")), "m2"), "sum of qty.m2 of rooms labelled 'Chambre à coucher'", agg("sum(m2)", "label = 'Chambre à coucher'", "m2")),
+        ("fr", "follow-up", "fr", "Et celle des balcons ?", lambda s: N(total(of(s, "room", label="Balcon")), "m2"), "sum of qty.m2 of rooms labelled 'Balcon'",
+         {**agg("sum(m2)", "label = 'Balcon'", "m2"), "interpretation": "Surface totale des balcons"})]),
+    ("changed scope", [
+        ("duplex", "relationship", "en", "How many rooms are on Level 1?", lambda s: N(len(of(s, "room", level="Level 1")), "count", exact=True), "rooms with level 'Level 1'",
+         on_level("room", "Level 1")),
+        ("duplex", "follow-up", "en", "What about Level 2?", lambda s: N(len(of(s, "room", level="Level 2")), "count", exact=True), "rooms with level 'Level 2'",
+         {**on_level("room", "Level 2"), "interpretation": "Number of rooms on Level 2"}),
+        ("duplex", "follow-up", "en", "Which of the two has more floor area?",
+         lambda s: G(best(("Level 1", "Level 2"), lambda lv: total(of(s, "room", level=lv)))), "sum of qty.m2 of rooms per level, of those two",
+         {**direct("SELECT level AS name, sum(m2) AS value, group_concat(id) AS ids FROM entities WHERE type = 'room' AND level IN ('Level 1', 'Level 2') "
+                   "GROUP BY level ORDER BY value DESC", answer="top", unit="m2"), "interpretation": "Which of Level 1 and Level 2 has more room floor area"})]),
+    ("of those", [
+        ("duplex", "threshold", "en", "Which doors are wider than 80 cm?", lambda s: E(s, [d for d in of(s, "door") if d.qty["m"] > 0.8]), "doors with qty.m > 0.8",
+         listed("m > 0.8", "m", "m", "door")),
+        ("duplex", "follow-up", "en", "How many of those are on Level 2?",
+         lambda s: N(sum(d.qty["m"] > 0.8 for d in of(s, "door", level="Level 2")), "count", exact=True), "doors with qty.m > 0.8 and level 'Level 2'",
+         {**agg("count(*)", "m > 0.8 AND level = 'Level 2'", "count", "door"), "interpretation": "Doors wider than 80 cm on Level 2"})]),
+    ("pronoun", [
+        ("duplex", "ranking", "en", "Which slab is the thickest?", lambda s: E(s, best(of(s, "slab"), lambda x: x.attrs.get("thickness_m")), top=True),
+         "greatest attrs.thickness_m over slabs", ranked("1 = 1", "thickness_m", "m", "slab")),
+        ("duplex", "follow-up", "en", "What's its area?", lambda s: N(best(of(s, "slab"), lambda x: x.attrs.get("thickness_m"))[0].qty["m2"], "m2"), "qty.m2 of that slab",
+         {**value("thickness_m IS NOT NULL ORDER BY thickness_m DESC LIMIT 1", "m2", "m2", "slab"), "interpretation": "Top area of the thickest slab"})]),
+    ("switched drawing", [
+        ("de", "threshold", "en", "How many bedrooms are there?", lambda s: N(len(of(s, "room", subtype="bedroom")), "count", exact=True), "rooms of subtype bedroom",
+         agg("count(*)", "subtype = 'bedroom'", "count")),
+        ("fr", "follow-up", "en", "And in this one?", lambda s: N(len(of(s, "room", subtype="bedroom")), "count", exact=True),
+         "the same count on the drawing now open; the earlier turn's ids belong to the other drawing and are dropped",
+         {**agg("count(*)", "subtype = 'bedroom'", "count"), "interpretation": "Number of bedrooms in this drawing"})]),
+    ("pronoun", [
+        ("it", "other-language", "it", "Qual è la stanza più grande?", lambda s: E(s, best(of(s, "room"), m2), top=True), "the room with the greatest qty.m2", ranked("1 = 1")),
+        ("it", "follow-up", "it", "Quante finestre ha?", lambda s: N(len(at(s, "window", best(of(s, "room"), m2))), "count", exact=True), "windows linked to that room",
+         {**direct(unit="count", **count("type = 'window' AND id IN (SELECT entity_id FROM links WHERE room_id = "
+                                         "(SELECT id FROM entities WHERE type = 'room' AND m2 IS NOT NULL ORDER BY m2 DESC LIMIT 1))")),
+          "interpretation": "Numero di finestre della stanza più grande"})]),
+    ("pronoun", [
+        ("fzk", "dimension", "en", "What is the total wall length?", lambda s: N(total(of(s, "wall"), "m"), "m"), "sum of qty.m of walls", agg("sum(m)", "1 = 1", "m", "wall")),
+        ("fzk", "follow-up", "en", "And their combined side area?", lambda s: N(total(of(s, "wall")), "m2"), "sum of qty.m2 of walls",
+         {**agg("sum(m2)", "1 = 1", "m2", "wall"), "interpretation": "Combined net side area of all walls"})]),
+    ("changed assumption", [
+        ("de", "threshold", "en", "How many rooms are under five square metres?", lambda s: N(sum(m2(r) < 5 for r in of(s, "room")), "count", exact=True),
+         "rooms with qty.m2 < 5", agg("count(*)", "m2 < 5", "count")),
+        ("de", "follow-up", "en", "And under ten?", lambda s: N(sum(m2(r) < 10 for r in of(s, "room")), "count", exact=True), "rooms with qty.m2 < 10",
+         {**agg("count(*)", "m2 < 10", "count"), "interpretation": "Number of rooms under 10 m2"})]),
 ]
 BY_SUBTYPE = "SELECT count(*) AS value, group_concat(id) AS ids FROM entities WHERE type = 'room' AND subtype = '{}'"
 BY_TYPE = "SELECT count(*) AS value, group_concat(id) AS ids FROM entities WHERE type = '{}'"
@@ -382,10 +519,21 @@ def _image_cases() -> list[dict]:
 
 
 def build(scenes: dict) -> list[dict]:
-    rows = [{"scene": key, "path": SCENES[key][0], "reader": SCENES[key][1], "kind": kind, "lang": lang, "question": question,
-             "expect": ref(scenes[key]), "how": how, "decision": decision} for key, kind, lang, question, ref, how, decision in CASES]
-    rows += _image_cases()
-    return [{"id": f"ff-{i + 1:02d}", **row} for i, row in enumerate(rows)]
+    row = lambda key, kind, lang, question, ref, how, decision: {
+        "scene": key, "path": SCENES[key][0], "reader": SCENES[key][1], "kind": kind, "lang": lang, "question": question,
+        "expect": ref(scenes[key]), "how": how, "decision": decision}
+    rows = [row(*case) for case in CASES] + _image_cases()
+    for n, (refers, turns) in enumerate(CONVERSATIONS, 1):
+        rows += [{**row(*turn), "conversation": f"conv-{n:02d}", "turn": k, **({"refers": refers} if k > 1 else {})} for k, turn in enumerate(turns, 1)]
+    return [{"id": f"ff-{i + 1:03d}", **row} for i, row in enumerate(rows)]
+
+
+def turn_of(row: dict, answer) -> dict:
+    """An answered question as the browser sends it back in `history` (frontend-d/history-state.js, conversationTurns)."""
+    query = " | ".join(s.detail for s in answer.trace if s.step in ("plan", "execute") and s.detail)
+    return {"question": row["question"], "answer": answer.answer, "unit": answer.unit, "error": answer.error if answer.answer is None else None,
+            "interpretation": answer.interpretation, "query": query, "assumptions": answer.assumptions, "evidence": answer.evidence[:12],
+            "evidence_count": len(answer.evidence), "path": row["path"]}
 
 
 # ---- scoring ----
@@ -426,10 +574,14 @@ def main() -> None:
     stale = [r["id"] for r, f in zip(stored, fresh) if r != f] + ["count"] * (len(stored) != len(fresh))
     print(f"{len(stored)} questions; references recomputed from the scenes: {'all match the file' if not stale else f'STALE {stale}'}")
     print(Counter(r["kind"] for r in stored), Counter(r["scene"] for r in stored), Counter(r["lang"] for r in stored), sep="\n")
+    print(f"{len({r['conversation'] for r in stored if 'conversation' in r})} conversations; follow-ups by what they refer with: "
+          f"{dict(Counter(r['refers'] for r in stored if r.get('refers')))}")
 
     price_in, price_out = TOKEN_PRICES[resolve.GEMINI_MODEL]
-    tally, usd, sizes = Counter(), 0.0, {}
+    tally, usd, sizes, added = Counter(), 0.0, {}, []
+    talks: dict[str, dict] = {}  # conversation -> the turns so far, by hand and by the model
     for r in stored:
+        talk = talks.setdefault(r.get("conversation", r["id"]), {"hand": [], "model": []})
         if r.get("needs_vision"):
             tally["hand", "needs vision"] += 1
             if not key:
@@ -438,34 +590,50 @@ def main() -> None:
             got = pipeline.answer(r["path"], r["question"])
         else:
             scene = scenes[r["scene"]]
-            sizes[r["scene"]] = resolve.tokens("".join(m["content"] for m in resolve.messages(r["question"], resolve.inventory(scene))))
+            inv = resolve.inventory(scene)
+            history = resolve.clean_history(talk["hand"], scene)
+            alone = resolve.tokens("".join(m["content"] for m in resolve.messages(r["question"], inv)))
+            if r.get("turn", 1) > 1:
+                added.append(resolve.tokens("".join(m["content"] for m in resolve.messages(r["question"], inv, None, history))) - alone)
+            else:
+                sizes[r["scene"]] = alone
             try:
-                by_hand = resolve.execute(resolve.parse(json.dumps(r["decision"])), scene)
+                decision = resolve.parse(json.dumps(r["decision"]))
+                resolve._not_copied(decision, r["question"], history)  # a follow-up's query stands on its own
+                by_hand = resolve.execute(decision, scene)
                 ok = correct(r["expect"], by_hand)
             except resolve.QueryError as e:
-                by_hand, ok = e, False
+                by_hand, ok = resolve.Answer(error=str(e)), False
+            talk["hand"].append(turn_of(r, by_hand))
             tally["hand", "right" if ok else "WRONG"] += 1
+            tally["hand follow-up", ok] += r.get("turn", 1) > 1
             if not ok:
-                print(f"  HAND-WRITTEN DECISION WRONG {r['id']} {r['question']}\n     expected {r['expect']}\n     got {getattr(by_hand, 'answer', by_hand)!r} {getattr(by_hand, 'error', '')}")
+                print(f"  HAND-WRITTEN DECISION WRONG {r['id']} {r['question']}\n     expected {r['expect']}\n     got {by_hand.answer!r} {by_hand.error or ''}")
             if not key:
                 tally["model", "needs key"] += 1
                 continue
             try:
-                got = resolve.resolve(r["question"], scene)
+                got = resolve.resolve(r["question"], scene, None, talk["model"])
             except NotImplementedError as e:
                 got = resolve.Answer(error=str(e))
+            talk["model"].append(turn_of(r, got))
         ok = correct(r["expect"], got)
+        kind = f"follow-up ({r['refers']})" if r.get("refers") else r["kind"]
         tally["model", "right" if ok else "wrong"] += 1
-        tally[r["kind"], ok] += 1
+        tally[kind, ok] += 1
         tally["abstained", r["expect"]["type"] == "abstain", got.answer is None] += 1
         usd += got.cost_usd
         if not ok:
-            print(f"  model wrong {r['id']} [{r['kind']}] {r['question']}\n     expected {r['expect']}\n     got {got.answer!r} {got.error or ''}")
+            print(f"  model wrong {r['id']} [{kind}] {r['question']}\n     expected {r['expect']}\n     got {got.answer!r} {got.error or ''}")
 
     hand = {k[1]: v for k, v in tally.items() if k[0] == "hand"}
     print(f"\nhand-written decisions through the executor: {hand.get('right', 0)} right, {hand.get('WRONG', 0)} wrong, "
           f"{hand.get('needs vision', 0)} not runnable here (image scenes need the detector and vision reader)")
+    print(f"of which follow-up turns: {tally['hand follow-up', True]} right, {tally['hand follow-up', False]} wrong")
     print("decision prompt, estimated tokens (system + inventory + question): " + ", ".join(f"{k} ~{v}" for k, v in sizes.items()))
+    extra = sum(added) / max(1, len(added))
+    print(f"a follow-up adds the history rules and the earlier turns: ~{extra:.0f} tokens on average (min {min(added)}, max {max(added)}), "
+          f"${extra * price_in / 1e6:.5f} at these prices")
     typical = sum(sizes.values()) / max(1, len(sizes))
     print(f"estimated cost of a new question at {resolve.GEMINI_MODEL} prices (${price_in}/M in, ${price_out}/M out), ~{typical:.0f} in + ~120 out: "
           f"${(typical * price_in + 120 * price_out) / 1e6:.5f}; a repeat: $0")
@@ -474,8 +642,8 @@ def main() -> None:
         raise SystemExit(bool(stale) or bool(hand.get("WRONG")))
     n = tally["model", "right"] + tally["model", "wrong"]
     print(f"model: {tally['model', 'right']}/{n} right ({tally['model', 'right'] / n:.0%}); ${usd:.4f} in all, ${usd / n:.5f} per question")
-    for kind in sorted({r["kind"] for r in stored}):
-        print(f"  {kind:15} {tally[kind, True]}/{tally[kind, True] + tally[kind, False]}")
+    for kind in sorted({k[0] for k in tally if k[0] not in ("hand", "model", "abstained", "hand follow-up")}):
+        print(f"  {kind:36} {tally[kind, True]}/{tally[kind, True] + tally[kind, False]}")
     print(f"abstention: abstained when it should {tally['abstained', True, True]}/{tally['abstained', True, True] + tally['abstained', True, False]}; "
           f"abstained when an answer exists {tally['abstained', False, True]}/{tally['abstained', False, True] + tally['abstained', False, False]}")
 
