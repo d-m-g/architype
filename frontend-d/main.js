@@ -52,7 +52,7 @@ const clean=text=>{const s=String(text??'').replace(/^lane [A-D]: /i,'').trim();
 const notAPlan=raw=>raw?.builder.includes(':not-a-floor-plan:')?raw.builder.split(':not-a-floor-plan:')[1]:null;
 function readerName(raw){
  if(raw.builder.startsWith('vision'))return 'Read by the vision model';
- return raw.tier==='parse'?'Read from the CAD geometry':'Read by the detector';
+ return raw.tier==='parse'?'Read from the CAD geometry':raw.builder.includes('+vision')?'Read by the detector, rooms by the vision model':'Read by the detector';
 }
 export function formatValue(value,unit){
  if(typeof value!=='number')return [String(value),''];
