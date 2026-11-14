@@ -5,16 +5,27 @@ export function fixtureKind(e){
  if(e.subtype==='sink')return KITCHEN.test(e.attrs?.room_label??'')?'counter':'basin';
  return ['toilet','bathtub','shower'].includes(e.subtype)?e.subtype:'block';
 }
-/** Display-only geometry: preserves page proportions, never supplies measurements. */
+/** Display-only geometry: preserves page proportions, never supplies measurements.
+ *  A drawing shows its current page. A model whose levels say where their page sits in metres (an IFC model: frame_*_m and
+ *  elevation_m on each level) shows every storey in one model: each entity then has its `floor` (0 is the lowest), the
+ *  storey's `elevation` and `storey` height in metres, `spanM`, the true length of the model's longest side, and `origin`,
+ *  the model point [east, up, -north] in metres that sits at the scene's centre (what the model's own GLB is moved by). */
 export function displayGeometry(snapshot){
  if(snapshot.mode==='pending')return [];
- const entities=snapshot.entities.filter(e=>(e.page??0)===snapshot.pageIndex&&Array.isArray(e.polygon)&&e.polygon.length>=3&&e.polygon.every(p=>p.length===2&&p.every(Number.isFinite)));
+ const levels=snapshot.entities.filter(e=>e.type==='level'&&e.attrs?.frame_w_m>0&&e.attrs.frame_h_m>0).sort((a,b)=>(a.attrs.elevation_m??0)-(b.attrs.elevation_m??0));
+ const pages=snapshot.wireScene?.pages??[],frames=new Map(levels.filter(e=>pages[e.page??0]?.width>0&&pages[e.page??0].height>0).map((e,floor)=>[e.page??0,{...e.attrs,floor,w:pages[e.page??0].width,h:pages[e.page??0].height}])),stacked=frames.size>1;  // polygons are in page pixels
+ const entities=snapshot.entities.filter(e=>(stacked?frames.has(e.page??0):(e.page??0)===snapshot.pageIndex)&&Array.isArray(e.polygon)&&e.polygon.length>=3&&e.polygon.every(p=>p.length===2&&p.every(Number.isFinite)));
  if(!entities.length)return [];
- const points=entities.flatMap(e=>e.polygon),xs=points.map(p=>p[0]),ys=points.map(p=>p[1]);
+ const place=e=>{const f=stacked&&frames.get(e.page??0);return f?e.polygon.map(([x,y])=>[f.frame_x_m+x/f.w*f.frame_w_m,y/f.h*f.frame_h_m-f.frame_y_m]):e.polygon;};
+ const placed=entities.map(e=>[e,place(e)]),points=placed.flatMap(([,p])=>p),xs=points.map(p=>p[0]),ys=points.map(p=>p[1]);
  const minX=Math.min(...xs),maxX=Math.max(...xs),minY=Math.min(...ys),maxY=Math.max(...ys),span=Math.max(maxX-minX,maxY-minY);
  if(!span)return [];
- const cx=(minX+maxX)/2,cy=(minY+maxY)/2;
- return entities.filter(e=>Math.abs(e.polygon.reduce((a,p,i)=>{const q=e.polygon[(i+1)%e.polygon.length];return a+p[0]*q[1]-q[0]*p[1];},0))>1e-8).map(e=>({id:e.id,label:e.label,type:e.type,kind:fixtureKind(e),m2:e.qty?.m2??(e.unit==='m²'?e.quantity:undefined),height:e.attrs?.height_m,uncertain:e.uncertain,points:e.polygon.map(([x,y])=>[(x-cx)*10/span,(y-cy)*10/span]),depth:e.type==='room'?.65:.045}));
+ const cx=(minX+maxX)/2,cy=(minY+maxY)/2,ground=stacked?Math.min(...[...frames.values()].map(f=>f.elevation_m??0)):0;
+ return placed.filter(([,p])=>Math.abs(p.reduce((a,q,i)=>{const r=p[(i+1)%p.length];return a+q[0]*r[1]-r[0]*q[1];},0))>1e-8*(stacked?span*span:1)).map(([e,p])=>{
+  const f=stacked?frames.get(e.page??0):null;
+  return {id:e.id,label:e.label,type:e.type,kind:fixtureKind(e),m2:e.qty?.m2??(e.unit==='m²'?e.quantity:undefined),height:e.attrs?.height_m,uncertain:e.uncertain,points:p.map(([x,y])=>[(x-cx)*10/span,(y-cy)*10/span]),depth:e.type==='room'?.65:.045,
+   ...(f?{floor:f.floor,elevation:(f.elevation_m??0)-ground,storey:f.height_m,spanM:span,ref:e.ref,origin:[cx,ground,cy]}:{})};
+ });
 }
 
 // ───────── placement: everything below works in scene units (the footprint's longest side is 10) ─────────
@@ -98,20 +109,24 @@ export const SANDBOX=[
  {key:'wallHeight',label:'Wall height',unit:'m',min:1,max:4,step:.05,value:2.5},
  {key:'doorHeight',label:'Door height',unit:'m',min:1.5,max:3,step:.05,value:2.1},
  {key:'sill',label:'Window sill height',unit:'m',min:0,max:2,step:.05,value:.9},
- {key:'head',label:'Window head height',unit:'m',min:1,max:3,step:.05,value:2.1}
+ {key:'head',label:'Window head height',unit:'m',min:1,max:3,step:.05,value:2.1},
+ // Only for a model with several storeys (the renderer hides them otherwise and sets the floor count).
+ {key:'floors',label:'Floors shown',unit:'floors',min:1,max:1,step:1,value:1},
+ {key:'gap',label:'Floor spacing',unit:'×',min:1,max:3,step:.1,value:1}
 ];
 export const sandboxDefaults=()=>Object.fromEntries(SANDBOX.map(s=>[s.key,s.value]));
 /** Metres to scene units. Openings never rise above the wall; fixtures are modelled in metres, so their height is the scale itself, and they stand on the floor slab. */
 export function sandboxExtents(d){
  const k=10/d.span,top=Math.min(d.head,d.wallHeight),sill=Math.min(d.sill,top-.1);
  return {wallHeight:d.wallHeight*k,room:{base:0,height:.02},door:{base:0,height:Math.min(d.doorHeight,d.wallHeight)*k},window:{base:sill*k,height:(top-sill)*k},
-  fixture:{base:.02,height:k},other:{base:0,height:.01}};
+  fixture:{base:.02,height:k},other:{base:0,height:.01},wall:{base:0,height:d.wallHeight*k},column:{base:0,height:d.wallHeight*k},k};
 }
 /** A starting footprint size in metres: from room areas when the scene reports them, else from how big a toilet or bathtub usually is, else the slider default. */
 export function estimateSpan(geometry){
  const rooms=geometry.filter(e=>e.type==='room'&&e.m2>0),ratios=geometry.filter(e=>FIXTURES[e.kind]?.nominal).map(e=>FIXTURES[e.kind].nominal/fitFootprint(e.points).length).sort((a,b)=>a-b);
  const perUnit=rooms.length?Math.sqrt(rooms.reduce((a,e)=>a+e.m2,0)/rooms.reduce((a,e)=>a+Math.abs(signedArea(e.points)),0)):ratios[ratios.length>>1];
  const {min,max,step,value}=SANDBOX[1];
+ if(geometry[0]?.spanM>0)return geometry[0].spanM;  // a stacked model is already in metres
  return perUnit>0?Math.min(max,Math.max(min,Math.round(perUnit*10/step)*step)):value;
 }
 /** A starting wall height in metres: the median room height when the scene reports one (IFC models do), else the slider default. */

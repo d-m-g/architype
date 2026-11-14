@@ -12,7 +12,7 @@
 | `edit.js` | Correct mode: remove, confirm or draw a detection. The answer is recalculated through `/api/plan` and `/api/recompute`, with no model call. |
 | `evaluation.js` | Evaluation tab: load one or more `runs/*.jsonl` logs and compare them. |
 
-Still loaded unchanged: `api-client.js`, `contracts.js`, `local-file.js`, `editor-bridge.js`, `history-state.js`, `voice.js`, `room-renderer.js`, `geometry-3d.js`, `floor-stack.js`, `floor-stack-state.js`, and `zoomAt` from `mock-scene.js`.
+Still loaded unchanged: `api-client.js`, `contracts.js`, `local-file.js`, `editor-bridge.js`, `history-state.js`, `voice.js`, `room-renderer.js`, `geometry-3d.js`, and `zoomAt` from `mock-scene.js`.
 
 No longer loaded: `app.js`, `intake.js`, `workspace.js`, `corrections.js`, `correction-state.js`, `calibration.js`, `calibration-state.js`, `history.js`, `demo.js`, `dashboard.js`, `shared-dashboard.js`, `mock-evaluation.js`, `dashboard.html`, `plan.svg`, `styles.css`, `workspace.css`, `dashboard.css`. Their tests still run. To go back to the previous page, restore `index.html` from git; nothing else needs to change.
 
@@ -194,7 +194,7 @@ Skip to editor moves focus to the editor heading, including from other panels. F
 
 ## Multi-page floor plates
 
-Shared Scene inputs with two or more pages show page images as visual plates in 3D. The explode slider changes display spacing; One page isolates the active page. Plate buttons, object outlines and the page selector synchronize with the existing 2D page and evidence selection. Single-page drawings keep the existing illustrative room preview. Try the local `fixtures/floor-stack.scene.json` and `fixtures/floor-stack.answer.json` pair through Sources → Shared schema input. This fixture repeats one available source image on two pages to test interaction; it is not a real multi-floor drawing. Plate position, order and spacing are visual only: there is no inferred alignment, elevation or measured 3D geometry. A/C must supply actual page images and alignment transforms for a real stack.
+A model whose levels carry their page frame in metres (an IFC model: `frame_x_m`, `frame_y_m`, `frame_w_m`, `frame_h_m` and `elevation_m` on each `level` entity) is shown as one model with every storey at its own elevation, in the same orbit view as a single drawing. The **Adjust model** panel then also has *Floors shown* (lifts the upper storeys off to look inside) and *Floor spacing* (pulls the storeys apart). The view first stacks walls inferred from the room outlines, then swaps in the model's own geometry from `GET /api/model?path=` (a GLB the IFC library writes once into `.cache/models/`: real walls with openings cut, slabs, columns, stairs, roof, furniture; one node per element, named by GlobalId, which is how a mesh finds its scene entity for selection and evidence). The top storey left standing by *Floors shown* is opened from above: its ceilings, beams and the slab over it are lifted off too. Other multi-page drawings show the current page, since nothing says how their pages line up.
 
 
 ## Production workflow integration — 14 November

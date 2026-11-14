@@ -350,6 +350,19 @@ def image(path: str) -> FileResponse:
     return FileResponse(_viewable(path, file) if path.startswith(("data/", "uploads/")) else file)
 
 
+@app.get("/api/model")
+def model(path: str) -> FileResponse:
+    """An IFC model's own 3D geometry as a GLB, for the 3D view. Built on first request and cached."""
+    file = _drawing(path)
+    if not (path.lower().endswith(".ifc") or pipeline.source_of(path) in ("ifc_models", "ifc_bench")):
+        raise HTTPException(404, "only IFC models have 3D geometry")
+    from .parsers import ifc
+    try:
+        return FileResponse(ifc.model_glb(path, file), media_type="model/gltf-binary")
+    except (ValueError, FileNotFoundError) as e:
+        raise HTTPException(422, str(e)) from None
+
+
 @lru_cache(maxsize=2)  # ponytail: two pages held in memory (a 140 MP sheet is 140 MB); shrink them first if that hurts
 def _gray(image: str):
     from PIL import Image

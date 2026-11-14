@@ -20,3 +20,12 @@ const room={id:'a',label:'Room',type:'room',page:0,polygon:[[0,0],[200,0],[200,1
 test('3D display keeps page proportions without changing source quantities',()=>{const before=JSON.stringify(room);const g=displayGeometry({mode:'shared',pageIndex:0,entities:[room]});assert.equal(g.length,1);assert.equal(g[0].points[1][0]-g[0].points[0][0],10);assert.equal(g[0].points[2][1]-g[0].points[1][1],5);assert.equal(g[0].depth,.65);assert.equal(JSON.stringify(room),before);});
 test('3D only shows the active page and never stale pending geometry',()=>{const entities=[room,{...room,id:'b',page:1}];assert.deepEqual(displayGeometry({mode:'shared',pageIndex:1,entities}).map(e=>e.id),['b']);assert.deepEqual(displayGeometry({mode:'pending',pageIndex:0,entities}),[]);});
 test('empty, nonfinite and degenerate geometry do not create meshes',()=>{const entities=[{...room,polygon:[]},{...room,polygon:[[0,0],[1,0],[2,0]]},{...room,polygon:[[0,0],[Infinity,1],[1,0]]}];assert.deepEqual(displayGeometry({mode:'shared',pageIndex:0,entities}),[]);});
+test('an IFC model stacks its storeys in metres; a plain multi-page drawing still shows one page',()=>{
+ const level=(page,elevation_m)=>({id:'level-'+page,type:'level',page,polygon:[],attrs:{elevation_m,height_m:3,frame_x_m:page*2,frame_y_m:10,frame_w_m:20,frame_h_m:10}});
+ const square={type:'room',label:'r',polygon:[[0,0],[100,0],[100,50],[0,50]]},wireScene={pages:[{width:200,height:50},{width:200,height:50}]};  // polygons are page pixels
+ const g=displayGeometry({mode:'shared',pageIndex:0,wireScene,entities:[level(1,3),level(0,-1),{...square,id:'low',page:0},{...square,id:'high',page:1}]});
+ assert.deepEqual(g.map(e=>[e.id,e.floor,e.elevation,e.storey]),[['low',0,0,3],['high',1,4,3]]);
+ near(g[0].spanM,12);near(estimateSpan(g),12);near(g[1].points[0][0]-g[0].points[0][0],2*10/12);  // the upper page sits 2 m east of the lower
+ near(g[0].points[2][1]-g[0].points[0][1],10*10/12);
+ assert.deepEqual(displayGeometry({mode:'shared',pageIndex:1,wireScene,entities:[{...square,id:'a',page:0},{...square,id:'b',page:1}]}).map(e=>[e.id,e.floor]),[['b',undefined]]);
+});

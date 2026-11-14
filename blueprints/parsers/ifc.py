@@ -16,7 +16,7 @@ from pathlib import Path
 
 from ..schemas import Entity, Page, Scene
 
-BUILDER = "ifc@1"
+BUILDER = "ifc@2"  # @2: each level carries its page frame in metres, so the 3D view can stack the storeys
 SIDE = 2048  # long side of a storey page, pixels
 # IFC class -> entity type. Stairs, beams and light fixtures are "other", told apart by attrs.category.
 TYPES = {"IfcSpace": "room", "IfcDoor": "door", "IfcWindow": "window", "IfcWall": "wall", "IfcSlab": "slab",
@@ -53,14 +53,16 @@ def fixture_kind(predefined: str | None, *names: str | None) -> str:
 
 
 def projector(bounds: tuple[float, float, float, float]):
-    """Model metres (x east, y north) -> (to_page, width, height): 0..1 page coordinates, north up, long side SIDE px."""
+    """Model metres (x east, y north) -> (to_page, width, height, frame): 0..1 page coordinates, north up, long side
+    SIDE px. frame says where the page sits in the model: its west edge, north edge, width and height in metres."""
     x0, y0, x1, y1 = bounds
     pad = 0.03 * max(x1 - x0, y1 - y0, 1.0)
     x0, y0, x1, y1 = x0 - pad, y0 - pad, x1 + pad, y1 + pad
     w, h = x1 - x0, y1 - y0
     scale = SIDE / max(w, h)
     clamp = lambda v: min(1.0, max(0.0, v))
-    return (lambda x, y: (round(clamp((x - x0) / w), 5), round(clamp((y1 - y) / h), 5))), max(1, round(w * scale)), max(1, round(h * scale))
+    frame = {"frame_x_m": round(x0, 3), "frame_y_m": round(y1, 3), "frame_w_m": round(w, 3), "frame_h_m": round(h, 3)}
+    return (lambda x, y: (round(clamp((x - x0) / w), 5), round(clamp((y1 - y) / h), 5))), max(1, round(w * scale)), max(1, round(h * scale)), frame
 
 
 def _storey(element, get_container, get_aggregate):
@@ -137,6 +139,47 @@ def build_scene(path: str, file: Path) -> Scene:
     return _build(model_path, file).model_copy(update={"path": path}, deep=True)
 
 
+def model_glb(path: str, file: Path) -> Path:
+    """The model's own 3D geometry as a GLB for the 3D view, written once to .cache/models/. Every element with a body
+    except spaces and opening voids, openings cut, one node per element named by its GlobalId. Metres, y up, and
+    (x, z) = (east, -north), which is how the 3D view lays out the storey pages."""
+    import multiprocessing
+
+    import ifcopenshell
+    import ifcopenshell.geom
+
+    from .. import pipeline
+    if file.suffix.lower() == ".pdf":
+        path, file = path.rsplit("_plan-", 1)[0] + ".ifc", file.with_name(file.name.rsplit("_plan-", 1)[0] + ".ifc")
+    out = pipeline.CACHE / "models" / (hashlib.md5(path.encode()).hexdigest() + ".glb")
+    if out.exists():
+        return out
+    try:
+        model = ifcopenshell.open(str(file))
+    except Exception as e:
+        raise ValueError(f"{file.name} is not a readable IFC model") from e
+    out.parent.mkdir(parents=True, exist_ok=True)
+    part = out.with_suffix(".part.glb")  # the serializer picks its format from the extension
+    settings = ifcopenshell.geom.settings()
+    settings.set("use-element-guids", True)
+    settings.set("apply-default-materials", True)
+    writer = ifcopenshell.geom.serializers.glb(str(part), settings)
+    writer.setFile(model)
+    writer.setUnitNameAndMagnitude("METER", 1.0)
+    writer.writeHeader()
+    skip = [*model.by_type("IfcSpace"), *model.by_type("IfcOpeningElement")]
+    shapes = ifcopenshell.geom.iterator(settings, model, multiprocessing.cpu_count(), exclude=skip)
+    if shapes.initialize():
+        while True:
+            writer.write(shapes.get())
+            if not shapes.next():
+                break
+    writer.finalize()
+    del writer  # closes the file, so it can be renamed on Windows
+    part.replace(out)
+    return out
+
+
 @lru_cache(maxsize=1)  # a model's plan PDFs are asked about one after another; build the model once for all of them
 def _build(path: str, file: Path) -> Scene:
     import ifcopenshell
@@ -176,15 +219,15 @@ def _build(path: str, file: Path) -> Scene:
         if not main:
             continue
         b = [g.bounds for g in main]
-        to_page, w, h = projector((min(x[0] for x in b), min(x[1] for x in b), max(x[2] for x in b), max(x[3] for x in b)))
-        frame[s.id()] = (len(pages), to_page)
+        to_page, w, h, where = projector((min(x[0] for x in b), min(x[1] for x in b), max(x[2] for x in b), max(x[3] for x in b)))
+        frame[s.id()] = (len(pages), to_page, where)
         pages.append(Page(image=f"pages/{hashlib.md5(path.encode()).hexdigest()}-{len(pages)}.png", width=w, height=h))
 
     level_of = {s.id(): s.Name or f"Storey {i + 1}" for i, s in enumerate(storeys)}
     entities, storey_height = [], {}
     for i, s in enumerate(storeys):
         nxt = storeys[i + 1].Elevation if i + 1 < len(storeys) else None
-        attrs = {"elevation_m": round((s.Elevation or 0) * unit["m"], 3)}
+        attrs = {"elevation_m": round((s.Elevation or 0) * unit["m"], 3), **(frame[s.id()][2] if s.id() in frame else {})}
         if nxt is not None:
             attrs["height_m"] = storey_height[s.id()] = round((nxt - (s.Elevation or 0)) * unit["m"], 3)
         entities.append(Entity(id=f"level-{i + 1}", type="level", label=level_of[s.id()], page=frame.get(s.id(), (0,))[0],
@@ -192,7 +235,7 @@ def _build(path: str, file: Path) -> Scene:
     drawn: dict[int, list] = {}
     for e in sorted(elements, key=lambda e: e.GlobalId):  # GlobalIds keep the ids stable across rebuilds
         kind, st = kinds[e.id()], on[e.id()]
-        page, to_page = frame.get(st.id(), (0, None)) if st else (0, None)
+        page, to_page = frame.get(st.id(), (0, None))[:2] if st else (0, None)
         poly = shapes.get(e.id())
         geom = [to_page(x, y) for x, y in poly.exterior.coords[:-1]] if poly is not None and to_page else []
         qtos = ue.get_psets(e, qtos_only=True)
@@ -248,9 +291,10 @@ if __name__ == "__main__":
     assert room_area({}, None) == (None, "none")
     assert fixture_kind("WCSEAT") == "toilet" and fixture_kind("NOTDEFINED", "Basin 600") == "sink"
     assert fixture_kind(None, "M_Bathtub-Rectangular") == "bathtub" and fixture_kind(None, "Floor drain") == "other"
-    to_page, w, h = projector((0, 0, 10, 5))
+    to_page, w, h, where = projector((0, 0, 10, 5))
     assert (w, h) == (SIDE, round(SIDE * 5.6 / 10.6)) and to_page(0, 5)[1] < to_page(0, 0)[1]  # north is up
     assert all(0 < v < 1 for v in to_page(5, 2.5))
+    assert where == {"frame_x_m": -0.3, "frame_y_m": 5.3, "frame_w_m": 10.6, "frame_h_m": 5.6}
 
     from .. import pipeline
     file = pipeline.DATA_ROOT / "data/ifc_models/bsc-duplex_duplex-a-20110907.ifc"
