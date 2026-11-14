@@ -1,5 +1,9 @@
 /** Lane D boundary adapter for blueprints/schemas.py v1. No query execution here. */
-export const units={count:'count',m2:'m²',ft2:'ft²',m:'m',m3:'m³'};
+export const units={count:'count',m2:'m²',ft2:'ft²',m:'m',m3:'m³',wall_m2:'m² wall'};
+/** An entity's quantities in the order of `units`, whatever order the reader wrote them in: a room's floor area comes
+ * first, before its perimeter and wall area, so it stays the quantity shown for the room. */
+const rank=unit=>Object.keys(units).indexOf(unit)+1||99;
+const quantitiesOf=e=>Object.entries(e.qty??{}).sort(([a],[b])=>rank(a)-rank(b));
 const canonical=value=>JSON.stringify(value,(_key,item)=>item&&typeof item==='object'&&!Array.isArray(item)?Object.fromEntries(Object.entries(item).sort(([a],[b])=>a.localeCompare(b))):item);
 const finite=n=>typeof n==='number'&&Number.isFinite(n);
 function requireValue(condition,message){if(!condition)throw new Error(message);}
@@ -18,7 +22,7 @@ export function describeEntity(e){
  const context=[e.type!=='apartment'&&e.apartment?`Apartment ${e.apartment}`:null,e.outdoor?'outdoor':null,a.copies>1?`drawn ${a.copies}× on the same spot`:null].filter(Boolean).join(' · ');
  return {label,context:context||undefined};
 }
-export function adaptScene(raw,answer={}){validateScene(raw);const map=new Map(raw.entities.map(e=>[e.id,e]));for(const e of answer.extra_entities??[]){validateEntity(e,raw.pages);if(map.has(e.id)){requireValue(canonical(map.get(e.id))===canonical(e),'extra_entities ID conflicts with the scene.');continue;}map.set(e.id,e);}const entities=[...map.values()].map(e=>{const page=raw.pages[e.page??0];const quantities=Object.entries(e.qty??{});return {...e,...describeEntity(e),rawLabel:e.label,page:e.page??0,polygon:(e.geom??[]).map(([x,y])=>[x*page.width,y*page.height]),sourceRef:e.ref??`Entity ${e.id} (no source reference supplied)`,method:raw.builder,uncertain:(e.conf??1)<.8,quantity:quantities[0]?.[1],unit:units[quantities[0]?.[0]],quantityText:quantities.length?quantities.map(([u,v])=>`${v} ${units[u]??u}`).join(' · '):undefined};});return {raw,pages:raw.pages,entities,width:raw.pages[0]?.width??1000,height:raw.pages[0]?.height??760,page:1,level:'Not specified'};}
+export function adaptScene(raw,answer={}){validateScene(raw);const map=new Map(raw.entities.map(e=>[e.id,e]));for(const e of answer.extra_entities??[]){validateEntity(e,raw.pages);if(map.has(e.id)){requireValue(canonical(map.get(e.id))===canonical(e),'extra_entities ID conflicts with the scene.');continue;}map.set(e.id,e);}const entities=[...map.values()].map(e=>{const page=raw.pages[e.page??0];const quantities=quantitiesOf(e);return {...e,...describeEntity(e),rawLabel:e.label,page:e.page??0,polygon:(e.geom??[]).map(([x,y])=>[x*page.width,y*page.height]),sourceRef:e.ref??`Entity ${e.id} (no source reference supplied)`,method:raw.builder,uncertain:(e.conf??1)<.8,quantity:quantities[0]?.[1],unit:units[quantities[0]?.[0]],quantityText:quantities.length?quantities.map(([u,v])=>`${v} ${units[u]??u}`).join(' · '):undefined};});return {raw,pages:raw.pages,entities,width:raw.pages[0]?.width??1000,height:raw.pages[0]?.height??760,page:1,level:'Not specified'};}
 /** Inline answer evidence remains inspectable without inventing page dimensions or a Scene. */
 export function adaptAnswerEvidence(raw){
  const map=new Map();
@@ -28,7 +32,7 @@ export function adaptAnswerEvidence(raw){
   map.set(e.id,e);
  }
  return [...map.values()].map(e=>{
-  const quantities=Object.entries(e.qty??{});
+  const quantities=quantitiesOf(e);
   return {...e,page:e.page??0,label:e.label??e.number??e.subtype??e.id,polygon:[],geometryUnavailable:true,
    sourceRef:e.ref??`Entity ${e.id} (no source reference supplied)`,method:'Answer-provided evidence; source coordinates unavailable',
    uncertain:(e.conf??1)<.8,quantity:quantities[0]?.[1],unit:units[quantities[0]?.[0]],

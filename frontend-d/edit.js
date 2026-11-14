@@ -1,10 +1,11 @@
 /** Correct what the reader found: remove a false detection (and the ones that look like it), confirm a doubtful
- * one, resize a box by its corners, draw a missed one.
+ * one, resize a box by its corners, move a room's outline corner by corner, draw a missed one.
  * The answer is recalculated by the server's executor on the corrected scene, with no model call. */
 import {$,el,state,setScene,showAnswer,answerFromScene,track,onInspect,svgPoint,select,showOnDrawing} from './main.js';
 import {requestJSON,getDrawingScene,recoveryMessage} from './api-client.js';
 import {subscribeEditor} from './editor-bridge.js';
 import {imageURL} from './contracts.js';
+import {measure,reshaped,nearestEdge,withCorner,withoutCorner} from './correction-state.js';
 
 const ADD=[['door','door',null],['window','window',null],['toilet','fixture','toilet'],['sink','fixture','sink'],['bathtub','fixture','bathtub'],['shower','fixture','shower']];
 const svg=$('drawing'),layer=$('edit-layer');
@@ -26,6 +27,22 @@ function resizable(entity){
  const [x0,y0,x1,y1]=bounds(entity.polygon);
  return entity.polygon.every(([x,y])=>(x===x0||x===x1)&&(y===y0||y===y1));
 }
+/** A room is corrected corner by corner instead, box or not, and its quantities follow the outline (correction-state.js). */
+const outlined=entity=>entity?.type==='room'&&entity.polygon.length>=3&&state.raw.entities.some(e=>e.id===entity.id);
+const geomOf=id=>state.raw.entities.find(e=>e.id===id).geom;
+function reshape(id,geom,done){
+ const entity=state.scene.entities.find(e=>e.id===id),page=state.raw.pages[entity.page];
+ if(!geom||measure(geom,page).area<1){paint();hint(geom?'That outline would enclose nothing, so it was left as it was.':'An outline needs at least 3 corners.');return;}
+ // What the reader measured is kept on the room, so its card can show the numbers before and after.
+ change(state.raw.entities.map(e=>e.id===id?{...reshaped(e,geom,page),attrs:{...e.attrs,corrected_from:e.attrs?.corrected_from??entity.quantityText??''}}:e),`${done} ${entity.label}`,id);
+}
+/** A click on the selected room's outline, within 8 screen pixels of an edge, puts a corner there. */
+function addCorner(entity,event){
+ const point=svgPoint(event),{width,height}=state.raw.pages[entity.page],edge=nearestEdge(entity.polygon,[point.x,point.y]);
+ if(edge.distance>8*(Number(svg.style?.getPropertyValue('--u'))||1))return false;
+ reshape(entity.id,withCorner(geomOf(entity.id),edge.index,[edge.point[0]/width,edge.point[1]/height]),'Added a corner to');
+ return true;
+}
 
 function paint(){
  layer.replaceChildren();
@@ -36,11 +53,12 @@ function paint(){
  for(const entity of items)layer.append(el('g',{class:`edit-mark kind-${entity.type}${entity.id.startsWith('user-')?' added':''}${entity.uncertain?' review':''}`,
   role:'button',tabindex:'0','aria-label':entity.label,'data-entity':entity.id,
   // A look-alike of the selected item is ticked or unticked where it is; anything else is selected.
-  onclick:()=>{if(drawing)return;if(alike?.ids.includes(entity.id))alike.toggle(entity.id);else select(entity.id);},onkeydown:event=>{if(event.key==='Enter'){event.preventDefault();select(entity.id);}}},
+  onclick:event=>{if(drawing)return;if(alike?.ids.includes(entity.id))alike.toggle(entity.id);else if(entity.id!==state.selected||!outlined(entity)||!addCorner(entity,event))select(entity.id);},onkeydown:event=>{if(event.key==='Enter'){event.preventDefault();select(entity.id);}}},
   ...['halo-dark','halo-light','region-shape'].map(kind=>el('polygon',{class:kind,points:pointsAttr(entity.polygon)}))));
  paintSelection();
 }
-/** What follows the selection: corner handles on a box that can be resized; the last selection's look-alike marks go. */
+/** What follows the selection: a handle on every corner of a room's outline, or corner handles on a box that can be
+ * resized; the last selection's look-alike marks go. */
 let shown=null;
 function paintSelection(){
  shown=state.selected;
@@ -48,6 +66,7 @@ function paintSelection(){
  alike=null;
  for(const node of layer.querySelectorAll('.alike,.hot'))node.classList.remove('alike','hot');
  const entity=state.editing&&!drawing?state.scene?.entities.find(e=>e.id===state.selected):null;
+ if(outlined(entity)){layer.append(...entity.polygon.map(([x,y],i)=>el('circle',{class:'edit-handle',r:5,'data-vertex':i,style:`--x:${x};--y:${y}`})));return;}
  if(!resizable(entity))return;
  layer.append(...corners(bounds(entity.polygon)).map(([x,y],i)=>el('circle',{class:'edit-handle',r:6,'data-corner':i,style:`--x:${x};--y:${y}`})));
 }
@@ -151,8 +170,14 @@ $('edit-undo').onclick=()=>{
  last.forget?.();
  paint();hint(last.forget?'Undone, and the symbol is forgotten.':'Undone.');
 };
+// In every mode: a room whose outline the user moved says so, with the reader's numbers beside the ones that followed.
+onInspect((entity,box)=>{
+ const was=entity.attrs?.corrected_from;
+ if(was!==undefined)box.append(el('p',{class:'edit-note'},`Outline corrected by user${was?`: was ${was}, now ${entity.quantityText}`:''}.`));
+});
 onInspect((entity,box)=>{
  if(!state.editing||!state.raw.entities.some(e=>e.id===entity.id))return;
+ if(outlined(entity))box.append(el('p',{class:'muted small'},'Drag a corner to move it. Click the outline to add a corner, Alt-click a corner to remove it.'));
  const actions=el('div',{class:'actions'},
   el('button',{class:'btn',type:'button',onclick:()=>change(state.raw.entities.filter(e=>e.id!==entity.id),`Removed ${entity.label}`)},'Remove'),
   entity.uncertain?el('button',{class:'btn',type:'button',onclick:()=>change(state.raw.entities.map(e=>e.id===entity.id?{...e,conf:1}:e),`Confirmed ${entity.label}`)},'It is right'):null);
@@ -199,28 +224,47 @@ function crop(id,toggle){
 }
 
 // Resize: drag a corner handle of the selected box; the opposite corner stays where it is.
+// A room's outline has a handle on every corner instead: dragging one moves that corner alone, Alt-click removes it.
 svg.addEventListener('pointerdown',event=>{
  const handle=event.target.closest?.('.edit-handle'),entity=state.scene?.entities.find(e=>e.id===state.selected);
  if(!handle||!entity||event.button!==0)return;
  event.preventDefault();event.stopImmediatePropagation();  // not a pan
+ if(handle.dataset.vertex!==undefined){
+  const vertex=Number(handle.dataset.vertex);
+  suppressDrawClick=true;  // the click that ends this press must not land on the outline as "add a corner"
+  if(event.altKey){reshape(entity.id,withoutCorner(geomOf(entity.id),vertex),'Removed a corner of');return;}
+  handle.setPointerCapture(event.pointerId);
+  resize={id:entity.id,vertex,from:entity.polygon,points:null};
+  return;
+ }
  handle.setPointerCapture(event.pointerId);
  const [x0,y0,x1,y1]=bounds(entity.polygon),corner=Number(handle.dataset.corner);
  resize={id:entity.id,label:entity.label,fixed:[corner===0||corner===3?x1:x0,corner<2?y1:y0],box:null};
 },true);
 svg.addEventListener('pointermove',event=>{
  if(!resize)return;
- const point=svgPoint(event),{width,height}=state.raw.pages[state.page],[fx,fy]=resize.fixed;
+ const point=svgPoint(event),{width,height}=state.raw.pages[state.page];
  const x=Math.min(Math.max(point.x,0),width),y=Math.min(Math.max(point.y,0),height);
- resize.box=[Math.min(fx,x),Math.min(fy,y),Math.max(fx,x),Math.max(fy,y)];
+ let points;
+ if(resize.from)points=resize.points=resize.from.map((p,i)=>i===resize.vertex?[x,y]:p);
+ else{
+  const [fx,fy]=resize.fixed;
+  resize.box=[Math.min(fx,x),Math.min(fy,y),Math.max(fx,x),Math.max(fy,y)];
+  points=corners(resize.box);
+ }
  // Move the outline and its handles in place: rebuilding them would drop the handle the pointer is holding.
- const points=corners(resize.box);
  for(const shape of markOf(resize.id)?.querySelectorAll('polygon')??[])shape.setAttribute('points',pointsAttr(points));
  layer.querySelectorAll('.edit-handle').forEach((node,i)=>node.setAttribute('style',`--x:${points[i][0]};--y:${points[i][1]}`));
 });
 function endResize(event){
  if(!resize)return;
- const {id,label,box}=resize,{width,height}=state.raw.pages[state.page];resize=null;
- if(!box){paintSelection();return;}  // a click on the handle, no drag
+ const {id,label,box,points,vertex}=resize,{width,height}=state.raw.pages[state.page];resize=null;
+ if(!box&&!points){paintSelection();return;}  // a click on the handle, no drag
+ if(points){  // a room's corner: the others keep the exact numbers the reader gave them
+  if(event.type!=='pointerup'){paint();hint('Move cancelled.');return;}
+  reshape(id,geomOf(id).map((p,i)=>i===vertex?[points[vertex][0]/width,points[vertex][1]/height]:p),'Moved a corner of');
+  return;
+ }
  const [x0,y0,x1,y1]=[box[0]/width,box[1]/height,box[2]/width,box[3]/height];
  if(event.type!=='pointerup'||x1-x0<.002||y1-y0<.002){paint();hint(event.type==='pointerup'?'That box is too small, so it was left as it was.':'Resize cancelled.');return;}
  change(state.raw.entities.map(e=>e.id===id?{...e,geom:corners([x0,y0,x1,y1])}:e),`Resized ${label}`,id);
