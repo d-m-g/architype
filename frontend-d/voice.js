@@ -1,4 +1,5 @@
 import {subscribeEditor} from './editor-bridge.js';
+import {startLiveTranscription,supportsLiveAudio} from './voice-live.js';
 
 const WORDS={
  'fi':{mock:'Esittelyesimerkki. ',reported:'Raportoitu vastaus. ',none:'Ei vahvistettua vastausta. ',missing:'Todisteita ei ole riittävästi.',confidence:n=>`Raportoitu luottamus ${n} prosenttia, ei välttämättä kalibroitu.`,uncalibrated:'Luottamusta ei ole kalibroitu.',review:n=>`${n} havaintoa tarvitsee tarkistuksen.`},
@@ -148,7 +149,24 @@ export function mountGoogleVoice(root=document,host=window){
   const p=playback;playback=null;stop.disabled=true;
   if(p){p.controller.abort();if(p.audio){p.audio.onended=null;p.audio.onerror=null;p.audio.pause();}if(p.url)host.URL.revokeObjectURL(p.url);}
  };
- const finish=()=>{if(session?.recorder?.state==='recording'){session.recorder.stop();release(session);}};
+ const finish=async()=>{
+  const s=session;
+  if(s?.live&&!s.finishing){
+   s.finishing=true;phase('transcribing');dictate.textContent='Cancel transcription';dictate.setAttribute('aria-label','Cancel transcription');
+   say('Finalizing your question…');
+   try{
+    const final=s.live.finish();release(s);
+    const text=await final;
+    if(session!==s)return;
+    if(question.value!==s.original){cancelInput();say('Your typed edit was kept. Transcription was discarded.');return;}
+    session=null;reset();
+    if(text.trim()){
+     phase('review');question.value=text.trim();question.dispatchEvent(new Event('input',{bubbles:true}));
+     say('Question transcribed. Review it, then press Ask.');
+    }else{phase('ready');say('No speech recognised. Try again or type your question.');}
+   }catch(error){if(session===s){cancelInput();say(error.message);}}
+  }else if(s?.recorder?.state==='recording'){s.recorder.stop();release(s);}
+ };
  const unsubscribe=subscribeEditor(next=>{
   const changed=source!==(next.wireScene?.path||'')||spokenAnswer(snapshot,language.value)!==spokenAnswer(next,language.value);
   snapshot=next;source=next.wireScene?.path||'';
@@ -164,8 +182,8 @@ export function mountGoogleVoice(root=document,host=window){
    if(disposed)return;
    if(!config.configured)throw new Error('Google voice is not configured.');
    settings=config;dictate.disabled=false;read.disabled=!snapshot?.answer;phase('ready');
-   dictate.title='Record a question for Google transcription (maximum 30 seconds)';
-   say('Google voice ready. Record a question, then review the transcript.');
+   dictate.title='Dictate a question with Google (maximum 30 seconds)';
+   say(settings.live_transcription&&supportsLiveAudio(host)?'Google live voice ready. Words appear while you speak.':'Google voice ready. Record a question, then review the transcript.');
   }).catch(error=>{
    if(disposed)return;
    unsubscribe();fallback=mountBrowserVoice(root,host);
@@ -173,7 +191,7 @@ export function mountGoogleVoice(root=document,host=window){
   });
  dictate.onclick=async()=>{
   if(!settings)return;
-  if(session){if(session.recorder?.state==='recording')finish();else{cancelInput();say('Dictation cancelled.');}return;}
+  if(session){if((session.live&&!session.finishing)||session.recorder?.state==='recording')return finish();else{cancelInput();say('Dictation cancelled.');}return;}
   cancelOutput();
   const s={original:question.value,language:language.value,chunks:[],size:0,controller:new AbortController()};
   session=s;language.disabled=true;dictate.textContent='Cancel dictation';dictate.setAttribute('aria-pressed','true');dictate.setAttribute('aria-label','Cancel dictation');
@@ -181,6 +199,19 @@ export function mountGoogleVoice(root=document,host=window){
   try{
    s.stream=await host.navigator.mediaDevices.getUserMedia({audio:true});
    if(session!==s){release(s);return;}
+   if(settings.live_transcription&&supportsLiveAudio(host)){
+    s.usedLive=true;say('Connecting Google live transcription…');
+    s.live=await startLiveTranscription({host,stream:s.stream,language:s.language,signal:s.controller.signal,
+     onPreview:text=>{if(session===s){preview.hidden=false;transcript.textContent=text;}},
+     onError:error=>{if(session===s){settings.live_transcription=false;cancelInput();say(error.message+' You can retry using recorded dictation.');}},
+    });
+    if(session!==s){s.live.cancel();release(s);return;}
+    preview.hidden=false;transcript.textContent='Listening…';phase('listening');
+    dictate.textContent='Finish question';dictate.setAttribute('aria-label','Finish question');
+    say('Listening with Google… Words appear here as you speak. Click Finish question when ready.');
+    s.timer=host.setTimeout(finish,Math.min(30,settings.max_record_seconds||30)*1000);
+    return;
+   }
    const types=['audio/webm;codecs=opus','audio/ogg;codecs=opus','audio/mp4'];
    const mime=types.find(type=>host.MediaRecorder.isTypeSupported(type));
    if(!mime)throw new Error('This browser cannot record a supported audio format. Type your question instead.');
@@ -216,7 +247,11 @@ export function mountGoogleVoice(root=document,host=window){
    s.recorder.start(250);dictate.textContent='Finish question';dictate.setAttribute('aria-label','Finish question');phase('listening');
    say('Recording… Click Finish question when ready. Audio is sent to Google for transcription.');
    s.timer=host.setTimeout(finish,Math.min(30,settings.max_record_seconds||30)*1000);
-  }catch(error){if(session===s){cancelInput();say(error.name==='NotAllowedError'?'Microphone permission was denied. You can still type.':error.message);}}
+  }catch(error){if(session===s){
+   if(s.usedLive)settings.live_transcription=false;
+   cancelInput();say(error.name==='NotAllowedError'?'Microphone permission was denied. You can still type.':
+    error.message+(s.usedLive?' You can retry using recorded dictation.':''));
+  }}
  };
  read.onclick=async()=>{
   if(!settings||!snapshot?.answer)return;

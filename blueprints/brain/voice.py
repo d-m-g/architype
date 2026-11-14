@@ -5,6 +5,7 @@ import binascii
 import json
 import os
 import socket
+from datetime import datetime, timedelta, timezone
 from urllib.error import HTTPError, URLError
 from urllib.request import Request as URLRequest, urlopen
 
@@ -24,11 +25,13 @@ def _model(kind):
                           "gemini-3.5-transcribe" if kind == "transcribe" else "gemini-3.8-flash-tts")
 
 
-def _post_google(payload):
+def _post_google(payload, *, auth_token=False):
     key = os.environ.get("GEMINI_API_KEY")
     if not key:
         raise HTTPException(503, "Google voice is not configured. Set GEMINI_API_KEY on the server.")
-    request = URLRequest(GOOGLE_URL, data=json.dumps({**payload, "store": False}).encode(), method="POST",
+    url = "https://generativelanguage.googleapis.com/v1beta/auth_tokens" if auth_token else GOOGLE_URL
+    body = payload if auth_token else {**payload, "store": False}
+    request = URLRequest(url, data=json.dumps(body).encode(), method="POST",
                          headers={"Content-Type": "application/json", "x-goog-api-key": key})
     try:
         with urlopen(request, timeout=90) as response:
@@ -65,7 +68,36 @@ def _output_content(reply):
 def config():
     return {"configured": bool(os.environ.get("GEMINI_API_KEY")),
             "transcription_model": _model("transcribe"), "speech_model": _model("speech"),
-            "max_record_seconds": 30, "max_audio_bytes": MAX_AUDIO_BYTES}
+            "max_record_seconds": 30, "max_audio_bytes": MAX_AUDIO_BYTES,
+            "live_transcription": os.environ.get("BLUEPRINTS_LIVE_TRANSCRIPTION", "1") != "0",
+            "live_model": os.environ.get("BLUEPRINTS_LIVE_TRANSCRIBE_MODEL", "gemini-3.5-transcribe-live")}
+
+
+class LiveToken(BaseModel):
+    language: str = Field(default="auto", max_length=30, pattern=r"^(auto|[a-z]{2,3}(?:-[A-Za-z0-9]{2,8}){0,2})$")
+
+
+@router.post("/live-token")
+async def live_token(body: LiveToken, response: Response):
+    """Mint one constrained two-minute token, never expose the long-lived API key."""
+    if os.environ.get("BLUEPRINTS_LIVE_TRANSCRIPTION", "1") == "0":
+        raise HTTPException(503, "Live transcription is disabled on this server.")
+    now = datetime.now(timezone.utc)
+    model = os.environ.get("BLUEPRINTS_LIVE_TRANSCRIBE_MODEL", "gemini-3.5-transcribe-live")
+    setup = {"model": "models/" + model.removeprefix("models/"),
+             "generationConfig": {"responseModalities": ["TEXT"]},
+             "inputAudioTranscription": {
+                 "languageCodes": [] if body.language == "auto" else [body.language],
+                 "customVocabulary": ["floor plan", "door", "window", "washbasin", "pohjapiirustus", "ikkuna"],
+             }}
+    payload = {"uses": 1, "expireTime": (now + timedelta(minutes=2)).isoformat(),
+               "newSessionExpireTime": (now + timedelta(seconds=60)).isoformat(),
+               "bidiGenerateContentSetup": setup}
+    token = await asyncio.to_thread(_post_google, payload, auth_token=True)
+    if not isinstance(token.get("name"), str) or not token["name"]:
+        raise HTTPException(502, "Google did not return a live transcription token.")
+    response.headers["Cache-Control"] = "no-store"
+    return {"token": token["name"], "setup": setup, "max_record_seconds": 30}
 
 
 @router.post("/transcribe")
