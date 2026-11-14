@@ -20,8 +20,8 @@ The judged interface receives hard live questions. This is the active D ordering
    - Session-local per-drawing answer history is implemented, with original evidence snapshots and explicit question reuse. Real Nemotron tool-call detail still depends on the returned trace contract.
    - Never imply tool calls from a model-name badge alone.
 5. **Floor plates, if time permits.**
-   - Replace illustrative room extrusions with per-floor source images and linked evidence.
-   - Explode slider, isolate floor, agreed alignment transforms; optional real IFC elevations.
+   - Multi-page shared scenes now display source-image plates with linked evidence; single-page scenes retain illustrative room extrusions.
+   - Explode slider, one-page isolation and 2D selection sync are built against a synthetic two-page fixture. Agreed alignment transforms and optional real IFC elevations remain.
    - Hide this production stack for single-page drawings. Preserve the existing clearly labelled illustrative mock preview until the stack is implemented.
 6. **Throughout.**
    - Deliberate loading, error and abstention states; cost/confidence on live answers.

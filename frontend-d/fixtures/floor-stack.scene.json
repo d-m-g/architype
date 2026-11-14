@@ -1,0 +1,195 @@
+{
+  "schema_version": 1,
+  "path": "data/swiss_dwellings/site1000_bldg2082_floor9385.pdf",
+  "builder": "D synthetic two-page display fixture; repeated source image",
+  "tier": "parse",
+  "covers": [
+    "room",
+    "apartment",
+    "fixture:toilet",
+    "fixture:sink",
+    "fixture:bathtub"
+  ],
+  "pages": [
+    {
+      "image": "data/swiss_dwellings/site1000_bldg2082_floor9385.png",
+      "width": 2480,
+      "height": 1753
+    },
+    {
+      "image": "data/swiss_dwellings/site1000_bldg2082_floor9385.png",
+      "width": 2480,
+      "height": 1753
+    }
+  ],
+  "entities": [
+    {
+      "id": "apt-A",
+      "type": "apartment",
+      "label": "A",
+      "geom": [
+        [
+          0.355,
+          0.293
+        ],
+        [
+          0.645,
+          0.293
+        ],
+        [
+          0.645,
+          0.562
+        ],
+        [
+          0.355,
+          0.562
+        ]
+      ],
+      "page": 0
+    },
+    {
+      "id": "room-5.01",
+      "type": "room",
+      "subtype": "storage",
+      "label": "Ripostiglio",
+      "number": "5.01",
+      "apartment": "A",
+      "qty": {
+        "m2": 5.08
+      },
+      "geom": [
+        [
+          0.355,
+          0.315
+        ],
+        [
+          0.4,
+          0.315
+        ],
+        [
+          0.4,
+          0.392
+        ],
+        [
+          0.355,
+          0.392
+        ]
+      ],
+      "page": 0
+    },
+    {
+      "id": "room-5.02",
+      "type": "room",
+      "subtype": "corridor",
+      "label": "Corridoio",
+      "number": "5.02",
+      "apartment": "A",
+      "qty": {
+        "m2": 4.06
+      },
+      "geom": [
+        [
+          0.4475,
+          0.397
+        ],
+        [
+          0.55,
+          0.397
+        ],
+        [
+          0.55,
+          0.424
+        ],
+        [
+          0.4475,
+          0.424
+        ]
+      ],
+      "page": 0
+    },
+    {
+      "id": "apt-A-page2",
+      "type": "apartment",
+      "label": "A",
+      "geom": [
+        [
+          0.355,
+          0.293
+        ],
+        [
+          0.645,
+          0.293
+        ],
+        [
+          0.645,
+          0.562
+        ],
+        [
+          0.355,
+          0.562
+        ]
+      ],
+      "page": 1
+    },
+    {
+      "id": "room-5.01-page2",
+      "type": "room",
+      "subtype": "storage",
+      "label": "Ripostiglio",
+      "number": "5.01",
+      "apartment": "A",
+      "qty": {
+        "m2": 5.08
+      },
+      "geom": [
+        [
+          0.355,
+          0.315
+        ],
+        [
+          0.4,
+          0.315
+        ],
+        [
+          0.4,
+          0.392
+        ],
+        [
+          0.355,
+          0.392
+        ]
+      ],
+      "page": 1
+    },
+    {
+      "id": "room-5.02-page2",
+      "type": "room",
+      "subtype": "corridor",
+      "label": "Corridoio",
+      "number": "5.02",
+      "apartment": "A",
+      "qty": {
+        "m2": 4.06
+      },
+      "geom": [
+        [
+          0.4475,
+          0.397
+        ],
+        [
+          0.55,
+          0.397
+        ],
+        [
+          0.55,
+          0.424
+        ],
+        [
+          0.4475,
+          0.424
+        ]
+      ],
+      "page": 1
+    }
+  ]
+}
