@@ -37,6 +37,7 @@ class TraceStep(Strict):
     usd: float = 0.0
     ms: float = 0.0
     cached: bool = False
+    detail: str | None = None  # what the step did, for the answer card: the plan read, a tool call and its result
 
 
 class Page(Strict):
@@ -145,6 +146,7 @@ class Answer(BaseModel):
     answer: int | float | str | None = None  # None means "could not answer"; see error
     unit: Unit | None = None
     confidence: float = Field(0.0, ge=0, le=1)  # probability the answer is correct
+    confidence_note: str | None = None  # how confidence was set, in plain words, and how often that was right in eval
     tier: Tier = "none"  # the most expensive tier that contributed
     evidence: list[str] = []  # Entity ids from the scene to highlight
     extra_entities: list[Entity] = []  # evidence the escalation model found that is not in the scene
