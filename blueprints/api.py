@@ -139,7 +139,7 @@ _LOGIN_PAGE = """<!doctype html>
  });
 </script></body></html>"""
 
-UPLOAD_TYPES = {".pdf", ".png", ".jpg", ".jpeg", ".dxf"}  # DXF goes to lane A's parser; IFC waits for its reader
+UPLOAD_TYPES = {".pdf", ".png", ".jpg", ".jpeg", ".dxf"}  # DXF and vector PDF go to lane A's parsers; IFC waits for its reader
 UPLOAD_MAX_BYTES = 50 * 1024 * 1024
 
 
@@ -163,15 +163,24 @@ def _drawing(path: str):
         raise HTTPException(404, f"no such drawing: {path}") from None
 
 
-def _parsed(path: str) -> bool:
-    """Uploads with a structured parser go through the pipeline like dataset drawings; the rest to the vision reader."""
-    return path.lower().endswith(".dxf")
+def _vision_only(path: str) -> bool:
+    """Uploads only the vision reader can read: rasters, and PDFs the vector parser does not recognise (a scan, a
+    section, a document). DXF and vector-PDF uploads go through the pipeline like dataset drawings."""
+    if not path.startswith("uploads/") or path.lower().endswith(".dxf"):
+        return False
+    if not path.lower().endswith(".pdf"):
+        return True
+    try:
+        pipeline.get_scene(path)  # built once and cached
+        return False
+    except NotImplementedError:
+        return True
 
 
 @app.post("/api/ask")
 def ask(body: Ask) -> Answer:
     _drawing(body.path)
-    if body.path.startswith("uploads/") and not _parsed(body.path):
+    if _vision_only(body.path):
         from .brain.escalate import answer_from_vision
         try:
             return answer_from_vision(body.question, body.path)
@@ -209,14 +218,17 @@ async def upload(request: Request, filename: str) -> dict:
     name = hashlib.sha256(data).hexdigest()[:20] + suffix  # content-addressed: the user's filename never touches the disk
     UPLOADS.mkdir(parents=True, exist_ok=True)
     (UPLOADS / name).write_bytes(data)
-    return {"path": f"uploads/{name}", "reader": "swiss_dxf_upload@1" if _parsed(name) else BUILDER}
+    from .parsers.pdf import BUILDER as PDF_BUILDER
+    path = f"uploads/{name}"
+    reader = BUILDER if _vision_only(path) else "swiss_dxf_upload@1" if suffix == ".dxf" else PDF_BUILDER
+    return {"path": path, "reader": reader}
 
 
 @app.get("/api/scene")
 def scene(path: str) -> Scene:
     _drawing(path)
     try:
-        if path.startswith("uploads/") and not _parsed(path):
+        if _vision_only(path):
             from .brain.vision import read_scene
             return read_scene(path)[0]
         return pipeline.get_scene(path)
