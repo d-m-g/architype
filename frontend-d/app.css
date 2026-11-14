@@ -149,6 +149,8 @@ main>section{height:100%}
 .edit-mark polygon.region-shape{fill:#1f4fd8;fill-opacity:.08;stroke:#1f4fd8;stroke-width:1.5;vector-effect:non-scaling-stroke;cursor:pointer}
 .edit-mark:hover polygon.region-shape,.edit-mark.selected polygon.region-shape{fill-opacity:.3;stroke-width:3}
 .edit-mark.added polygon.region-shape{stroke:#157f3b;fill:#157f3b}
+.draw-preview{pointer-events:none}
+.draw-preview polygon.region-shape{stroke-dasharray:6 3;fill-opacity:.18}
 /* The items that show the same symbol as the selected one, offered for removal together. */
 .edit-mark.alike polygon.region-shape{stroke:#c2410c;fill:#c2410c;fill-opacity:.3;stroke-width:3;stroke-dasharray:5 3}
 /* Corner handles of the selected box; --u keeps them one size on screen at every zoom, like the number badges. */
