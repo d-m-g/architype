@@ -2,7 +2,7 @@
  * one, resize a box by its corners, draw a missed one.
  * The answer is recalculated by the server's executor on the corrected scene, with no model call. */
 import {$,el,state,setScene,showAnswer,answerFromScene,track,onInspect,svgPoint,select} from './main.js';
-import {requestJSON,recoveryMessage} from './api-client.js';
+import {requestJSON,getDrawingScene,recoveryMessage} from './api-client.js';
 import {subscribeEditor} from './editor-bridge.js';
 
 const ADD=[['door','door',null],['window','window',null],['toilet','fixture','toilet'],['sink','fixture','sink'],['bathtub','fixture','bathtub'],['shower','fixture','shower']];
@@ -74,11 +74,12 @@ async function commit(entities,done,keep=null){
  }
 }
 const post=(url,body)=>requestJSON(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-/** What a correction says about each item it touched, as labels for training the detector: drawn boxes, resized
- * ones and confirmed ones are right, removed ones are what the detector got wrong. */
+/** How the corrected drawing differs from what the reader found, as labels for training the detector: drawn boxes,
+ * resized ones and confirmed ones are right, removed ones are what the detector got wrong. */
 function labelsOf(before,after){
  const was=new Map(before.map(e=>[e.id,e])),now=new Set(after.map(e=>e.id)),labels=[];
- const label=(action,e,more={})=>{if(e.geom?.length>=3)labels.push({action,image:state.raw.pages[e.page??0].image,entity:e.id,type:e.type,
+ // "other" items were already set aside by the server as rejected symbols: they teach nothing new.
+ const label=(action,e,more={})=>{if(e.geom?.length>=3&&e.type!=='other')labels.push({action,image:state.raw.pages[e.page??0].image,entity:e.id,type:e.type,
   ...(e.subtype?{subtype:e.subtype}:{}),box:bounds(e.geom),conf:e.conf??null,...more});};
  for(const e of before)if(!now.has(e.id))label('removed',e);
  for(const e of after){
@@ -91,12 +92,23 @@ function labelsOf(before,after){
 }
 /** forget: what Undo also has to take back on the server (a remembered symbol). */
 function change(entities,done,keep=null,forget=null){
- // Saved in the background: a correction must work even when its label cannot be stored.
- const labels=labelsOf(state.raw.entities,entities),correction=labels.length?crypto.randomUUID():null;
- if(correction)post('/api/labels',{correction,labels}).catch(()=>{});
- undo.push({entities:state.raw.entities,answer:state.rawAnswer,corrected:state.corrected,ms:state.ms,edited:state.edited,forget,correction});
+ undo.push({entities:state.raw.entities,answer:state.rawAnswer,corrected:state.corrected,ms:state.ms,edited:state.edited,forget});
  return commit(entities,done,keep);
 }
+// Corrections become training labels only when the user says so: nothing is recorded while they try things out.
+$('edit-record').onclick=async()=>{
+ const button=$('edit-record');
+ button.disabled=true;hint('Recording your corrections');
+ try{
+  // The server holds the drawing as its reader left it; the corrections are in this browser.
+  const labels=labelsOf((await track(getDrawingScene(state.path))).entities,state.raw.entities);
+  await track(post('/api/labels',{drawing:state.path,labels}));
+  const counts=['removed','added','resized','confirmed'].map(action=>[labels.filter(l=>l.action===action).length,action]).filter(([n])=>n);
+  hint(labels.length?`Recorded for training: ${counts.map(([n,action])=>`${n} ${action}`).join(', ')}. Recording again replaces this.`
+   :'Nothing differs from what the reader found, so this drawing has no training labels now.');
+ }catch(error){hint(`Could not record the corrections: ${recoveryMessage(error)}`);}
+ finally{button.disabled=false;}
+};
 /** Tell the server this symbol is not what the detector took it for, so it is set aside on drawings uploaded from
  * now on. Returns the function that makes the server forget it again. */
 function remember(entity){
@@ -117,7 +129,6 @@ $('edit-undo').onclick=()=>{
  state.edited=last.edited;state.corrected=last.corrected;$('edit-undo').disabled=!undo.length;
  if(last.answer)showAnswer(last.answer,state.question,last.ms);
  last.forget?.();
- if(last.correction)post('/api/labels',{correction:last.correction,undo:true}).catch(()=>{});
  paint();hint(last.forget?'Undone, and the symbol is forgotten.':'Undone.');
 };
 onInspect((entity,box)=>{

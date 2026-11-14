@@ -169,7 +169,7 @@ class Alike(BaseModel):
 class Label(BaseModel):
     action: Literal["added", "removed", "resized", "confirmed"]
     image: str  # Page.image of the page the box is on
-    entity: str = Field(max_length=80)  # Entity.id: later corrections of the same item replace this one
+    entity: str = Field(max_length=80)  # Entity.id
     type: str
     subtype: str | None = None
     box: Box
@@ -178,9 +178,8 @@ class Label(BaseModel):
 
 
 class Labels(BaseModel):
-    correction: str = Field(pattern=r"^[\w-]{1,40}$")  # the viewer's id for one user action; an undo names it
-    labels: list[Label] = Field([], max_length=2000)
-    undo: bool = False
+    drawing: str  # the drawing's path, as in /api/ask; recording it again replaces its earlier labels
+    labels: list[Label] = Field(max_length=2000)  # how the drawing now differs from what the reader found
 
 
 class Reject(BaseModel):
@@ -361,17 +360,15 @@ def _kind(type: str, subtype: str | None) -> str:
 
 @app.post("/api/labels")
 def labels(body: Labels) -> dict:
-    """Keep what the user corrected in the viewer as training labels (detector/labels.py), or take one correction
-    back when the viewer undoes it."""
+    """Record the user's corrections on a drawing as training labels (detector/labels.py). Sent when the user
+    presses "Record for training" in the viewer, never on its own; an empty list clears the drawing's labels."""
     from .detector import labels as log
-    if body.undo:
-        log.undo(body.correction)
-        return {"saved": 0}
+    _drawing(body.drawing)
     for image in {label.image for label in body.labels}:
         _page_file(image)  # 404 unless it is a drawing or page this server holds
     for kind in {(label.type, label.subtype) for label in body.labels}:
         _kind(*kind)
-    log.save(body.correction, [label.model_dump(exclude_none=True) for label in body.labels])
+    log.save(body.drawing, [label.model_dump(exclude_none=True) for label in body.labels])
     return {"saved": len(body.labels)}
 
 
