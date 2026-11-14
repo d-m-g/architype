@@ -62,6 +62,12 @@ or sums one quantity over them (op "sum" with qty). Filters are exact text match
   question. When a room is given by its number and its name, as in room 7.01 ({{label}}), filter on number "7.01"
   and leave the name out. Apartments are identified by the apartment filter.
 - outdoor: false when the question excludes balconies, loggias, terraces or other outdoor spaces; otherwise leave it out.
+- For doors, windows or fixtures connected to a room, use where with connected_room_number, connected_room_label,
+  connected_room_type, connected_room_apartment or connected_room_level. These refer to the ROOM, not the object.
+  A connection can be at either endpoint; one object counts once even when both endpoints match.
+  Example: doors in room 7.03 -> type door, where {{"connected_room_number": "7.03"}}.
+  Windows in bedrooms -> type window, where {{"connected_room_type": "bedroom"}}.
+  Do not filter door.label or door.number by a room's name/number, and do not add separate counts for each endpoint.
 - formula: arithmetic over query names and numeric assumptions, with + - * / // ( ) ceil floor round min max abs.
   Required when there are several queries ("how many A and B" is two counts added). Never compute numbers yourself.
 - assumptions: values the user may want to change (tile size in m2, waste). interpretation: the reading you chose, if ambiguous.
@@ -160,6 +166,15 @@ def _plan_with_trace(question: str, scene: Scene | None) -> tuple[QueryPlan, lis
     template, slots = mask(question)
     local = pipeline.CACHE / "plans" / (hashlib.md5(template.encode()).hexdigest() + ".json")
     plan = SEEDED.get(template) or (json.loads(local.read_text(encoding="utf-8")) if local.exists() else None)
+    if plan and scene and any(e.attrs.get("room_link_version") for e in scene.entities):
+        # Old PNG plans tried filtering door.label/number by a room, or only one endpoint.
+        # Re-plan only those filtered object shapes; preserve all unfiltered/seeded count caches.
+        old_room_keys = {"room", "room2", "room_label", "room_label2", "room_id", "room_id2", "room_type", "room_type2"}
+        if any(q.get("type") in ("door", "window", "fixture") and
+               (q.get("label") or q.get("number") or old_room_keys.intersection(q.get("where", {})))
+               for q in plan.get("queries", {}).values()):
+            local = local.with_name(local.stem + "-room-connections-v1.json")
+            plan = json.loads(local.read_text(encoding="utf-8")) if local.exists() else None
     if plan is not None:
         if "unsupported" in plan:  # cached verdict: repeats skip Gemini too
             raise Unsupported(plan["unsupported"], [llm_step("plan", GEMINI_MODEL, 0, 0, 0, cached=True)])

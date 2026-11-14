@@ -5,6 +5,7 @@ import operator
 import time
 
 from .schemas import Answer, Entity, Query, QueryPlan, Scene, TraceStep
+from . import room_queries
 
 _OPS = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul, ast.Div: operator.truediv,
         ast.FloorDiv: operator.floordiv, ast.USub: operator.neg}
@@ -37,6 +38,8 @@ def _same(value: str | None, wanted: str) -> bool:
 
 
 def select(q: Query, scene: Scene) -> list[Entity]:
+    connected = bool(room_queries.ROOM_FILTERS.keys() & q.where.keys())
+    wanted = {r.id for r in room_queries.targets(q, scene)} if connected else set()
     return [
         e for e in scene.entities
         if e.type == q.type
@@ -47,7 +50,8 @@ def select(q: Query, scene: Scene) -> list[Entity]:
         and (q.apartment is None or _same(e.apartment, q.apartment))
         and (q.outdoor is None or e.outdoor == q.outdoor)
         and all(k in e.attrs and (_same(e.attrs[k], v) if isinstance(v, str) and isinstance(e.attrs[k], str)
-                                  else e.attrs[k] == v) for k, v in q.where.items())
+                                  else e.attrs[k] == v) for k, v in q.where.items() if k not in room_queries.ROOM_FILTERS)
+        and (not connected or bool(room_queries.endpoints(e, scene) & wanted))
     ]
 
 
@@ -70,6 +74,16 @@ def execute(plan: QueryPlan, scene: Scene) -> Answer:
             # An uncovered key would count as zero and look confident. Refuse, so the pipeline escalates.
             return done(error=f"scene from {scene.builder} does not cover {key}")
         hits = select(q, scene)
+        if room_queries.ROOM_FILTERS.keys() & q.where.keys():
+            base = q.model_copy(update={"where": {k: v for k, v in q.where.items() if k not in room_queries.ROOM_FILTERS}})
+            error = room_queries.uncertainty(q, scene, select(base, scene))
+            if error:
+                return done(error=error)
+            cited_rooms = room_queries.targets(q, scene)
+            evidence += [r.id for r in cited_rooms]
+            confidence = min(confidence, min(r.conf for r in cited_rooms))
+            why.append("Room connections inferred from raster geometry are not independently verified." if any(
+                e.attrs.get("room_link_version") for e in hits) else "Room connections resolved from source metadata.")
         if q.op == "count":
             values[name] = len(hits)
             shown = f"{len(hits)} x {key}"

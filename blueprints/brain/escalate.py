@@ -16,6 +16,7 @@ from collections import Counter
 
 from ..costs import llm_step
 from ..executor import execute
+from ..room_queries import ROOM_FILTERS
 from ..schemas import Answer, QueryPlan, Scene, TraceStep
 from .plan import GEMINI_URL, plan_with_trace
 
@@ -34,6 +35,10 @@ MAX_TURNS = 8
 SYSTEM = """You answer a question about one construction drawing, using tools. The drawing has already been read into
 a scene: a list of entities (rooms, doors, windows, fixtures, apartments, levels) with ids, labels and quantities.
 - Use list_entities to see what is there, and run_plan for every count, sum or arithmetic: never compute numbers yourself.
+- For doors/windows/fixtures in a room, use where.connected_room_id (or connected_room_number/label/type).
+  This checks both endpoints and counts each object once. Room ids distinguish rooms sharing a label.
+  list_entities exposes room connection status; unresolved connections can prevent a verified count.
+  Never replace an unresolved per-room count with a count of all doors on the page.
 - Each entity is one room or object. For "the largest / smallest room" call list_entities with sort and limit 1 and
   report that single entity; never combine rooms that share a label unless the question asks for a total.
 - Use look only when the scene lacks something you need; it asks a vision model about the page or a region of it.
@@ -155,7 +160,11 @@ def _tool(name: str, args: dict, scene: Scene) -> tuple[str, list[TraceStep]]:
             hits = sorted(hits, key=lambda e: (("m2" not in e.qty), -e.qty.get("m2", 0) if args["sort"] == "area_desc" else e.qty.get("m2", 0)))
         rows = [{k: v for k, v in {"id": e.id, "type": e.type, "subtype": e.subtype, "label": e.label, "number": e.number,
                                    "apartment": e.apartment, "level": e.level, "area_m2": e.qty.get("m2"),
-                                   "conf": round(e.conf, 2)}.items() if v is not None} for e in hits]
+                                   "conf": round(e.conf, 2),
+                                   "connections": {k: v for k, v in e.attrs.items() if k in (
+                                       "room_id", "room_id2", "room", "room2", "room_label", "room_label2",
+                                       "room_link_status", "room_link_candidates", "room_link_reason")} or None
+                                   }.items() if v is not None} for e in hits]
         limit = args.get("limit") if isinstance(args.get("limit"), int) and args["limit"] > 0 else 150
         return json.dumps({"count": len(rows), "entities": rows[:min(limit, 150)]}, ensure_ascii=False), []
     if name == "run_plan":
@@ -163,7 +172,7 @@ def _tool(name: str, args: dict, scene: Scene) -> tuple[str, list[TraceStep]]:
             plan = QueryPlan.model_validate_json(args.get("plan", ""))
         except ValueError as e:
             return f"invalid plan: {e}", []
-        known = {k for e in scene.entities for k in e.attrs}
+        known = {k for e in scene.entities for k in e.attrs} | ROOM_FILTERS.keys()
         unknown = sorted({k for q in plan.queries.values() for k in q.where} - known)
         if unknown:  # an invented filter would silently match nothing and read as a confident zero
             return (f"invalid plan: no entity has the attribute(s) {unknown} for `where`. To filter by area use "
@@ -190,7 +199,7 @@ def _verified_plan(text: str, scene: Scene) -> Answer:
         names = {node.id for node in ast.walk(ast.parse(plan.formula, mode="eval")) if isinstance(node, ast.Name)}
         if not names.intersection(plan.queries):
             raise ValueError("the final formula must use a scene query")
-    known = {k for e in scene.entities for k in e.attrs}
+    known = {k for e in scene.entities for k in e.attrs} | ROOM_FILTERS.keys()
     unknown = sorted({k for q in plan.queries.values() for k in q.where} - known)
     if unknown:
         raise ValueError(f"no entity has the attribute(s) {unknown} for `where`")

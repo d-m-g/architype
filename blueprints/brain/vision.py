@@ -199,7 +199,10 @@ def read_scene(path: str) -> tuple[Scene, bool]:
     """The vision scene for a drawing and whether it was built just now (so its cost belongs to this answer)."""
     cached = pipeline.CACHE / "scenes" / "vision" / (hashlib.md5(f"{BUILDER}:{path}".encode()).hexdigest() + ".json")
     if pipeline.READ_CACHE and cached.exists():
-        return Scene.model_validate_json(cached.read_text()), False
+        scene = Scene.model_validate_json(cached.read_text())
+        if _image_connections(scene, path):
+            cached.write_text(scene.model_dump_json(), encoding="utf-8")
+        return scene, False  # CPU enrichment must not bill the original vision read again
     key = os.environ.get("GEMINI_API_KEY")
     if not key:
         raise NotImplementedError("lane C: no scene for this drawing, and GEMINI_API_KEY is not set for the vision reader")
@@ -230,9 +233,17 @@ def read_scene(path: str) -> tuple[Scene, bool]:
     steps[-1].detail = ("Listed " + ", ".join(f"{n} {kind}" for kind, n in listed.items()) if listed else
                         f"Read as {not_a_floor_plan(scene) or 'a floor plan with nothing listed'}")
     scene.trace = steps
+    _image_connections(scene, path)
     cached.parent.mkdir(parents=True, exist_ok=True)
     cached.write_text(scene.model_dump_json())
     return scene, True
+
+
+def _image_connections(scene: Scene, path: str) -> bool:
+    if not path.lower().endswith(pipeline.IMAGES):
+        return False
+    from ..image_room_links import attach_room_links
+    return attach_room_links(scene, drawing_file(path))
 
 
 ADDED_KINDS = ("room", "apartment", "level")  # what add_rooms takes from the vision reader

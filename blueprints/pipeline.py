@@ -103,8 +103,14 @@ def get_scene(path: str) -> Scene:
         from .brain.vision import add_rooms
         fresh = add_rooms(scene, path) or fresh
     scene = add_room_types(scene)
+    metadata_changed = False
+    if path.lower().endswith(IMAGES):
+        from .image_room_links import attach_room_links
+        from .brain.vision import drawing_file
+        metadata_changed = attach_room_links(scene, drawing_file(path))
     if fresh:
         _BUILT_NOW.add(path)
+    if fresh or metadata_changed:
         cached.parent.mkdir(parents=True, exist_ok=True)
         cached.write_text(scene.model_dump_json(), encoding="utf-8")  # IFC labels like "Ściana" are not in cp1252
     return scene
