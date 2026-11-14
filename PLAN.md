@@ -83,6 +83,24 @@ Limits:
 - Wall tiling needs room height, which only IFC models carry.
 - Hand-drawn scans go to the fallback model, and its answers there are unverified.
 
+## Uploaded drawings (the product path)
+
+The dataset gives us sibling files (the Swiss DXF, the IFC behind a plan PDF), and Stoa allows them, so the scored eval keeps using them. A user who uploads a drawing usually has only one file. Each input type gets its own reader; all of them emit the same `Scene`, so the planner, executor, evidence and viewer do not change.
+
+| Upload | Reader | Expected quality |
+|---|---|---|
+| IFC model | IfcOpenShell | high |
+| DXF / DWG | DXF parser | high |
+| Vector PDF (exported from CAD) | PDF parser: room labels, numbers and printed areas from the text; walls, door arcs and windows from the vector paths; room polygons from closed outlines | good, given a scale |
+| Raster PDF, photo, scan | render to an image, then detector + Gemini, as for cubicasa | medium; areas are estimates |
+| Hand drawing | Gemini reads it, per-item checks, amber and "please verify" | low, flagged |
+
+- **The Swiss PDFs are vector**: about 450–540 paths per page, no images, real text such as `Küche 2.02`, `Whg. A` and on some plans `15.61 m²`. So the PDF alone carries most of what the questions need.
+- **Scale** is the one hard part, since PDF coordinates are in points. In order: use printed areas directly and calibrate the rest from them; else a scale note or dimension text; else answer counts normally, give areas low confidence and ask the user for one known length.
+- **Owner:** A, as `parsers/pdf.py`, after the DXF parser. C helps with the scale calibration.
+- **Measure it** by running the Swiss questions with the DXF switched off. That number backs the demo line "upload a PDF, no CAD file needed".
+- **API:** `/api/ask` takes dataset paths only today; an upload endpoint is on C's list.
+
 ## Viewer and buildings
 
 - **Viewer:** the server renders every format to a page image and the frontend draws an SVG overlay on it, so all formats share one code path.
