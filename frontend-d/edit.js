@@ -10,7 +10,9 @@ const ADD=[['door','door',null],['window','window',null],['toilet','fixture','to
 const svg=$('drawing'),layer=$('edit-layer');
 let undo=[],drawing=false,drawDrag=null,suppressDrawClick=false,resize=null;  // resize: the corner drag in progress
 let alike=null;  // the selected item's look-alikes: {ids, toggle(id)}; each can be kept or removed with it
-const hint=text=>{$('edit-hint').textContent=text;};
+/** The tools float over the top of the drawing; the info panel keeps clear of however tall their message makes them. */
+const lift=()=>$('viewport-2d').style?.setProperty('--edit-bar',$('edit-bar').hidden?'0px':$('edit-bar').offsetHeight+10+'px');
+const hint=text=>{$('edit-hint').textContent=text;lift();};
 $('edit-kind').replaceChildren(...ADD.map(([name],i)=>new Option(name,String(i))));
 
 /** [x0,y0,x1,y1] around a polygon, and back to the 4 corners clockwise from the top left. */
@@ -30,7 +32,9 @@ function paint(){
  if(!state.editing||!state.scene)return;
  const area=e=>{const [x0,y0,x1,y1]=bounds(e.polygon);return (x1-x0)*(y1-y0);};
  const items=state.scene.entities.filter(e=>e.page===state.page&&e.polygon.length>=3&&!['apartment','level'].includes(e.type)).sort((a,b)=>area(b)-area(a));
- for(const entity of items)layer.append(el('g',{class:`edit-mark${entity.id.startsWith('user-')?' added':''}`,role:'button',tabindex:'0','aria-label':entity.label,'data-entity':entity.id,
+ // The same type colours and low-score dashes as outside the mode, so the drawing does not change its meaning on entry.
+ for(const entity of items)layer.append(el('g',{class:`edit-mark kind-${entity.type}${entity.id.startsWith('user-')?' added':''}${entity.uncertain?' review':''}`,
+  role:'button',tabindex:'0','aria-label':entity.label,'data-entity':entity.id,
   // A look-alike of the selected item is ticked or unticked where it is; anything else is selected.
   onclick:()=>{if(drawing)return;if(alike?.ids.includes(entity.id))alike.toggle(entity.id);else select(entity.id);},onkeydown:event=>{if(event.key==='Enter'){event.preventDefault();select(entity.id);}}},
   ...['halo-dark','halo-light','region-shape'].map(kind=>el('polygon',{class:kind,points:pointsAttr(entity.polygon)}))));
@@ -49,12 +53,20 @@ function paintSelection(){
 }
 subscribeEditor(()=>{if(state.selected!==shown&&!resize)paintSelection();});
 function setEditing(on){
+ if(on&&!$('viewport-3d').hidden)$('view-2d').click();  // corrections are made on the plan
  state.editing=on;stopDrawing();
  $('edit-bar').hidden=!on;$('edit-toggle').setAttribute('aria-pressed',String(on));
+ document.querySelector('.legend').classList.toggle('in-edit',on);lift();
  select(null);
  if(state.raw)setScene(state.raw,{keepView:true});  // main redraws its marks (hidden while editing)
  paint();
- if(on)hint('Click an outline to remove, confirm or resize it, or draw one the reader missed.');
+ if(on)hint('Click an item to check, fix or remove it.');
+}
+/** Keep the info panel off the item it describes: it sits bottom-left, and moves to the top when the item is under it. */
+function place(id,box){
+ box.classList.remove('up');
+ const mark=document.querySelector(`#edit-layer [data-entity="${CSS.escape(id)}"],#overlays [data-entity="${CSS.escape(id)}"]`)?.getBoundingClientRect(),own=box.getBoundingClientRect();
+ box.classList.toggle('up',Boolean(mark&&mark.left<own.right&&mark.right>own.left&&mark.top<own.bottom&&mark.bottom>own.top));
 }
 function stopDrawing(){
  const drag=drawDrag;drawDrag=null;drawing=false;
@@ -149,7 +161,9 @@ onInspect((entity,box)=>{
  if(entity.polygon.length<3||!['door','window','fixture'].includes(entity.type))return;
  // One wrong detection is rarely alone: show the others that look like it, each as a small crop of the drawing, and
  // offer to remove them together. Some may be right after all, so each can be kept: click its crop or its outline.
- lookAlikes(entity).then(ids=>{
+ const wait=el('p',{class:'muted small alike-wait'},el('span',{class:'spinner','aria-hidden':'true'}),'Looking for others like it');
+ box.append(wait);
+ lookAlikes(entity).finally(()=>wait.remove()).then(ids=>{
   if(!ids.length||!actions.isConnected)return;  // nothing alike, or the selection moved on
   const chosen=new Set(ids);
   const note=el('p',{class:'muted small'}),crops=el('div',{class:'alike-list',role:'group','aria-label':'Items that look like it'},...ids.map(id=>crop(id,()=>alike.toggle(id))));
@@ -166,9 +180,10 @@ onInspect((entity,box)=>{
    note.textContent=`${ids.length} look like it; ${chosen.size} will be removed with it. Click a crop to see it on the drawing; untick the ones to keep.`;
   };
   alike={ids,toggle:id=>{chosen.has(id)?chosen.delete(id):chosen.add(id);sync();}};
-  actions.append(remove);box.append(note,crops);sync();
+  actions.append(remove);box.append(note,crops);sync();place(entity.id,box);
  }).catch(()=>{});  // no look-alikes offered (a PDF page, the server unreachable); Remove still works
 });
+onInspect((entity,box)=>place(entity.id,box));  // in every mode, once the panel has its content
 /** One look-alike: a small crop of the drawing that, clicked, moves the view to the item and lights up its outline
  * (the selection stays), and a tick box: ticked means it is removed with the selected item. */
 function crop(id,toggle){
@@ -216,7 +231,7 @@ $('edit-toggle').onclick=()=>setEditing(!state.editing);
 $('edit-done').onclick=()=>setEditing(false);
 $('edit-draw').onclick=()=>{
  if(drawing){stopDrawing();paint();hint('Drawing cancelled.');return;}
- $('view-2d').click();select(null);
+ select(null);  // Correct mode is always on the plan, so there is no view to switch
  drawing=true;svg.classList.add('drawing-box');$('edit-draw').setAttribute('aria-pressed','true');
  hint('Press and drag around the item, then release to add it. Esc cancels.');
 };
@@ -263,7 +278,13 @@ svg.addEventListener('pointerup',endDraw,true);
 svg.addEventListener('pointercancel',endDraw,true);
 svg.addEventListener('lostpointercapture',endDraw,true);
 svg.addEventListener('click',event=>{if(drawing||suppressDrawClick){event.preventDefault();event.stopImmediatePropagation();suppressDrawClick=false;}},true);
-window.addEventListener('keydown',event=>{if(event.key==='Escape'&&drawing){stopDrawing();paint();hint('Drawing cancelled.');}});
+// Esc steps back one level at a time: out of drawing a box, then off the selected item, then out of the mode.
+window.addEventListener('keydown',event=>{
+ if(event.key!=='Escape'||!state.editing||event.defaultPrevented||event.target?.closest?.('input,textarea,select'))return;
+ if(drawing){stopDrawing();paint();hint('Drawing cancelled.');}
+ else if(state.selected)select(null);
+ else{setEditing(false);$('edit-toggle').focus();}
+});
 $('page-select').addEventListener('change',()=>{if(drawing)stopDrawing();paint();});
 for(const id of ['view-3d','open-another'])$(id).addEventListener('click',()=>{if(state.editing)setEditing(false);});
-window.addEventListener('stoa:drawing-reset',()=>{undo=[];state.edited=false;stopDrawing();$('edit-bar').hidden=true;$('edit-toggle').setAttribute('aria-pressed','false');$('edit-undo').disabled=true;layer.replaceChildren();});
+window.addEventListener('stoa:drawing-reset',()=>{undo=[];state.edited=false;stopDrawing();$('edit-bar').hidden=true;document.querySelector('.legend').classList.remove('in-edit');$('edit-toggle').setAttribute('aria-pressed','false');$('edit-undo').disabled=true;layer.replaceChildren();});

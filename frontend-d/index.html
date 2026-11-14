@@ -130,15 +130,6 @@
         </button>
       </div>
 
-      <div id="edit-bar" class="edit-bar" hidden>
-        <span id="edit-hint">Click an outline to remove, confirm or resize it.</span>
-        <label>Add a missed <select id="edit-kind" aria-label="Kind of item to add"></select></label>
-        <button id="edit-draw" class="btn" type="button" aria-pressed="false">Draw box</button>
-        <button id="edit-undo" class="btn quiet" type="button" disabled>Undo</button>
-        <button id="edit-record" class="btn quiet" type="button" title="Save how this drawing now differs from what the reader found (removed, added, resized and confirmed items) as labels for training the detector. Nothing is recorded until you press this.">Record for training</button>
-        <button id="edit-done" class="btn quiet" type="button">Done</button>
-      </div>
-
       <div class="stage-body">
         <nav id="page-rail" class="page-rail" aria-label="Pages" hidden></nav>
         <select id="page-select" aria-label="Page" hidden></select>
@@ -154,6 +145,17 @@
             <span class="spinner" aria-hidden="true"></span>
             <span id="stage-status-text"></span>
             <span id="stage-status-time" class="time"></span>
+          </div>
+          <!-- Correct mode's tools float over the drawing, so entering and leaving the mode does not move it. -->
+          <div id="edit-bar" class="edit-bar" role="toolbar" aria-label="Correct the drawing" hidden>
+            <span id="edit-hint" role="status">Click an item to check, fix or remove it.</span>
+            <span class="edit-add">
+              <select id="edit-kind" aria-label="Kind of item to add"></select>
+              <button id="edit-draw" class="btn" type="button" aria-pressed="false" title="Drag a box around an item the reader missed">Draw box</button>
+            </span>
+            <button id="edit-undo" class="btn quiet" type="button" disabled>Undo</button>
+            <button id="edit-record" class="btn quiet" type="button" title="Save how this drawing now differs from what the reader found (removed, added, resized and confirmed items) as labels for training the detector. Nothing is recorded until you press this.">Record for training</button>
+            <button id="edit-done" class="btn primary" type="button" title="Leave Correct mode (Esc)">Done</button>
           </div>
           <aside id="inspector" class="inspector" aria-live="polite" hidden></aside>
         </div>
@@ -175,6 +177,9 @@
         <span id="counted-legend"><i class="key key-counted"></i>Counted in the answer</span>
         <span><i class="key key-other"></i><span id="other-legend">Found, not counted</span></span>
         <span><i class="key key-review"></i>Score below 80, review</span>
+        <span class="edit-key">Outline colour = object type</span>
+        <span class="edit-key"><i class="key key-alike"></i>Looks like the selected item</span>
+        <span class="edit-key"><i class="key key-added"></i>Added by you</span>
         <span id="view-status" class="legend-hint" role="status">Drag to pan, scroll to zoom</span>
       </footer>
     </section>

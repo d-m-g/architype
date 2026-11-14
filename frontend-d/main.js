@@ -411,7 +411,8 @@ function renderObjectBrowser(){
 function renderDrawingSide(){
  renderObjectBrowser();
  $('counted-legend').hidden=state.generalView;$('other-legend').textContent=state.generalView?'Detected area':'Found, not counted';
- if($('viewport-3d').hidden)$('view-status').textContent=state.generalView?'General view: all detected areas. Drag to pan, scroll to zoom':'Answer view: cited areas. Drag to pan, scroll to zoom';
+ if($('viewport-3d').hidden)$('view-status').textContent=state.editing?'Correct mode. Drag to pan, scroll to zoom, Esc to step back'
+  :state.generalView?'General view: all detected areas. Drag to pan, scroll to zoom':'Answer view: cited areas. Drag to pan, scroll to zoom';
  const overview=$('general-view');overview.hidden=!state.result||!state.scene;overview.disabled=state.editing;overview.textContent=state.generalView?'Answer view':'General view';overview.title=state.generalView?'Return to the answer highlights':'Fit the full drawing and show all detected areas';
  $('drawing-title').textContent=state.name;
  const raw=state.raw,kind=notAPlan(raw);
