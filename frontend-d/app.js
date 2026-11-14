@@ -1,5 +1,5 @@
 import {historyStore} from './history-state.js';
-import {requestDrawing,requestJSON,isDrawingPath} from './api-client.js';
+import {requestDrawing,requestJSON,isDrawingPath,recoveryMessage} from './api-client.js';
 import {publishEditor} from './editor-bridge.js';
 import {scene as mockScene,scenarios,resolveMockQuestion,zoomView} from './mock-scene.js';
 import {adaptScene,adaptAnswer,imageURL} from './contracts.js';
@@ -56,11 +56,11 @@ function cancelRequest(){
  if(!apiAbort)return;
  apiAbort.abort();apiAbort=null;requestNumber++;setBusy(false);
  result={answer:null,status:'Cancelled',scope:'Not determined',evidence:[],explanation:'Request cancelled. No answer was accepted.'};
- render();$('contract-status').textContent='Request cancelled. You can retry or ask a different question.';$('retry-request').hidden=!lastRequest;if(lastRequest)recordHistory('live',lastRequest.question,lastRequest.path);
+ render();$('contract-status').textContent='Cancelled locally. Your drawing and question are kept. Retry uses the text currently in the question box. Server work may still finish.';$('retry-request').hidden=!lastRequest;if(lastRequest)recordHistory('live',lastRequest.question,lastRequest.path);
 }
 $('cancel-request').onclick=cancelRequest;
 window.addEventListener('stoa:cancel-request',cancelRequest);
-$('retry-request').onclick=()=>{if(lastRequest){$('api-path').value=lastRequest.path;$('question').value=lastRequest.question;askAPI();}};
+$('retry-request').onclick=()=>{if(lastRequest){$('api-path').value=lastRequest.path;askAPI();}};
 async function askAPI(){
  window.dispatchEvent(new Event('stoa:close-local'));
  const path=$('api-path').value.trim(),question=$('question').value.trim();
@@ -71,9 +71,10 @@ async function askAPI(){
   const response=await requestDrawing(path,question,controller.signal,message=>{if(id===requestNumber)$('contract-status').textContent=message;});if(id!==requestNumber)return;
   if(response.scene){const answer=response.answer??{answer:null,unit:null,confidence:0,tier:'none',evidence:[],extra_entities:[],trace:[],error:response.errors.join(' · '),cost_usd:0};showShared(response.scene,answer);}
   else{shared=false;apiSelected=true;scene={...mockScene,entities:[]};rawScene=null;rawAnswer=null;const a=response.answer;result=a?adaptAnswer(a,{entities:[]}):{answer:null,status:'API unavailable',scope:'Not determined',evidence:[],explanation:response.errors.join(' · ')};result.explanation=[result.explanation,'No source scene available; visual evidence cannot be verified.'].filter(Boolean).join(' · ');result.status=a?.answer===null?'Insufficient evidence':a?'Reported · source unavailable':'API unavailable';render();$('answer-mode').textContent='ANSWER / TEAM API';$('mode-label').textContent='TEAM API';$('source-pill').textContent='Team API · source scene unavailable';}
-  $('retry-request').hidden=response.errors.length===0;
-  $('contract-status').textContent=response.errors.join(' · ')||'Scene and answer received from the team API.';recordHistory('live',question,path);
- }catch(error){if(id===requestNumber){const message=controller.signal.aborted?'Request timed out. Retry when the team API is ready.':error.message;result={answer:null,status:'API unavailable',scope:'Not determined',evidence:[],explanation:message};render();$('contract-status').textContent=message;$('retry-request').hidden=false;recordHistory('live',question,path);}}
+  const problems=[...response.errors,response.answer?.error].filter(Boolean);
+  $('retry-request').hidden=problems.length===0;
+  $('contract-status').textContent=problems.length?recoveryMessage(problems.join(' · '))+' Your drawing and question are kept. Retry uses the current question.':response.answer?.answer===null?'The team returned no answer. Review the evidence or edit your question; no mock result was substituted.':'Scene and answer received from the team API.';recordHistory('live',question,path);
+ }catch(error){if(id===requestNumber){const message=recoveryMessage(controller.signal.aborted?'Request timed out':error);result={answer:null,status:'API unavailable',scope:'Not determined',evidence:[],explanation:message};render();$('contract-status').textContent=message;$('retry-request').hidden=false;recordHistory('live',question,path);}}
  finally{clearTimeout(timer);if(id===requestNumber){apiAbort=null;setBusy(false);}}
 }
 function openPending(path,question){historyStore.setDrawing('drawing:'+path,path);$('history-view-note').hidden=true;shared=false;apiSelected=true;rawScene=null;rawAnswer=null;scene={...mockScene,entities:[]};currentPage=0;$('page-select').hidden=true;result={answer:null,status:'Loading',scope:'Not determined',evidence:[],explanation:'Waiting for team API evidence.'};render();svg.querySelector('image').setAttribute('href','');$('drawing-title').textContent=path;$('mode-label').textContent='TEAM API';$('answer-mode').textContent='ANSWER / PENDING';$('source-pill').textContent='Team API · waiting for source';$('canvas-label').textContent='No source image loaded';svg.setAttribute('aria-label','Source image unavailable. No visual evidence loaded.');document.querySelector('.demo-note').textContent='Questions use the team API. Sample buttons below return to mock mode.';$('source-note').textContent='Source attribution is not supplied by schema v1. Consult the source license before sharing.';$('question').value=question;$('trace-note').textContent='Reported API trace. No mock data or reference answers are sent.';}

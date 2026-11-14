@@ -1,4 +1,4 @@
-import {uploadDrawing,isDrawingPath} from './api-client.js';
+import {uploadDrawing,isDrawingPath,recoveryMessage} from './api-client.js';
 import {validateLocalDrawing} from './local-file.js';
 const $ = id => document.getElementById(id);
 let fileURL = null, selection = 0, previousMode = '', uploadFile=null, uploadName='', uploadAbort=null;
@@ -7,7 +7,7 @@ function stopVoice() {
   if ($('voice-dictate').getAttribute('aria-pressed') === 'true') $('voice-dictate').click();
 }
 function clearPreview() {
-  selection++;uploadAbort?.abort();uploadAbort=null;uploadFile=null;
+  selection++;uploadAbort?.abort();uploadAbort=null;uploadFile=null;uploadControls(false);
   $('local-content').replaceChildren();
   if (fileURL) URL.revokeObjectURL(fileURL);
   fileURL = null;
@@ -25,14 +25,14 @@ function clearPreview() {
 $('drawing-file').onchange = async () => {
   const file = $('drawing-file').files[0];
   if (!file) return;
-  const id = ++selection;uploadAbort?.abort();uploadAbort=null;uploadFile=null;$('upload-drawing').disabled=true;
+  const id = ++selection;uploadAbort?.abort();uploadAbort=null;uploadFile=null;uploadControls(false);$('upload-drawing').disabled=true;
   $('upload-status').textContent = 'Checking file for local preview…';
   try {
     const type = await validateLocalDrawing(file);
     if (id !== selection) return;
     uploadFile=new Blob([file],{type});
     const suffix={'application/pdf':'pdf','image/png':'png','image/jpeg':'jpg'}[type];
-    uploadName='drawing.'+(suffix??'webp');$('upload-drawing').disabled=!suffix;
+    uploadName='drawing.'+(suffix??'webp');$('upload-drawing').disabled=!suffix;$('upload-drawing').textContent='Upload drawing to team server';
     stopVoice();
     window.dispatchEvent(new Event('stoa:cancel-request'));
     if ($('local-preview').hidden) { previousMode = $('mode-label').textContent; $('local-question').value = $('question').value; }
@@ -72,17 +72,26 @@ window.addEventListener('pagehide', () => { if(fileURL) URL.revokeObjectURL(file
 
 $('upload-drawing').onclick=async()=>{
  if(!uploadFile)return;
- const id=selection,file=uploadFile,question=$('local-question').value;
+ const id=selection,file=uploadFile;
  uploadAbort?.abort();const controller=new AbortController();uploadAbort=controller;
- const timer=setTimeout(()=>controller.abort(),60000);
- $('upload-drawing').disabled=true;$('upload-status').textContent='Uploading drawing to the team server…';
+ let timedOut=false;const timer=setTimeout(()=>{timedOut=true;controller.abort();},60000);
+ uploadControls(true);$('upload-status').textContent='Uploading drawing… Your question stays editable. Analysis starts only when you ask a live question.';
  try{
   const uploaded=await uploadDrawing(file,uploadName,controller.signal);
   if(id!==selection)return;
+  if(controller.signal.aborted)throw new DOMException('Upload cancelled','AbortError');
+  const question=$('local-question').value;
   clearPreview();$('live-path').value=uploaded.path;
   window.dispatchEvent(new CustomEvent('stoa:open-case',{detail:{path:uploaded.path,question}}));
   $('upload-status').textContent='Uploaded. Reader: '+(uploaded.reader??'not reported')+'. Ask a live question to build the scene and inspect the answer; analysis may use a model.';
   $('question').focus();
- }catch(error){if(id===selection)$('upload-status').textContent=controller.signal.aborted?'Upload timed out. Retry or close the preview.':error.message;}
- finally{clearTimeout(timer);if(id===selection){uploadAbort=null;$('upload-drawing').disabled=false;}}
+ }catch(error){if(id===selection){$('upload-status').textContent=(controller.signal.aborted?(timedOut?recoveryMessage('Upload timed out'):'Upload cancelled locally. The server may have received the file.'):recoveryMessage(error))+' Your preview and question are kept. Retry upload when ready.';$('upload-drawing').textContent='Retry upload';}}
+ finally{clearTimeout(timer);if(id===selection){uploadAbort=null;uploadControls(false);}}
 };
+
+function uploadControls(busy){
+ $('cancel-upload').hidden=!busy;
+ $('upload-drawing').disabled=busy||!uploadFile||uploadName.endsWith('.webp');
+ $('local-preview').setAttribute('aria-busy',String(busy));
+}
+$('cancel-upload').onclick=()=>{if(uploadAbort){uploadAbort.abort();$('upload-status').textContent='Cancelling upload… Your preview and question will be kept.';}};

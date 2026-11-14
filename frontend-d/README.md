@@ -155,3 +155,7 @@ Aligned D with team commit bdc8893: raw uploads, uploads/ source paths, proxy up
 ## Local scale calibration
 
 Expand Scale calibration in the editor. Select two source points, or enter page percentages with the keyboard, then supply a positive known length in m/cm/mm/ft and save. The marked reference is a local uniform-scale draft; it never changes the scene, answers, areas, correction drafts or 3D and makes no API calls. Drafts are isolated by drawing path, page image and dimensions, retained while switching views, and cleared on reload. Undo reverses saves and resets; Escape cancels point selection. Calibration of perspective-distorted scans is not supported.
+
+## Upload and live recovery
+
+Upload progress offers Cancel upload while keeping the selected preview and editable question. Failed or cancelled uploads can be retried; a successful upload carries the latest question draft into the editor. Cancelling locally does not guarantee the server stopped processing or storing a request. Live progress distinguishes scene loading from answering. Missing provider setup, unavailable readers, timeouts, connection failures and file errors have recovery guidance. Retry current question retains the selected drawing and submits the current text, including edits made after a failure. Structured Answer.error responses also offer retry; ordinary evidence abstention remains distinct. Mock samples and Start mock demo remain explicit opt-in fallbacks. No API or schema changes.
