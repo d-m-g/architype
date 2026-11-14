@@ -17,6 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from blueprints.executor import execute
 from blueprints.schemas import Query, QueryPlan, Scene
+from blueprints.brain.room_link_vision import VERSION
 from tools.compare_png_room_links import GOLD
 
 
@@ -51,12 +52,31 @@ def main():
     out = Path(".cache")/("png-vision-live-"+time.strftime("%Y%m%d-%H%M%S"))
     out.mkdir(parents=True)
     report = {"samples": [], "model_capable_requests": 0, "trace_cost_usd": 0, "refinement_cost_usd": 0}
+    for attempt in range(48):
+        try:
+            if request("/api/health").get("room_link_refiner") == VERSION:
+                break
+        except urllib.error.HTTPError as error:
+            if error.code not in (404, 502, 503, 504):
+                raise
+        if attempt % 6 == 0:
+            print(f"Waiting for deployment {VERSION}...", flush=True)
+        time.sleep(5)
+    else:
+        raise RuntimeError("Expected refiner deployment not observed; no model pilot sent")
     for sample, target in [("S01", "vis-room-7"), ("S02", "vis-room-14")]:
         reference = json.loads((args.audit/f"{sample}.json").read_text(encoding="utf-8"))
         path = reference["tested_path"]
         route = "/api/scene?"+urllib.parse.urlencode({"path": path})
         for attempt in range(36):
-            before = request(route)
+            try:
+                before = request(route)
+            except urllib.error.HTTPError as error:
+                if error.code not in (502, 503, 504):
+                    raise
+                print(f"Deployment restarting ({error.code}); retrying read-only check...", flush=True)
+                time.sleep(5)
+                continue
             if any(e.get("attrs", {}).get("room_link_version") for e in before["entities"]):
                 break
             if attempt % 6 == 0:

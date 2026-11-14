@@ -43,6 +43,8 @@ a scene: a list of entities (rooms, doors, windows, fixtures, apartments, levels
   run_plan automatically attempts bounded vision refinement when room connections prevent a count.
   For room rankings, call resolve_room_connections first if door/window links are unresolved, then list entities
   again. If connections remain uncertain, explain the limitation; do not invent a definitive winner.
+  If refinement reports a budget/cooldown limit or leaves a connection unresolved, do not repeat the same
+  refinement or identical run_plan. Only use look again if a specific different crop can resolve the issue.
 - Each entity is one room or object. For "the largest / smallest room" call list_entities with sort and limit 1 and
   report that single entity; never combine rooms that share a label unless the question asks for a total.
 - Use look only when the scene lacks something you need; it asks a vision model about the page or a region of it.

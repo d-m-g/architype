@@ -4,6 +4,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from blueprints import pipeline
@@ -122,6 +123,27 @@ class VisionRoomLinks(unittest.TestCase):
             with self.assertRaises(ValueError):
                 _verified_plan(self.plan.model_dump_json(), self.scene)
             request.assert_not_called()
+
+    def test_batch_size_is_bounded_and_cached_omissions_are_not_retried(self):
+        prototype = self.scene.entities.pop()
+        self.scene.entities += [prototype.model_copy(deep=True, update={"id": f"d{i}"}) for i in range(49)]
+        with self.mock_request([]) as request:
+            for _ in range(4):
+                links.resolve(self.scene, "door")
+            self.assertEqual([len(call.args[1]) for call in request.call_args_list], [24, 24, 1])
+
+    def test_malformed_provider_response_still_records_actual_token_cost(self):
+        from PIL import Image
+        file = self.root/"plan.png"
+        Image.new("RGB", (400, 400), "white").save(file)
+        response = SimpleNamespace(usage=SimpleNamespace(prompt_tokens=1000, completion_tokens=100),
+                                   choices=[SimpleNamespace(message=SimpleNamespace(content="{broken"))])
+        with patch.object(links, "drawing_file", return_value=file), patch("openai.OpenAI") as client:
+            client.return_value.chat.completions.create.return_value = response
+            records, step = links._request(self.scene, [self.scene.entities[-1]])
+        self.assertEqual(records, [])
+        self.assertEqual((step.in_tokens, step.out_tokens), (1000, 100))
+        self.assertGreater(step.usd, 0)
 
 
 if __name__ == "__main__":
