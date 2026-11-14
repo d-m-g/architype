@@ -52,7 +52,7 @@ Eleven tests passed, including team Scene/Answer fixtures, all 12 example EvalRo
 
 ## Later D work
 
-Voice, editable derived assumptions and live run comparisons are not implemented. Backend work remains with A/B/C.
+Editable derived assumptions and live run comparisons are not implemented. Backend work remains with A/B/C.
 
 ## Unified workspace and 3D seam
 
@@ -85,3 +85,12 @@ Pulled origin/main through f049a0c without overwriting local D changes. The unch
 All scene builders are still stubs in this checkout, so no real question-to-evidence success is claimed. The proxy and UI are connected and ready for their implementations. No API keys, dataset files, generated caches, or Python environments are committed. Reference answers are never sent to `/api/ask`.
 
 Proxy tests cover upstream response codes/body, byte-preserving images, source path forwarding, unavailable API, private runtime-file exclusion and local-only destination enforcement. Client requests the scene before the answer so a successful scene build can populate the team's cache. Missing-scene responses still allow the API's structured abstention to be shown. Requests have timeouts; a return to mocks aborts pending work and ignores stale replies.
+
+
+## Browser voice assistance
+
+The Editor now has language-selected dictation (English, Finnish, German, French, Italian) and optional English answer read-aloud. Dictation replaces the question only after a final transcript; review it before submitting. It never calls the team API automatically. Concurrent typing is preserved, cancelled transcripts are ignored, and leaving the editor stops speech. Unsupported browsers retain normal typed input.
+
+Recognition requires browser support and microphone permission, and may use the browser vendor's remote speech service. No audio is stored or sent to our backend. Read-aloud identifies mock data, reported confidence and uncertain evidence; null answers remain abstentions. Reading stops when the answer changes. Actual microphone/service accuracy must be checked on the demo machine.
+
+Validation: 21 Node tests, including cancelled recognition, concurrent edits, zero answers and spoken abstention.
