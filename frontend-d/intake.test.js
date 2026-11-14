@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {validateLocalDrawing,MAX_LOCAL_BYTES,validateImageSize,createSourcePreviewLoader,sourcePreviewKind,pdfPreviewSize,renderPDFPreview} from './local-file.js';
+import {validateLocalDrawing,MAX_LOCAL_BYTES,validateImageSize,fitImageSize,createSourcePreviewLoader,sourcePreviewKind,pdfPreviewSize,renderPDFPreview} from './local-file.js';
 import {requestDrawing,getConnectionStatus,requestJSON} from './api-client.js';
 
 test('connection check reads production OpenAPI and verifies route methods',async(t)=>{
@@ -32,6 +32,9 @@ test('additional raster formats are identified from bytes rather than the filena
  for(const [bytes,type] of [['RIFFxxxxWEBP','image/webp'],['GIF89a','image/gif'],['GIF87a','image/gif'],['BMxxxx','image/bmp'],['\0\0\0\x20ftypavif\0\0\0\0','image/avif']])assert.equal(await validateLocalDrawing(new Blob([bytes],{type:'application/octet-stream'})),type);
  assert.equal(sourcePreviewKind('uploads/drawing.png'),'image');assert.equal(sourcePreviewKind('uploads/drawing.pdf'),'pdf');assert.equal(sourcePreviewKind('https://example.com/file.png'),null);assert.equal(sourcePreviewKind('uploads/file.svg'),null);
  validateImageSize(2480,1753);assert.throws(()=>validateImageSize(0,10),/too large/);assert.throws(()=>validateImageSize(10000,10000),/too large/);
+ assert.deepEqual(fitImageSize(2480,1753),{width:2480,height:1753});
+ for(const [w,h] of [[14000,9902],[40000,1000],[1000,40000],[20000,20000]]){const fit=fitImageSize(w,h);validateImageSize(fit.width,fit.height);assert.ok(Math.abs(fit.width/fit.height-w/h)<=w/h*0.02,w+'x'+h+' keeps its proportions');}
+ assert.equal(fitImageSize(40000,100).width,16384);
 });
 
 test('source preview survives repeated requests and ignores a late previous file',async()=>{

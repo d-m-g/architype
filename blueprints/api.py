@@ -12,7 +12,9 @@ import hmac
 import os
 import secrets
 import sys
+import threading
 import time
+from functools import lru_cache
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
@@ -224,11 +226,50 @@ def scene(path: str) -> Scene:
         raise HTTPException(501, str(e)) from None
 
 
+VIEW_MAX_PIXELS, VIEW_MAX_SIDE = 32_000_000, 16_384  # what the viewer accepts: validateImageSize in frontend-d/local-file.js
+_view_lock = threading.Lock()  # ponytail: one lock for every scaled copy; per-file locks if many oversized drawings open at once
+
+
+@lru_cache(maxsize=4096)
+def _pixels(file) -> tuple[int, int]:
+    """Pixel size of a raster from its header, (0, 0) when it cannot be read. Dataset files and uploads never change."""
+    import pymupdf
+    try:
+        info = pymupdf.open(file)[0].get_image_info()[0]
+        return info["width"], info["height"]
+    except Exception:  # an unreadable image is served as it is, as before; the browser reports it
+        return 0, 0
+
+
+def _viewable(path: str, file):
+    """The file itself, or for a raster above the viewer's limits a copy scaled down to fit them, made once.
+    Entity geometry is relative to the page, so the overlays sit the same on either."""
+    if file.suffix.lower() not in {".png", ".jpg", ".jpeg"}:
+        return file
+    w, h = _pixels(file)
+    scale = min(1.0, VIEW_MAX_SIDE / max(w, h, 1), (VIEW_MAX_PIXELS / max(w * h, 1)) ** 0.5)
+    if scale == 1.0:
+        return file
+    small = pipeline.CACHE / "pages" / f"{hashlib.md5(path.encode()).hexdigest()}-view.png"
+    with _view_lock:
+        if not small.is_file():
+            import pymupdf
+            page = pymupdf.open(file)[0]
+            # The page rect is in points and follows the image's DPI tag, so scale from it to the pixel size wanted.
+            matrix = pymupdf.Matrix(int(w * scale) / page.rect.width, int(h * scale) / page.rect.height)
+            small.parent.mkdir(parents=True, exist_ok=True)
+            part = small.with_suffix(".part")
+            part.write_bytes(page.get_pixmap(matrix=matrix).tobytes("png"))
+            part.replace(small)  # a request arriving mid-write must not be served half a file
+    return small
+
+
 @app.get("/api/image")
 def image(path: str) -> FileResponse:
-    """Serves Page.image: a dataset file ("data/..."), an upload ("uploads/...") or a rendered page ("pages/...")."""
+    """Serves Page.image: a dataset file ("data/..."), an upload ("uploads/...") or a rendered page ("pages/...").
+    A raster above the viewer's size limits is served as a scaled-down PNG."""
     if path.startswith(("data/", "uploads/")):
-        return FileResponse(_drawing(path))
+        return FileResponse(_viewable(path, _drawing(path)))
     pages = pipeline.CACHE / "pages"
     file = (pipeline.CACHE / path).resolve()
     if not file.is_relative_to(pages) or not file.is_file():

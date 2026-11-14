@@ -51,6 +51,37 @@ async def check_frontend():
             assert "Enter the password" in (await client.get("/")).text
 
 
+def check_oversized_image():
+    """/api/image hands the viewer a copy within its limits for an oversized raster, and the file itself otherwise."""
+    import tempfile
+
+    import pymupdf
+
+    with tempfile.TemporaryDirectory() as tmp, patch.object(api.pipeline, "CACHE", Path(tmp)):
+        gray = pymupdf.csGRAY
+        for name, (w, h), dpi in [("big.png", (8000, 5000), 600), ("untagged.png", (8000, 5000), None), ("strip.png", (20000, 300), None)]:
+            pix = pymupdf.Pixmap(gray, pymupdf.IRect(0, 0, w, h))
+            pix.clear_with(255)
+            if dpi:
+                pix.set_dpi(dpi, dpi)
+            file = Path(tmp) / name
+            pix.save(file)
+            small = api._viewable("uploads/" + name, file)
+            assert small != file and small.parent == Path(tmp) / "pages", name
+            out = pymupdf.Pixmap(small)
+            assert max(out.width, out.height) <= api.VIEW_MAX_SIDE and out.width * out.height <= api.VIEW_MAX_PIXELS, (name, out.width, out.height)
+            assert abs(out.width / out.height - w / h) <= 0.02 * w / h, (name, out.width, out.height)
+            assert max(out.width / w, out.height / h) > 0.5, (name, out.width, out.height)  # shrunk only as far as needed
+            assert api._viewable("uploads/" + name, file) == small  # made once
+        fits = Path(tmp) / "fits.png"
+        pymupdf.Pixmap(gray, pymupdf.IRect(0, 0, 2480, 1753)).save(fits)
+        assert api._viewable("uploads/fits.png", fits) == fits
+        notes = Path(tmp) / "notes.pdf"
+        notes.write_bytes(b"%PDF-1.7\n")
+        assert api._viewable("uploads/notes.pdf", notes) == notes
+
+
 if __name__ == "__main__":
     asyncio.run(check_frontend())
-    print("ok: public assets, private-file rejection, sign-in and API routing")
+    check_oversized_image()
+    print("ok: public assets, private-file rejection, sign-in, API routing and oversized images")

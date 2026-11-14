@@ -50,13 +50,13 @@ $('drawing-file').onchange = async () => {
       }catch(error){if(id!==selection)return;preview=document.createElement('p');preview.className='muted';preview.textContent=error.message+' You can upload the original PDF below to use the server reader.';}
     }else{preview.alt='Local drawing preview: '+file.name;preview.onerror=()=>{if(id===selection)$('upload-status').textContent='This image could not be decoded. Choose another file. Nothing was uploaded.';};preview.src=fileURL;}
     $('local-content').append(preview);
-    $('local-name').textContent = file.name + ' · ' + (file.size/1024/1024).toFixed(2) + ' MB'+(prepared.converted?' · converted to PNG':'')+pdfNote;
+    $('local-name').textContent = file.name + ' · ' + (file.size/1024/1024).toFixed(2) + ' MB'+(prepared.converted?' · converted to PNG':'')+(prepared.resized?' · scaled down to '+prepared.width+' × '+prepared.height+' px':'')+pdfNote;
     $('local-preview').hidden = false;
     $('editor-workspace').hidden = true;
     $('source-pill').hidden = true;
     $('editor-connection-status').hidden = true;
     $('mode-label').textContent = 'LOCAL PREVIEW · NOT ANALYSED';
-    $('upload-status').textContent = prepared.converted?'Converted to PNG in this browser for preview and upload. Animated images use the first frame. Nothing has been uploaded yet.':'Local preview only until you choose Upload drawing. No analysis has run.';
+    $('upload-status').textContent = (prepared.resized?'Scaled down to '+prepared.width+' × '+prepared.height+' px in this browser to fit the 32-megapixel limit; the preview and upload use the smaller copy. ':'')+(prepared.converted?'Converted to PNG in this browser for preview and upload. Animated images use the first frame. Nothing has been uploaded yet.':'Local preview only until you choose Upload drawing. No analysis has run.');
     $('local-name').focus();
   } catch(error) { if(id===selection) $('upload-status').textContent = error.message; }
 };
