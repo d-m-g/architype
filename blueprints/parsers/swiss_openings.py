@@ -10,16 +10,20 @@ so this deliberately scores lower on door and window questions: we count what a 
 """
 
 
-def openings(msp) -> list[tuple[str, list[tuple[float, float]], str]]:
-    out, seen = [], set()
+def openings(msp) -> list[tuple[str, list[tuple[float, float]], str, int]]:
+    """(kind, box corners in DXF metres, ref, copies): one per drawn position, copies = boxes drawn there."""
+    found: dict[tuple, list] = {}
     for kind, layer in (("door", "DOOR"), ("window", "WINDOW")):
         for e in msp.query(f'LWPOLYLINE[layer=="{layer}"]'):
             pts = [(float(x), float(y)) for x, y, *_ in e.get_points()]
             # Window boxes are closed 4-vertex polylines; door boxes are open 5-vertex ones that end where they start.
-            if (e.closed and len(pts) == 4 or len(pts) == 5 and pts[0] == pts[-1]) and (kind, *pts[:4]) not in seen:
-                seen.add((kind, *pts[:4]))
-                out.append((kind, pts[:4], f"dxf:{e.dxf.handle}"))
-    return out
+            if e.closed and len(pts) == 4 or len(pts) == 5 and pts[0] == pts[-1]:
+                key = (kind, *pts[:4])
+                if key in found:
+                    found[key][3] += 1
+                else:
+                    found[key] = [kind, pts[:4], f"dxf:{e.dxf.handle}", 1]
+    return [tuple(v) for v in found.values()]
 
 
 if __name__ == "__main__":

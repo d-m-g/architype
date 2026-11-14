@@ -147,12 +147,13 @@ def build_scene(path: str, file: Path) -> Scene:
             geom=geom, qty={"m2": round(net_area(poly), 2)} if poly else {},
             ref=f"dxf:{handle}" if handle else None))
     found = Counter()
-    for kind, pts, ref in openings(msp):
+    for kind, pts, ref, copies in openings(msp):
         found[kind] += 1
-        entities.append(Entity(id=f"{kind}-{found[kind]}", type=kind, geom=[to_page(x, y) for x, y in pts], ref=ref))
+        entities.append(Entity(id=f"{kind}-{found[kind]}", type=kind, geom=[to_page(x, y) for x, y in pts], ref=ref,
+                               attrs={"copies": copies} if copies > 1 else {}))
     png = file.with_suffix(".png")
     width, height = _png_size(png)
-    return Scene(path=path, builder="swiss_dxf@3", tier="parse", covers=["room", "apartment", "door", "window"],
+    return Scene(path=path, builder="swiss_dxf@4", tier="parse", covers=["room", "apartment", "door", "window"],
                  pages=[Page(image=path[:-4] + ".png", width=width, height=height)], entities=entities)
 
 
