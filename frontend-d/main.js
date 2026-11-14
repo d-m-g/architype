@@ -44,7 +44,7 @@ function stageStatus(text){
 
 // ───────── words ─────────
 const ROOM_TYPE={bedroom:'bedroom',kitchen:'kitchen',bathroom:'bathroom',wc_room:'toilet room',sauna:'sauna',balcony:'balcony',living:'living room',
- corridor:'corridor',storage:'storage',other:'other (none of the counted types)'};
+ corridor:'corridor',storage:'storage',other:'other'};
 const KINDS={room:['Room','Rooms'],door:['Door','Doors'],window:['Window','Windows'],fixture:['Fixture','Fixtures'],apartment:['Apartment','Apartments'],
  level:['Floor','Floors'],wall:['Wall','Walls'],slab:['Slab','Slabs'],column:['Column','Columns'],row:['Schedule row','Schedule rows'],other:['Other item','Other items']};
 const UNIT={count:'',m2:'m²',ft2:'ft²',m:'m',m3:'m³'};
@@ -255,7 +255,7 @@ export function select(id,{zoomTo=false,focusEvidence=false,scrollEvidence=true}
   el('button',{class:'btn icon close',type:'button','aria-label':'Close',onclick:()=>select(null)},'×'),
   el('strong',{},entity.label),
   // A room's name is what the drawing says; its type is what "how many bedrooms" counts, so show it to be checked.
-  el('p',{},[entity.type==='room'?`Room, type: ${ROOM_TYPE[entity.subtype]??'not known'}`:KINDS[entity.type]?.[0]??entity.type,entity.quantityText,entity.context].filter(Boolean).join(', ')),
+  el('p',{},[entity.type==='room'?`Room - ${ROOM_TYPE[entity.subtype]??'type not known'}`:KINDS[entity.type]?.[0]??entity.type,entity.quantityText,entity.context].filter(Boolean).join(', ')),
   el('p',{class:'muted small'},[n>=0?`Counted in the answer as number ${n+1}`:'Not part of this answer',
    Number.isFinite(entity.conf)?`Model score ${Math.round(entity.conf*100)}/100 (uncalibrated)`:'Model score unavailable',entity.ref?`source ${entity.ref}`:null].filter(Boolean).join(' · ')));
  for(const fn of inspectors)fn(entity,box);
