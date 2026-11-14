@@ -274,3 +274,14 @@ html{scroll-padding-top:88px}
 #uploaded-pdf-preview{display:block;width:100%;height:clamp(380px,calc(100dvh - 320px),720px);border:0;background:white}
 .source-file-badge{display:grid;place-items:center;min-height:65px;width:100%;background:var(--accent-soft);color:var(--muted);font-size:13px;font-weight:600;border:1px solid var(--line)}
 @media(max-width:650px){.source-file-badge{min-height:38px}#uploaded-pdf-preview{height:460px}}
+
+/* Source navigation and API detections. Neutral outlines are not answer evidence. */
+.figma-workspace .canvas-wrap{padding:8px;overscroll-behavior:contain}
+#drawing{user-select:none;overscroll-behavior:contain}
+#drawing.is-panning,#drawing.is-panning .entity{cursor:grabbing}
+#drawing .entity polygon{pointer-events:all}
+#drawing .entity:hover polygon{stroke-width:3;fill:#21794e35}
+#drawing .entity.detected-area polygon{fill:transparent;stroke:#597ca0;stroke-width:1;stroke-dasharray:4 3}
+#drawing .entity.detected-area:hover polygon,#drawing .entity.detected-area.selected polygon,#drawing .entity.detected-area:focus-visible polygon{fill:#307cba30;stroke:#2068ad;stroke-width:3;stroke-dasharray:none}
+:root[data-theme=dark] #drawing .entity.detected-area polygon{fill:transparent;stroke:#597ca0}
+:root[data-theme=dark] #drawing .entity.detected-area:hover polygon,:root[data-theme=dark] #drawing .entity.detected-area.selected polygon{fill:#307cba30;stroke:#2068ad}
