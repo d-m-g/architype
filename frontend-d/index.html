@@ -77,6 +77,14 @@
       </label>
       <p id="start-status" class="start-status" role="status"></p>
 
+      <section id="recent" hidden>
+        <div class="recent-head">
+          <h2>Pick up where you left off</h2>
+          <button id="recent-clear" class="btn quiet" type="button">Clear saved results</button>
+        </div>
+        <ol id="recent-list" class="recent"></ol>
+      </section>
+
       <h2>Or open one from the dataset</h2>
       <div id="samples" class="samples"></div>
 
@@ -151,8 +159,8 @@
       </div>
 
       <footer class="legend">
-        <span><i class="key key-evidence"></i>Counted in the answer</span>
-        <span><i class="key key-review"></i>Low confidence, check it</span>
+        <span>Counted in the answer: unsure<i class="key key-scale"></i>sure</span>
+        <span><i class="key key-review"></i>Under 80%, check it</span>
         <span><i class="key key-other"></i>Found, not in the answer</span>
         <span id="view-status" class="legend-hint" role="status">Drag to pan, scroll to zoom</span>
       </footer>

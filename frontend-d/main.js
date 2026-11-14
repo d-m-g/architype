@@ -54,7 +54,7 @@ function readerName(raw){
  if(raw.builder.startsWith('vision'))return 'Read by the vision model';
  return raw.tier==='parse'?'Read from the CAD geometry':'Read by the detector';
 }
-function formatValue(value,unit){
+export function formatValue(value,unit){
  if(typeof value!=='number')return [String(value),''];
  const text=unit==='count'||Number.isInteger(value)?String(value):value.toLocaleString('en',{maximumFractionDigits:2});
  return [text,UNIT[unit]??''];
@@ -152,6 +152,8 @@ const previewLoader=createSourcePreviewLoader(path=>new Promise((resolve,reject)
 
 // ───────── marks on the drawing ─────────
 const kindOf=entity=>entity.type;
+/** A counted item's colour follows its own confidence: hue 0 (red) at 0%, 60 (amber) at 50%, 120 (green) at 100%. */
+const hue=entity=>Math.round((entity.conf??1)*120);
 const area=e=>Math.abs(e.polygon.reduce((sum,p,i,points)=>{const q=points[(i+1)%points.length];return sum+p[0]*q[1]-q[0]*p[1];},0));
 const evidenceIds=()=>state.result?[...new Set(state.result.evidence)]:[];
 export function entityById(id){return state.scene?.entities.find(e=>e.id===id);}
@@ -173,7 +175,8 @@ function drawMarks(){
  const badges=[];
  for(const entity of onPage){
   const n=cited.indexOf(entity.id);if(n<0)continue;
-  layer.append(mark(entity,`mark evidence${entity.uncertain?' review':''}`,`${n+1}. ${entity.label}${entity.uncertain?', low confidence':''}`));
+  const counted=mark(entity,`mark evidence${entity.uncertain?' review':''}`,`${n+1}. ${entity.label}, ${Math.round(entity.conf*100)}% sure`);
+  counted.style.setProperty('--h',hue(entity));layer.append(counted);
   const xs=entity.polygon.map(p=>p[0]),ys=entity.polygon.map(p=>p[1]);
   badges.push(el('g',{class:`badge${entity.uncertain?' review':''}`,'data-entity':entity.id,style:`--x:${Math.min(...xs)};--y:${Math.min(...ys)}`},
    el('circle',{r:9,cx:-5,cy:-5}),el('text',{x:-5,y:-5,dy:'.35em'},String(n+1))));
@@ -314,10 +317,10 @@ function renderAnswer(){
  const cited=evidenceIds().map(id=>entityById(id)).filter(Boolean),unsure=cited.filter(e=>e.uncertain).length;
  $('evidence').hidden=!cited.length;
  $('evidence-count').textContent=`${cited.length}${unsure?`, ${unsure} to check`:''}`;
- $('evidence-list').replaceChildren(...cited.map((entity,i)=>el('button',{type:'button',class:`evidence-row${entity.uncertain?' review':''}`,'data-entity':entity.id,'aria-pressed':'false',
+ $('evidence-list').replaceChildren(...cited.map((entity,i)=>el('button',{type:'button',class:`evidence-row${entity.uncertain?' review':''}`,style:`--h:${hue(entity)}`,'data-entity':entity.id,'aria-pressed':'false',
   onclick:()=>select(entity.id,{zoomTo:true}),onmouseenter:()=>hover(entity.id,true),onmouseleave:()=>hover(entity.id,false)},
   el('span',{class:'n'},String(i+1)),
-  el('span',{class:'what'},entity.label,el('small',{},[entity.quantityText,entity.context,entity.uncertain?`${Math.round(entity.conf*100)}% sure, check it`:null,
+  el('span',{class:'what'},entity.label,el('small',{},[entity.quantityText,entity.context,entity.conf<1?`${Math.round(entity.conf*100)}% sure${entity.uncertain?', check it':''}`:null,
    state.scene.pages.length>1?`page ${entity.page+1}`:null,entity.polygon.length?null:'not drawn'].filter(Boolean).join(' · '))))));
 
  const trace=raw.trace??[];
@@ -363,6 +366,17 @@ export function showAnswer(raw,question,ms=null){
  renderDrawingSide();renderAnswer();drawMarks();publish();
 }
 
+// ───────── saved results: the last drawings and their answers survive a reload ─────────
+const SAVED='blueprints-results';
+export function savedResults(){try{return JSON.parse(localStorage.getItem(SAVED))??[];}catch{return [];}}
+export function clearSavedResults(){try{localStorage.removeItem(SAVED);}catch{}}
+function saveResult(question,rawAnswer,ms){
+ const all=savedResults(),mine=all.find(d=>d.path===state.path)?.entries??[];
+ const list=[{path:state.path,name:state.name,at:Date.now(),entries:[...mine,{question,rawAnswer,ms}].slice(-20)},...all.filter(d=>d.path!==state.path)].slice(0,8);
+ // ponytail: capped by count (8 drawings, 20 answers each), not bytes; when storage is full the oldest drawing goes.
+ for(;;){try{localStorage.setItem(SAVED,JSON.stringify(list));return;}catch{if(list.length<=1)return;list.pop();}}
+}
+
 // ───────── opening a drawing ─────────
 let generation=0,reading=null;
 function resetDrawing(){
@@ -380,10 +394,13 @@ export function showStart(){
 }
 $('open-another').onclick=showStart;
 /** Open a dataset or uploaded drawing: show it at once, then outline what its reader finds. */
-export async function openDrawing(path,{name=path.split('/').pop(),question='',preview=null}={}){
- resetDrawing();const id=generation;
+export async function openDrawing(path,{name,question='',preview=null,restore=false}={}){
+ resetDrawing();const id=generation,key='drawing:'+path,saved=savedResults().find(d=>d.path===path);
+ name??=saved?.name??path.split('/').pop();
  Object.assign(state,{path,name,preview});
- historyStore.setDrawing('drawing:'+path,name);
+ historyStore.setDrawing(key,name);
+ // Answers saved in an earlier visit come back as this drawing's earlier questions.
+ if(saved&&!historyStore.list(key).length)for(const entry of saved.entries)historyStore.add(key,name,{question:entry.question,payload:{rawAnswer:entry.rawAnswer,ms:entry.ms}});
  $('start').hidden=true;$('workspace').hidden=false;$('open-another').hidden=false;
  showPanel('ask');setView('2d');
  $('question').value=question;autosize();
@@ -410,6 +427,9 @@ export async function openDrawing(path,{name=path.split('/').pop(),question='',p
   $('reading-retry').hidden=noReader;
   renderDrawingSide();
  }finally{if(id===generation)stageStatus(null);}
+ if(id!==generation)return;
+ const last=restore?historyStore.list(key)[0]:null;
+ if(last){shownHistory=last.id;showAnswer(last.payload.rawAnswer,last.question,last.payload.ms);frameEvidence();}
  $('question').focus({preventScroll:true});
 }
 $('reading-retry').onclick=()=>openDrawing(state.path,{name:state.name,question:$('question').value,preview:state.preview});
@@ -461,7 +481,7 @@ export async function ask(text){
  setAsking(true,question);renderAnswer();
  $('working').scrollIntoView({block:'nearest'});
  const started=performance.now();
- let answer,note=null;
+ let answer,note=null,reached=true;
  try{
   // A question typed while the drawing is still being read waits for the reader, so the drawing is read once.
   await reading?.catch(()=>{});
@@ -476,12 +496,14 @@ export async function ask(text){
   if(!state.raw&&!controller.signal.aborted)try{setScene(await getDrawingScene(path,controller.signal));}catch{}
  }catch(error){
   if(askAbort!==controller)return;  // stopped by the user or replaced by a newer question
+  reached=false;
   answer={answer:null,unit:null,confidence:0,tier:'none',evidence:[],extra_entities:[],trace:[],cost_usd:0,
    error:recoveryMessage(controller.signal.aborted?'Request timed out':error)};
  }finally{clearTimeout(timer);}
  if(askAbort!==controller)return;
  askAbort=null;setAsking(false);state.corrected=note;
  shownHistory=historyStore.add('drawing:'+path,state.name,{question,payload:{rawAnswer:answer,ms:performance.now()-started}});
+ if(reached)saveResult(question,answer,performance.now()-started);  // a failed connection is not a result worth keeping
  showAnswer(answer,question,performance.now()-started);
  frameEvidence();
  $('thread').scrollTo({top:$('answer-card').offsetTop-12,behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});

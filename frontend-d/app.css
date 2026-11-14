@@ -80,6 +80,16 @@ main>section{height:100%}
 .upload-progress{width:min(320px,100%);height:6px;border-radius:3px;background:var(--line);overflow:hidden;margin-top:8px}
 .upload-progress i{display:block;height:100%;background:var(--accent);border-radius:3px;transition:width .15s}
 .start-status{min-height:21px;margin-top:10px;color:var(--bad);font-size:13px}
+.recent-head{display:flex;align-items:baseline;justify-content:space-between;margin-top:32px}
+.recent-head h2{margin:0 0 10px}
+.recent-head .btn{height:26px;font-size:12px;color:var(--ink-2)}
+.recent{border:1px solid var(--line);border-radius:10px;background:var(--paper);overflow:hidden}
+.recent li+li{border-top:1px solid var(--line)}
+.recent button{display:flex;gap:16px;align-items:center;justify-content:space-between;width:100%;padding:10px 14px;border:0;background:transparent;text-align:left;cursor:pointer}
+.recent button:hover{background:var(--accent-soft)}
+.recent span{display:grid;min-width:0}
+.recent small{color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.recent b{flex:none;font-size:16px;font-weight:600}
 .samples{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
 .sample{display:grid;grid-template-rows:auto 1fr;padding:0;border:1px solid var(--line);border-radius:10px;background:var(--paper);overflow:hidden;cursor:pointer;text-align:left}
 .sample:hover{border-color:var(--accent)}
@@ -124,13 +134,13 @@ main>section{height:100%}
 .kind-room{--k:var(--room)} .kind-door{--k:var(--door)} .kind-window{--k:var(--window)} .kind-fixture{--k:var(--fixture)}
 .kind-apartment,.kind-level,.kind-wall,.kind-slab,.kind-column,.kind-row,.kind-other{--k:var(--zone)}
 .mark.kind-apartment polygon,.mark.kind-level polygon{stroke-dasharray:8 5;fill-opacity:0}
-.mark.evidence polygon{fill:var(--hi);fill-opacity:.6;stroke:var(--hi-edge);stroke-width:1.5;mix-blend-mode:multiply}
-.mark.evidence.review polygon{fill:var(--review);fill-opacity:.5;stroke:var(--review-edge);stroke-dasharray:5 3}
+/* --h is the item's own confidence as a hue: red 0, amber 60, green 120. Under 80% the outline is also dashed. */
+.mark.evidence polygon{fill:hsl(var(--h) 92% 58%);fill-opacity:.6;stroke:hsl(var(--h) 85% 30%);stroke-width:1.5;mix-blend-mode:multiply}
+.mark.evidence.review polygon{stroke-dasharray:5 3}
 .mark.evidence:is(:hover,.hot,:focus-visible) polygon{stroke-width:3;fill-opacity:.8}
 .mark.selected polygon{stroke:#141b24;stroke-width:3;fill-opacity:.8}
 .badge{transform:translate(calc(var(--x)*1px),calc(var(--y)*1px)) scale(var(--u,1));pointer-events:none}
 .badge circle{fill:#141b24;stroke:#fff;stroke-width:1.5}
-.badge.review circle{fill:var(--review-edge)}
 .badge text{fill:#fff;font:600 10px var(--sans);text-anchor:middle}
 /* Many marks on a zoomed-out page: numbers shrink to dots until you zoom in or point at one. */
 .dense .badge:not(.hot,.selected) circle{r:4px}
@@ -154,7 +164,8 @@ main>section{height:100%}
 .legend{display:flex;flex-wrap:wrap;gap:6px 18px;align-items:center;padding:8px 14px;background:var(--paper);border-top:1px solid var(--line);font-size:12px;color:var(--ink-2)}
 .legend span{display:flex;align-items:center;gap:7px}
 .key{width:18px;height:11px;border-radius:2px;border:1.5px solid}
-.key-evidence{background:var(--hi);border-color:var(--hi-edge)} .key-review{background:var(--review);border-color:var(--review-edge);border-style:dashed}
+.key-scale{width:54px;border:0;background:linear-gradient(90deg,hsl(0 92% 58%),hsl(60 92% 58%),hsl(120 92% 58%))}
+.key-review{background:transparent;border-color:var(--ink-2);border-style:dashed}
 .key-other{background:color-mix(in srgb,var(--room) 10%,transparent);border-color:var(--room)}
 .legend-hint{margin-left:auto;color:var(--ink-3)}
 
@@ -241,11 +252,10 @@ main>section{height:100%}
 .evidence-row{display:grid;grid-template-columns:24px 1fr;gap:10px;align-items:start;width:100%;padding:7px 8px;border:0;border-radius:7px;background:transparent;text-align:left;cursor:pointer;font-size:13px}
 .evidence-row:is(:hover,.hot){background:var(--surface)}
 .evidence-row.selected{background:var(--accent-soft)}
-.evidence-row .n{display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--hi);border:1.5px solid var(--hi-edge);color:#141b24;font:600 11px var(--sans)}
-.evidence-row.review .n{background:var(--review);border-color:var(--review-edge);border-style:dashed}
+.evidence-row .n{display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:hsl(var(--h) 92% 62%);border:1.5px solid hsl(var(--h) 85% 30%);color:#141b24;font:600 11px var(--sans)}
+.evidence-row.review .n{border-style:dashed}
 .evidence-row .what{display:grid;font-weight:500;overflow-wrap:anywhere}
 .evidence-row small{font-weight:400;font-size:12px;color:var(--ink-2)}
-.evidence-row.review small{color:var(--review-edge)}
 
 .trace summary{cursor:pointer;font-size:13px;font-weight:600}
 .trace ol{margin:12px 0 0 5px;border-left:1.5px solid var(--line);display:grid;gap:10px}

@@ -1,5 +1,5 @@
 /** Start screen: drop or choose a drawing, or open one from the dataset. An upload opens as soon as it lands. */
-import {$,el,openDrawing,track} from './main.js';
+import {$,el,openDrawing,track,savedResults,clearSavedResults,formatValue} from './main.js';
 import {isDrawingPath,recoveryMessage} from './api-client.js';
 import {prepareLocalDrawing,renderPDFPreview} from './local-file.js';
 import {imageURL} from './contracts.js';
@@ -79,6 +79,20 @@ for(const sample of SAMPLES){
   el('span',{},sample.name,el('small',{},sample.kind)));
  $('samples').append(card);
 }
+/** Drawings answered in this browser before: reopen one with its last answer and earlier questions, no model call. */
+function renderRecent(){
+ const saved=savedResults();
+ $('recent').hidden=!saved.length;
+ $('recent-list').replaceChildren(...saved.map(drawing=>{
+  const last=drawing.entries.at(-1),[value,unit]=last.rawAnswer.answer===null?['No answer','']:formatValue(last.rawAnswer.answer,last.rawAnswer.unit);
+  return el('li',{},el('button',{type:'button',onclick:()=>openDrawing(drawing.path,{name:drawing.name,restore:true})},
+   el('span',{},el('strong',{},drawing.name),el('small',{},`${drawing.entries.length===1?'1 question':drawing.entries.length+' questions'}, last: ${last.question}`)),
+   el('b',{},`${value} ${unit}`.trim())));
+ }));
+}
+$('recent-clear').onclick=()=>{clearSavedResults();renderRecent();};
+window.addEventListener('stoa:drawing-reset',renderRecent);
+renderRecent();
 $('path-form').onsubmit=event=>{
  event.preventDefault();
  const path=$('live-path').value.trim();
