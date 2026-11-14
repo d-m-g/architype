@@ -1,5 +1,5 @@
 import {uploadDrawing,isDrawingPath,recoveryMessage} from './api-client.js';
-import {validateLocalDrawing} from './local-file.js';
+import {prepareLocalDrawing} from './local-file.js';
 const $ = id => document.getElementById(id);
 let fileURL = null, selection = 0, previousMode = '', uploadFile=null, uploadName='', uploadAbort=null;
 function stopVoice() {
@@ -28,29 +28,28 @@ $('drawing-file').onchange = async () => {
   const id = ++selection;uploadAbort?.abort();uploadAbort=null;uploadFile=null;uploadControls(false);$('upload-drawing').disabled=true;
   $('upload-status').textContent = 'Checking file for local preview…';
   try {
-    const type = await validateLocalDrawing(file);
+    const prepared = await prepareLocalDrawing(file),type=prepared.type;
     if (id !== selection) return;
-    uploadFile=new Blob([file],{type});
-    const suffix={'application/pdf':'pdf','image/png':'png','image/jpeg':'jpg'}[type];
-    uploadName='drawing.'+(suffix??'webp');$('upload-drawing').disabled=!suffix;$('upload-drawing').textContent='Upload drawing to team server';
+    uploadFile=prepared.blob;
+    uploadName=prepared.name;$('upload-drawing').disabled=false;$('upload-drawing').textContent='Upload drawing to team server';
     stopVoice();
     window.dispatchEvent(new Event('stoa:cancel-request'));
     if ($('local-preview').hidden) { previousMode = $('mode-label').textContent; $('local-question').value = $('question').value; }
     $('local-content').replaceChildren();
     if (fileURL) URL.revokeObjectURL(fileURL);
-    fileURL = URL.createObjectURL(new Blob([file], {type}));
+    fileURL = URL.createObjectURL(uploadFile);
     const preview = document.createElement(type === 'application/pdf' ? 'iframe' : 'img');
     if (type === 'application/pdf') { preview.title = 'Local PDF preview'; }
     else { preview.alt = 'Local drawing preview: ' + file.name; preview.onerror = () => { if(id===selection) $('upload-status').textContent = 'This image could not be decoded. Choose another file. Nothing was uploaded.'; }; }
     preview.src = fileURL;
     $('local-content').append(preview);
-    $('local-name').textContent = file.name + ' · ' + (file.size/1024/1024).toFixed(2) + ' MB';
+    $('local-name').textContent = file.name + ' · ' + (file.size/1024/1024).toFixed(2) + ' MB'+(prepared.converted?' · converted to PNG':'');
     $('local-preview').hidden = false;
     $('editor-workspace').hidden = true;
     $('source-pill').hidden = true;
     $('editor-connection-status').hidden = true;
     $('mode-label').textContent = 'LOCAL PREVIEW · NOT ANALYSED';
-    $('upload-status').textContent = 'Local preview only until you choose Upload drawing. WebP preview is supported, but the team upload API accepts PDF, PNG and JPEG only.';
+    $('upload-status').textContent = prepared.converted?'Converted to PNG in this browser for preview and upload. Animated images use the first frame. Nothing has been uploaded yet.':'Local preview only until you choose Upload drawing. No analysis has run.';
     $('local-name').focus();
   } catch(error) { if(id===selection) $('upload-status').textContent = error.message; }
 };
@@ -84,14 +83,15 @@ $('upload-drawing').onclick=async()=>{
   clearPreview();$('live-path').value=uploaded.path;
   window.dispatchEvent(new CustomEvent('stoa:open-case',{detail:{path:uploaded.path,question}}));
   $('upload-status').textContent='Uploaded. Reader: '+(uploaded.reader??'not reported')+'. Ask a live question to build the scene and inspect the answer; analysis may use a model.';
-  $('question').focus();
+  $('contract-status').textContent=$('upload-status').textContent;document.querySelector('.drawing-intake').open=false;
+  $('question').focus({preventScroll:true});
  }catch(error){if(id===selection){$('upload-status').textContent=(controller.signal.aborted?(timedOut?recoveryMessage('Upload timed out'):'Upload cancelled locally. The server may have received the file.'):recoveryMessage(error))+' Your preview and question are kept. Retry upload when ready.';$('upload-drawing').textContent='Retry upload';}}
  finally{clearTimeout(timer);if(id===selection){uploadAbort=null;uploadControls(false);}}
 };
 
 function uploadControls(busy){
  $('cancel-upload').hidden=!busy;
- $('upload-drawing').disabled=busy||!uploadFile||uploadName.endsWith('.webp');
+ $('upload-drawing').disabled=busy||!uploadFile;
  $('local-preview').setAttribute('aria-busy',String(busy));
 }
 $('cancel-upload').onclick=()=>{if(uploadAbort){uploadAbort.abort();$('upload-status').textContent='Cancelling upload… Your preview and question will be kept.';}};

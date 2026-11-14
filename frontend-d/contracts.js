@@ -17,7 +17,7 @@ export function adaptAnswerEvidence(raw){
  return [...map.values()].map(e=>{
   const quantities=Object.entries(e.qty??{});
   return {...e,page:e.page??0,label:e.label??e.number??e.subtype??e.id,polygon:[],geometryUnavailable:true,
-   sourceRef:e.ref??`Entity ${e.id} (no source reference supplied)`,method:'Answer-provided evidence; source page unavailable',
+   sourceRef:e.ref??`Entity ${e.id} (no source reference supplied)`,method:'Answer-provided evidence; source coordinates unavailable',
    uncertain:(e.conf??1)<.8,quantity:quantities[0]?.[1],unit:units[quantities[0]?.[0]],
    quantityText:quantities.length?quantities.map(([u,v])=>`${v} ${units[u]??u}`).join(' · '):undefined};
  });

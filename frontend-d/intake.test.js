@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {validateLocalDrawing,MAX_LOCAL_BYTES} from './local-file.js';
+import {validateLocalDrawing,MAX_LOCAL_BYTES,validateImageSize,createSourcePreviewLoader,sourcePreviewKind} from './local-file.js';
 import {requestDrawing,getConnectionStatus,requestJSON} from './api-client.js';
 
 test('connection check reads production OpenAPI and verifies route methods',async(t)=>{
@@ -23,6 +23,30 @@ test('local preview checks file content, empty files and size before displaying'
  await assert.rejects(validateLocalDrawing(new Blob(['<script>fake.pdf</script>'])),/not a supported/);
  await assert.rejects(validateLocalDrawing(new Blob([])),/non-empty/);
  await assert.rejects(validateLocalDrawing({size:MAX_LOCAL_BYTES+1}),/25 MB/);
+});
+
+test('additional raster formats are identified from bytes rather than the filename',async()=>{
+ for(const [bytes,type] of [['RIFFxxxxWEBP','image/webp'],['GIF89a','image/gif'],['GIF87a','image/gif'],['BMxxxx','image/bmp'],['\0\0\0\x20ftypavif\0\0\0\0','image/avif']])assert.equal(await validateLocalDrawing(new Blob([bytes],{type:'application/octet-stream'})),type);
+ assert.equal(sourcePreviewKind('uploads/drawing.png'),'image');assert.equal(sourcePreviewKind('uploads/drawing.pdf'),'pdf');assert.equal(sourcePreviewKind('https://example.com/file.png'),null);assert.equal(sourcePreviewKind('uploads/file.svg'),null);
+ validateImageSize(2480,1753);assert.throws(()=>validateImageSize(0,10),/too large/);assert.throws(()=>validateImageSize(10000,10000),/too large/);
+});
+
+test('source preview survives repeated requests and ignores a late previous file',async()=>{
+ const pending=new Map(),seen=[];let reads=0;
+ const loader=createSourcePreviewLoader(path=>{reads++;return new Promise(resolve=>pending.set(path,resolve));});
+ const a=loader.select('uploads/old.png',p=>seen.push(p.path)),b=loader.select('uploads/new.png',p=>seen.push(p.path));
+ pending.get('uploads/new.png')({width:640,height:480});await b;
+ pending.get('uploads/old.png')({width:100,height:100});await a;
+ assert.deepEqual(seen,['uploads/new.png']);
+ await loader.select('uploads/new.png',p=>{assert.equal(p.width,640);seen.push(p.path);});assert.equal(reads,2);
+ const cancelled=loader.select('uploads/cancelled.png',p=>seen.push(p.path));loader.cancel();pending.get('uploads/cancelled.png')({width:40,height:30});await cancelled;
+ assert.deepEqual(seen,['uploads/new.png','uploads/new.png']);
+});
+
+test('PDF source preview requires neither a model nor invented image dimensions',async()=>{
+ const loader=createSourcePreviewLoader(()=>{throw new Error('Must not decode a PDF as an image');});let preview;
+ await loader.select('uploads/source.pdf',p=>preview=p);
+ assert.deepEqual(preview,{path:'uploads/source.pdf',image:'uploads/source.pdf',type:'pdf'});
 });
 test('live question preserves free-form text and sends only path/question after scene attempt',async(t)=>{
  const calls=[],progress=[];

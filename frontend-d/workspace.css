@@ -271,3 +271,6 @@ html{scroll-padding-top:88px}
 @media(forced-colors:active){.theme-toggle[aria-pressed=true]{outline:2px solid Highlight}.figma-workspace button{forced-color-adjust:auto}}
 @media(max-width:650px){.figma-workspace .mock-badge{max-width:min(155px,calc(100vw - 190px))}}
 :root[data-theme=dark] .figma-workspace .connection-status{background:var(--paper);color:var(--ink);border-color:var(--line)}
+#uploaded-pdf-preview{display:block;width:100%;height:clamp(380px,calc(100dvh - 320px),720px);border:0;background:white}
+.source-file-badge{display:grid;place-items:center;min-height:65px;width:100%;background:var(--accent-soft);color:var(--muted);font-size:13px;font-weight:600;border:1px solid var(--line)}
+@media(max-width:650px){.source-file-badge{min-height:38px}#uploaded-pdf-preview{height:460px}}

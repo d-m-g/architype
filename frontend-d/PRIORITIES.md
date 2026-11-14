@@ -12,7 +12,7 @@ The judged interface receives hard live questions. This is the active D ordering
    - POST /api/recompute {scene, plan} now exists. Integration remains gated on the exact QueryPlan associated with the answer; do not implement the executor in JavaScript.
    - C must define correction persistence/JSONL ownership and provenance, plus the supported plan/assumption editing contract. D supplies edits and UI; no fake recalculation or fabricated training records.
 3. **Upload flow.**
-   - PDF/PNG/JPEG preview and explicit raw-byte upload are connected; returned uploads/ IDs work with live questions. WebP remains local-only.
+   - PDF/PNG/JPEG preview and upload are connected. WebP, GIF, BMP and AVIF are converted to PNG in the browser and can also be uploaded. Returned uploads/ sources appear immediately in the 2D viewer, independently of analysis; model failures retain the source preview.
    - Reader name and upload/scene/question stages are shown. Backend stage events, IFC/DXF, multi-page ingestion (currently first PDF page only) and two-point known-length scale calibration remain pending.
    - Scans/hand drawings require an explicit unverified state. Reader type, scale and confidence must come from agreed data.
 4. **Complex answers.**

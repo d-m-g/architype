@@ -26,30 +26,33 @@ subscribeEditor(state=>{const entity=state.entities.find(e=>e.id===state.selecte
 // Same-document links keep filters, imports, viewport and answers alive.
 document.addEventListener('click',event=>{const link=event.target.closest('a');if(!link||event.ctrlKey||event.metaKey||event.shiftKey||event.altKey||event.button!==0)return;const url=new URL(link.href,location.href);if(url.origin!==location.origin)return;if(link.matches('.skip')){event.preventDefault();history.replaceState(null,'',location.pathname+location.search+'#editor');showPanel('editor');const heading=$('panel-editor').querySelector('h1');heading.focus();heading.scrollIntoView({block:'start'});return;}if(link.matches('[data-panel]')){showPanel(link.dataset.panel,true);return;}if(url.pathname.endsWith('/index.html')||url.pathname.endsWith('/')){if(url.searchParams.has('path')){event.preventDefault();history.pushState(null,'',url.pathname+url.search+'#editor');window.dispatchEvent(new CustomEvent('stoa:open-case',{detail:{path:url.searchParams.get('path'),question:url.searchParams.get('question')??''}}));showPanel('editor',true);setView('2d');}else if(url.hash.startsWith('#scenario=')){event.preventDefault();if(location.hash===url.hash)window.dispatchEvent(new Event('hashchange'));else location.hash=url.hash;}else if(!url.hash){event.preventDefault();location.hash='editor';showPanel('editor',true);}}});
 window.addEventListener('popstate',route);
+window.addEventListener('stoa:open-case',()=>{showPanel('editor');setView('2d');history.replaceState(null,'',location.pathname+location.search+'#editor');});
 route();
 
 // Figma's page rail uses only pages actually supplied by the active scene.
 // The synthetic example retains its real illustration and an explicit label.
 let pageRailSignature='';
 subscribeEditor(state=>{
- const pages=state.wireScene?.pages??(state.mode==='mock'?[{image:'plan.svg'}]:[]);
- const signature=JSON.stringify([state.mode,state.wireScene?.path,pages.map(p=>p.image)]);
+ const preview=state.sourcePreview;
+ const pages=state.wireScene?.pages??(preview?[{image:preview.image,pdf:preview.type==='pdf'}]:state.mode==='mock'?[{image:'plan.svg'}]:[]);
+ const signature=JSON.stringify([state.mode,state.wireScene?.path??preview?.path,pages.map(p=>[p.image,p.pdf])]);
  if(signature!==pageRailSignature){
   pageRailSignature=signature;
   $('sheet-thumbnails').replaceChildren();
   pages.forEach((page,index)=>{
    const button=document.createElement('button');button.type='button';button.className='sheet-thumb';button.dataset.page=String(index);
-   button.setAttribute('aria-label',`${state.mode==='mock'?'Mock drawing':'Source page'} ${index+1}`);
-   const image=document.createElement('img');image.src=state.mode==='mock'?'plan.svg':imageURL(page.image);image.alt='';image.loading='lazy';
-   image.addEventListener('error',()=>{image.hidden=true;button.classList.add('image-unavailable');});
-   const title=document.createElement('strong');title.textContent=`Page ${index+1}`;
-   const subtitle=document.createElement('span');subtitle.textContent=state.mode==='mock'?'Synthetic example':'Source drawing';
+   button.setAttribute('aria-label',page.pdf?'PDF source preview':`${state.mode==='mock'?'Mock drawing':preview?'Source preview':'Source page'} ${index+1}`);
+   const image=document.createElement(page.pdf?'span':'img');
+   if(page.pdf){image.className='source-file-badge';image.textContent='PDF';}
+   else{image.src=state.mode==='mock'?'plan.svg':imageURL(page.image);image.alt='';image.loading='lazy';image.addEventListener('error',()=>{image.hidden=true;button.classList.add('image-unavailable');});}
+   const title=document.createElement('strong');title.textContent=page.pdf?'Document':preview?'Source image':`Page ${index+1}`;
+   const subtitle=document.createElement('span');subtitle.textContent=state.mode==='mock'?'Synthetic example':preview?'Preview only':'Source drawing';
    button.append(image,title,subtitle);
-   button.onclick=()=>{if(state.mode==='mock'){$('fit').click();return;}$('page-select').value=String(index);$('page-select').dispatchEvent(new Event('change',{bubbles:true}));};
+   button.onclick=()=>{if(!state.wireScene){$('fit').click();return;}$('page-select').value=String(index);$('page-select').dispatchEvent(new Event('change',{bubbles:true}));};
    $('sheet-thumbnails').append(button);
   });
  }
- $('sheet-count').textContent=pages.length?`Page ${state.pageIndex+1} of ${pages.length}`:'No loaded pages';
+ $('sheet-count').textContent=preview?(preview.type==='pdf'?'PDF source preview':'Image source preview'):pages.length?`Page ${state.pageIndex+1} of ${pages.length}`:'No loaded pages';
  document.querySelectorAll('.sheet-thumb').forEach(button=>button.setAttribute('aria-pressed',String(Number(button.dataset.page)===state.pageIndex)));
 });
 $('add-drawing-shortcut').onclick=()=>{const intake=document.querySelector('.drawing-intake');intake.open=true;intake.scrollIntoView({block:'nearest',behavior:'auto'});$('drawing-file').focus();};
