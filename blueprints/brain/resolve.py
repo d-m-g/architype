@@ -40,6 +40,7 @@ from .plan import GEMINI_MODEL, GEMINI_URL
 UNITS = ("m2", "m", "m3", "ft2")
 BASE = ("id", "type", "subtype", "label", "number", "level", "apartment", "outdoor", "page", "conf")
 LINKED = ("door", "window", "fixture")  # the types that carry room links
+SIZES = ("width_m", "length_m", "height_m", "thickness_m")  # always columns, so asking for one not recorded reads NULL
 MAX_ATTR_COLUMNS = 40
 MAX_ROWS = 500  # of one query's result
 MAX_SQL_CHARS = 2000
@@ -92,9 +93,9 @@ class Abstain(ValueError):
 def _attr_columns(scene: Scene) -> list[str]:
     """Attrs that become columns: the commonest ones with a plain name. Every attr is also in the attrs JSON column."""
     seen = Counter(k for e in scene.entities for k in e.attrs)
-    plain = [k for k, _ in seen.most_common() if re.fullmatch(r"[a-z_][a-z0-9_]*", k) and k not in BASE + UNITS + ("attrs",)
+    plain = [k for k, _ in seen.most_common() if re.fullmatch(r"[a-z_][a-z0-9_]*", k) and k not in BASE + UNITS + SIZES + ("attrs",)
              and not k.startswith("frame_")]  # a level's page frame is for the viewer
-    return plain[:MAX_ATTR_COLUMNS]
+    return [*SIZES, *plain[:MAX_ATTR_COLUMNS - len(SIZES)]]
 
 
 def table(scene: Scene) -> sqlite3.Connection:
@@ -215,9 +216,13 @@ def inventory(scene: Scene) -> str:
         lines.append(f"Room labels as written: {_listed((e.label for e in rooms), 30)}")
         lines.append(f"Room numbers: {_listed((e.number for e in rooms), 40)}")
         lines.append(f"Rooms that are outdoor (balcony, terrace; outdoor = 1): {sum(e.outdoor for e in rooms)}")
-    for kind in by_type:
+    for kind in by_type:  # other labels, without a trailing instance number (IFC: 'Basic Wall:Interior - Partition:144633')
         if kind not in ("room", "level", "apartment") and any(e.label for e in by_type[kind]):
-            lines.append(f"{kind} labels: {_listed((e.label for e in by_type[kind]), 6)}")
+            lines.append(f"{kind} labels (LIKE to match): {_listed((re.sub(r':\d+$', '', e.label)[:60] for e in by_type[kind] if e.label), 4)}")
+    for a in attrs:  # attributes with a few distinct text values are what a question filters on
+        values = [e.attrs[a] for e in scene.entities if isinstance(e.attrs.get(a), str)]
+        if values and len(set(values)) <= 8 and not a.startswith("room"):
+            lines.append(f"{a} values: {_listed(values, 8)}")
     levels = [e.label for e in by_type.get("level", [])] or sorted({e.level for e in scene.entities if e.level})
     lines.append(f"Levels (column level): {_listed(levels, 20)}")
     apartments = sorted({e.apartment for e in scene.entities if e.apartment})
@@ -246,9 +251,11 @@ def inventory(scene: Scene) -> str:
 
 # ---- 2. the decision ----
 
-PROMPT = f"""You decide how a question about one construction drawing is answered from the data already read from it.
-You are given an inventory of that data. Look at it first. Then reply with one JSON object matching this schema:
-{json.dumps(Decision.model_json_schema())}
+PROMPT = """You decide how a question about one construction drawing is answered from the data already read from it.
+You are given an inventory of that data. Look at it first. Then reply with one JSON object with these fields only:
+kind ("direct" | "computed" | "missing"), queries (object: name -> SQL), formula (string, optional), answer ("value" |
+"top" | "rows", default "value"), unit ("count" | "m2" | "m" | "m3" | "ft2"), assumptions (object: name -> value),
+missing (string), needs (object: name -> what to supply), interpretation (string, optional).
 
 Choose kind in this order of preference:
 1. "direct": the answer is a recorded value, or a selection, count or aggregation of recorded values.
@@ -276,13 +283,13 @@ unit: the unit of the number or of each row's value: count, m2, m, m3 or ft2.
 Rooms connect to doors, windows and fixtures through links only. Never match them by label or number columns.
 
 Examples (the inventory decides the real column values):
-"How big is the kitchen?" -> {{"kind": "direct", "queries": {{"a": "SELECT sum(m2) AS value, group_concat(id) AS ids FROM entities WHERE type = 'room' AND subtype = 'kitchen'"}}, "unit": "m2"}}
-"Which room is the largest?" -> {{"kind": "direct", "queries": {{"q": "SELECT id, m2 AS value FROM entities WHERE type = 'room' AND m2 IS NOT NULL ORDER BY value DESC"}}, "answer": "top", "unit": "m2"}}
-"Which rooms are bigger than 15 m2?" -> {{"kind": "direct", "queries": {{"q": "SELECT id, m2 AS value FROM entities WHERE type = 'room' AND m2 > 15 ORDER BY value DESC"}}, "answer": "rows", "unit": "m2"}}
-"Which room has the most doors?" -> {{"kind": "direct", "queries": {{"q": "SELECT r.id, count(d.id) AS value, group_concat(d.id) AS ids FROM entities r JOIN links l ON l.room_id = r.id JOIN entities d ON d.id = l.entity_id AND d.type = 'door' WHERE r.type = 'room' GROUP BY r.id ORDER BY value DESC"}}, "answer": "top", "unit": "count"}}
-"Total width of the windows in the bedrooms?" -> {{"kind": "direct", "queries": {{"w": "SELECT sum(m) AS value, group_concat(id) AS ids FROM entities WHERE type = 'window' AND id IN (SELECT l.entity_id FROM links l JOIN entities r ON r.id = l.room_id WHERE r.subtype = 'bedroom')"}}, "unit": "m"}}
-"What would parquet at 85 per m2 cost for room 7.03?" -> {{"kind": "computed", "queries": {{"area": "SELECT m2 AS value, id FROM entities WHERE type = 'room' AND number = '7.03'"}}, "formula": "area * price_per_m2", "assumptions": {{"price_per_m2": 85}}, "interpretation": "Floor area times the stated price; the answer is in the price's currency."}}
-"How much paint for the walls of room 7.03?" (no room height recorded) -> {{"kind": "missing", "missing": "the ceiling height of room 7.03: no height is recorded for rooms in this drawing", "needs": {{"ceiling_height_m": "ceiling height in metres"}}, "queries": {{"p": "SELECT m AS value, id FROM entities WHERE type = 'room' AND number = '7.03'"}}, "formula": "p * ceiling_height_m", "unit": "m2"}}
+"How big is the kitchen?" -> {"kind": "direct", "queries": {"a": "SELECT sum(m2) AS value, group_concat(id) AS ids FROM entities WHERE type = 'room' AND subtype = 'kitchen'"}, "unit": "m2"}
+"Which room is the largest?" -> {"kind": "direct", "queries": {"q": "SELECT id, m2 AS value FROM entities WHERE type = 'room' AND m2 IS NOT NULL ORDER BY value DESC"}, "answer": "top", "unit": "m2"}
+"Which rooms are bigger than 15 m2?" -> {"kind": "direct", "queries": {"q": "SELECT id, m2 AS value FROM entities WHERE type = 'room' AND m2 > 15 ORDER BY value DESC"}, "answer": "rows", "unit": "m2"}
+"Which room has the most doors?" -> {"kind": "direct", "queries": {"q": "SELECT r.id, count(d.id) AS value, group_concat(d.id) AS ids FROM entities r JOIN links l ON l.room_id = r.id JOIN entities d ON d.id = l.entity_id AND d.type = 'door' WHERE r.type = 'room' GROUP BY r.id ORDER BY value DESC"}, "answer": "top", "unit": "count"}
+"Total width of the windows in the bedrooms?" -> {"kind": "direct", "queries": {"w": "SELECT sum(m) AS value, group_concat(id) AS ids FROM entities WHERE type = 'window' AND id IN (SELECT l.entity_id FROM links l JOIN entities r ON r.id = l.room_id WHERE r.subtype = 'bedroom')"}, "unit": "m"}
+"What would parquet at 85 per m2 cost for room 7.03?" -> {"kind": "computed", "queries": {"area": "SELECT m2 AS value, id FROM entities WHERE type = 'room' AND number = '7.03'"}, "formula": "area * price_per_m2", "assumptions": {"price_per_m2": 85}, "interpretation": "Floor area times the stated price; the answer is in the price's currency."}
+"How much paint for the walls of room 7.03?" (no room height recorded) -> {"kind": "missing", "missing": "the ceiling height of room 7.03: no height is recorded for rooms in this drawing", "needs": {"ceiling_height_m": "ceiling height in metres"}, "queries": {"p": "SELECT m AS value, id FROM entities WHERE type = 'room' AND number = '7.03'"}, "formula": "p * ceiling_height_m", "unit": "m2"}
 Reply with the JSON only."""
 
 
@@ -374,6 +381,20 @@ def _links_usable(decision: Decision, scene: Scene) -> str | None:
     return f"{len(loose)} {'/'.join(kinds)} item(s) touch no room in the drawing and are in no room's count." if loose else None
 
 
+def refine_links(decision: Decision, scene: Scene) -> list[TraceStep]:
+    """The other source for room links on an image: when unresolved links block a per-room result, the bounded,
+    cached vision refinement (room_link_vision.resolve) may settle them. Its costed steps; none on a parsed file."""
+    if scene.tier == "parse":
+        return []
+    try:
+        _links_usable(decision, scene)
+        return []
+    except Abstain:
+        from .room_link_vision import resolve as resolve_links
+        kinds = [k for k in LINKED if k in _asked(decision)[0]] or ["door"]
+        return [step for kind in kinds for step in resolve_links(scene, kind)]
+
+
 def _ids(row: dict, known: set[str], name: str) -> tuple[list[str], list[str]]:
     """(the row's own entity, the entities aggregated into it), each checked against the scene."""
     if "id" not in row and "ids" not in row:
@@ -419,11 +440,15 @@ def execute(decision: Decision, scene: Scene, supplied: dict | None = None, conn
         raise QueryError(f'answer "{decision.answer}" takes exactly one query')
     if decision.answer == "value" and not decision.formula and len(decision.queries) != 1:
         raise QueryError("several queries need a formula that combines them")
+    refined = []
     try:
         _covered(decision, scene)
+        refined = refine_links(decision, scene)
         note = _links_usable(decision, scene)
     except Abstain as e:
-        return abstain(str(e))
+        result = abstain(str(e))
+        result.trace = refined + result.trace
+        return result
 
     conn = conn or table(scene)
     by_id = {e.id: e for e in scene.entities}
@@ -510,7 +535,7 @@ def execute(decision: Decision, scene: Scene, supplied: dict | None = None, conn
            "Nothing matched; a zero is only as sure as the reader's search, which no item score lowers.")
     result = Answer(answer=answer, unit=unit, confidence=confidence, confidence_note=" ".join(filter(None, [why, note])), tier=scene.tier,
                     evidence=evidence, formula=shown, interpretation=" ".join(filter(None, [decision.interpretation, said])) or None,
-                    assumptions=assumptions, trace=steps(f"{decision.kind}: " + "; ".join(f"{n} = {s}" for n, s in decision.queries.items())))
+                    assumptions=assumptions, trace=refined + steps(f"{decision.kind}: " + "; ".join(f"{n} = {s}" for n, s in decision.queries.items())))
     return _vision_checked(result, decision, scene)
 
 

@@ -14,13 +14,12 @@ import json
 import math
 import os
 import time
-from collections import Counter
 
 from ..costs import llm_step
 from ..executor import execute
 from ..room_queries import ROOM_FILTERS
 from ..schemas import Answer, QueryPlan, Scene, TraceStep
-from .plan import GEMINI_URL, plan_with_trace
+from .plan import GEMINI_URL, cached_plan
 from .room_link_vision import execute_with_links, resolve, refinement_exhausted
 
 # ponytail: fixed confidences; replace with per-question-kind accuracy measured on the train split.
@@ -37,29 +36,33 @@ MAX_TURNS = 8
 
 SYSTEM = """You answer a question about one construction drawing, using tools. The drawing has already been read into
 a scene: a list of entities (rooms, doors, windows, fixtures, apartments, levels) with ids, labels and quantities.
-- Use list_entities to see what is there, and run_plan for every count, sum or arithmetic: never compute numbers yourself.
-- For doors/windows/fixtures in a room, use where.connected_room_id (or connected_room_number/label/type).
-  This checks both endpoints and counts each object once. Room ids distinguish rooms sharing a label.
-  list_entities exposes room connection status; unresolved connections can prevent a verified count.
+- Look at the inventory you are given first: it says what the scene's tables hold and what is NOT recorded.
+- Use query for every count, sum, ranking, comparison, filter or lookup: it runs one read-only SQL SELECT on the
+  tables entities and links and returns the rows. Never compute or estimate a number yourself.
+- For doors/windows/fixtures in a room, join through links (entity_id, room_id): a door between two rooms has two
+  rows, so each object counts once per room. Room ids distinguish rooms sharing a label. Never match by label.
+  list_entities exposes room connection status; unresolved or ambiguous connections refuse a per-room result.
   Never replace an unresolved per-room count with a count of all doors on the page.
-  run_plan automatically attempts bounded vision refinement when room connections prevent a count.
-  For room rankings, call resolve_room_connections first if door/window links are unresolved, then list entities
+  query automatically attempts bounded vision refinement when room connections prevent a per-room result.
+  For room rankings, call resolve_room_connections first if door/window links are unresolved, then query
   again. If connections remain uncertain, explain the limitation; do not invent a definitive winner.
   If refinement reports a budget/cooldown limit or leaves a connection unresolved, do not repeat the same
-  refinement or identical run_plan. Only use look again if a specific different crop can resolve the issue.
-- Each entity is one room or object. For "the largest / smallest room" call list_entities with sort and limit 1 and
-  report that single entity; never combine rooms that share a label unless the question asks for a total.
-- A size is a recorded quantity, never your estimate. list_entities shows each entity's qty by unit, which run_plan
-  sums: m2 is area (a room's floor, a slab's top, a wall's side), m is the type's one length (a room's perimeter, a
-  door's or window's width, a wall's length), m3 is volume. Its sizes are further dimensions in metres.
+  refinement or identical query. Only use look again if a specific different crop can resolve the issue.
+- Each entity is one room or object. Never combine rooms that share a label unless the question asks for a total.
+- A size is a recorded quantity, never your estimate: m2 is area (a room's floor, a slab's top, a wall's side), m is
+  the type's one length (a room's perimeter, a door's or window's width, a wall's length), m3 is volume; width_m,
+  length_m, height_m and thickness_m are further dimensions in metres. NULL means not recorded.
 - Use look only when the scene lacks something you need; it asks a vision model about the page or a region of it.
 - Finish by calling answer with the value, its unit, the ids of the entities the answer rests on, and a one-sentence
   explanation. When the question asks how many, how big or how much, the answer is that number and the names go in
   the explanation (e.g. answer 31.05, unit m2, explanation "Reduit 2.30 is the largest room").
-- For EVERY numeric final answer, include plan: the complete QueryPlan JSON that computes the FINAL requested value,
-  including tile size, waste and rounding when requested. The server executes this plan and uses its result, formula
-  and evidence, not your proposed number or arithmetic in the explanation. Select a single room by its number and
-  apartment when appropriate; do not sum every bathroom for a question about the largest bathroom.
+- For EVERY final answer that is a number, a ranking or a list, include decision: the JSON that computes the FINAL
+  requested result, {"kind": "direct" or "computed", "queries": {name: SQL}, "formula": arithmetic over the query
+  names and numeric assumptions, "answer": "value", "top" or "rows", "unit", "assumptions"}, including tile size, waste
+  and rounding when requested. Each query returns id, or value with ids = group_concat(id); "top" returns every
+  candidate ordered by value, best first, and the server reports ties. The server executes it and uses its result,
+  formula and evidence, not your proposed number or the arithmetic in your explanation. Select a single room by its
+  number and apartment when appropriate; do not sum every bathroom for a question about the largest bathroom.
 - If the question cannot be answered from this drawing, call answer with answer "cannot answer" and say why."""
 
 LOOK_LINE = "- Use look only when the scene lacks something you need; it asks a vision model about the page or a region of it."
@@ -94,11 +97,11 @@ TOOLS = [
             "sort": {"type": "string", "enum": ["area_desc", "area_asc"], "description": "order by area, e.g. for the largest or smallest room"},
             "limit": {"type": "integer", "description": "return at most this many entities"}}}}},
     {"type": "function", "function": {
-        "name": "run_plan", "description": "Run a QueryPlan on the scene with the exact executor; returns the value, the formula and the evidence ids.",
-        "parameters": {"type": "object", "required": ["plan"], "properties": {"plan": {"type": "string", "description":
-            'QueryPlan JSON, e.g. {"queries": {"a": {"op": "sum", "type": "room", "subtype": "bathroom", "qty": "m2"}, '
-            '"n": {"op": "count", "type": "room", "subtype": "bathroom"}}, "formula": "a / n", "unit": "m2"}. '
-            "Query fields: op (count|sum), type, subtype, label, number, level, apartment, outdoor, where, qty (m2|m|m3|ft2, for sum)."}}}}},
+        "name": "query", "description": "Run one read-only SQL SELECT on the scene's tables (entities, links; see the inventory) and get the rows.",
+        "parameters": {"type": "object", "required": ["sql"], "properties": {"sql": {"type": "string", "description":
+            "e.g. SELECT id, label, number, m2 FROM entities WHERE type = 'room' ORDER BY m2 DESC LIMIT 5; or SELECT r.id, "
+            "count(d.id) AS value, group_concat(d.id) AS ids FROM entities r JOIN links l ON l.room_id = r.id JOIN entities d "
+            "ON d.id = l.entity_id AND d.type = 'door' WHERE r.type = 'room' GROUP BY r.id ORDER BY value DESC"}}}}},
     {"type": "function", "function": {
         "name": "look", "description": "Ask a vision model a question about the page image, or about one region of it.",
         "parameters": {"type": "object", "required": ["question"], "properties": {
@@ -109,7 +112,7 @@ TOOLS = [
         "parameters": {"type": "object", "required": ["answer", "explanation"], "properties": {
             "answer": {"type": ["number", "string"]}, "unit": {"type": "string", "enum": ["count", "m2", "m", "m3", "ft2"]},
             "evidence": {"type": "array", "items": {"type": "string"}}, "explanation": {"type": "string"},
-            "plan": {"type": "string", "description": "Required for numeric answers: complete QueryPlan JSON computing the final requested value, including all arithmetic and rounding. The server uses this calculation as the answer."}}}}},
+            "decision": {"type": "string", "description": "Required for a number, ranking or list: the complete decision JSON (queries as SQL, optional formula, answer value|top|rows) computing the final requested result. The server runs it and uses its result as the answer."}}}}},
 ]
 
 
@@ -136,11 +139,16 @@ def answer_from_vision(question: str, path: str, draft: Answer | None = None) ->
     if kind:
         return Answer(tier="llm", error=f"not a floor plan (read as: {kind}); this tool answers questions about floor plans",
                       trace=draft.trace + (vision.trace if fresh else []))
-    try:
-        plan, plan_steps = plan_with_trace(question, vision)
-    except NotImplementedError as e:  # no plan fits (or no planner): escalate() hands it to the agent
-        return Answer(tier="llm", error=str(e), trace=draft.trace + getattr(e, "steps", []) + (vision.trace if fresh else []))
-    result = execute_with_links(plan, vision)
+    found, plan_steps = cached_plan(question, vision), []
+    if found:  # the free path: a question shape planned before
+        plan, plan_steps = found
+        result = execute_with_links(plan, vision)
+    else:  # any other wording: decided from what the vision scene holds (resolve.py)
+        from .resolve import resolve as from_data
+        try:
+            result = from_data(question, vision)
+        except NotImplementedError as e:  # no model to decide with: escalate() hands it to the agent
+            return Answer(tier="llm", error=str(e), trace=draft.trace + getattr(e, "steps", []) + (vision.trace if fresh else []))
     hits = set(result.evidence)
     return result.model_copy(update={
         "tier": "llm",
@@ -211,7 +219,24 @@ def _tool(name: str, args: dict, scene: Scene) -> tuple[str, list[TraceStep]]:
         while len(reply()) > TOOL_REPLY_CHARS and len(shown) > 1:  # whole rows, not JSON cut off mid-entity
             shown = shown[:len(shown) * 3 // 4]
         return reply(), []
-    if name == "run_plan":
+    if name == "query":
+        from . import resolve as data
+        probe = data.Decision(kind="direct", queries={"q": args.get("sql", "")})
+        steps = data.refine_links(probe, scene)  # a per-room result is only as good as the room links
+        try:
+            rows = data.run(data.table(scene), args.get("sql", ""))
+        except data.QueryError as e:
+            return f"query failed: {e}", steps
+        try:
+            note = data._links_usable(probe, scene)
+        except data.Abstain as e:
+            note = f"NOT USABLE for a per-room answer: {e}"
+        shown = rows
+        reply = lambda: json.dumps({"rows": len(rows), "shown": len(shown), "result": shown, "note": note}, ensure_ascii=False)
+        while len(reply()) > TOOL_REPLY_CHARS and len(shown) > 1:  # whole rows, as list_entities
+            shown = shown[:len(shown) * 3 // 4]
+        return reply(), steps
+    if name == "run_plan":  # no longer offered to the model (query replaces it); kept for callers that hold a QueryPlan
         try:
             plan = QueryPlan.model_validate_json(args.get("plan", ""))
         except ValueError as e:
@@ -231,6 +256,18 @@ def _tool(name: str, args: dict, scene: Scene) -> tuple[str, list[TraceStep]]:
         text, step = _look(scene, args.get("question", ""), args.get("box"))
         return text, [step]
     return f"unknown tool {name}", []
+
+
+def _verified_decision(text: str, scene: Scene) -> Answer:
+    """Bind a final answer to queries run on the scene: the value, formula and evidence of one execution."""
+    from . import resolve as data
+    try:
+        result = data.execute(data.parse(text), scene)
+    except data.QueryError as e:
+        raise ValueError(str(e)) from None
+    if result.answer is None:
+        raise ValueError(result.error or "the scene cannot support this result")
+    return result
 
 
 def _verified_plan(text: str, scene: Scene) -> Answer:
@@ -324,8 +361,8 @@ def _same_value(a, b) -> bool:
 
 def _agent_loop(question, scene, draft, inline_evidence, url, key, model, extra, deadline, failures) -> Answer:
     import openai
-    kinds = Counter(f"{e.type}:{e.subtype}" if e.subtype else e.type for e in scene.entities)
-    context = (f"Question: {question}\n\nScene from {scene.builder}: {dict(kinds)}.\n"
+    from .resolve import inventory
+    context = (f"Question: {question}\n\nInventory of the scene:\n{inventory(scene)}\n\n"
                f"The cheap path said: {draft.answer!r} (confidence {draft.confidence:.2f}){f'; error: {draft.error}' if draft.error else ''}.")
     system, tools = instructions(scene)
     messages = [{"role": "system", "content": system}, {"role": "user", "content": context}]
@@ -373,12 +410,12 @@ def _agent_loop(question, scene, draft, inline_evidence, url, key, model, extra,
                         numeric = True
                     except ValueError:
                         pass
-                if value is not None and (numeric or args.get("unit") is not None):
-                    try:
-                        verified = _verified_plan(args.get("plan", ""), scene)
+                if value is not None and (numeric or args.get("unit") is not None or args.get("decision")):
+                    try:  # decision: SQL, run here. plan: a QueryPlan, from callers that still hold one.
+                        verified = _verified_decision(args["decision"], scene) if args.get("decision") else _verified_plan(args.get("plan", ""), scene)
                     except (ValueError, TypeError, ArithmeticError, SyntaxError) as error:
                         messages.append({"role": "tool", "tool_call_id": call.id,
-                                         "content": f"Final answer not verified: {error}. Use run_plan to attempt room-connection refinement if needed, then call answer again with the complete final QueryPlan JSON, or answer 'cannot answer'."})
+                                         "content": f"Final answer not verified: {error}. Use query to check (it attempts room-connection refinement if needed), then call answer again with the complete final decision JSON, or answer 'cannot answer'."})
                         force_answer = "per-room count" not in str(error)
                         continue
                     return verified.model_copy(update={

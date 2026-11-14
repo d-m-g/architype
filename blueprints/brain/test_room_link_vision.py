@@ -162,7 +162,7 @@ class VisionRoomLinks(unittest.TestCase):
     def test_exact_count_does_not_pay_for_agent_after_negative_vision_review(self):
         from blueprints.brain import plan, escalate
         with patch.object(pipeline, "get_scene", return_value=self.scene), \
-             patch.object(plan, "plan_with_trace", return_value=(self.plan, [])), \
+             patch.object(plan, "cached_plan", return_value=(self.plan, [])), \
              patch.object(escalate, "escalate", side_effect=AssertionError("no redundant agent")), \
              self.mock_request([decision(clear=False)]) as request:
             self.assertIsNone(pipeline.answer(self.scene.path, "How many doors in room 1?").answer)

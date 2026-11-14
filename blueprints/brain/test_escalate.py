@@ -142,14 +142,14 @@ class ParsedFilesAreNeverMeasuredFromThePicture(unittest.TestCase):
 
     def test_a_parsed_scene_offers_no_look_tool_and_says_where_sizes_come_from(self):
         names, system = self.tool_names(measured_scene())
-        self.assertEqual(names, ["list_entities", "run_plan", "answer"])
+        self.assertEqual(names, ["list_entities", "query", "answer"])
         self.assertNotIn("Use look", system)
         self.assertIn("Sizes come only from the scene's\n  recorded quantities", system)
         self.assertIn('"cannot answer" and say which measurement is missing', system)
 
     def test_an_image_scene_keeps_look(self):
         names, system = self.tool_names(measured_scene(tier="detect"))
-        self.assertEqual(names, ["resolve_room_connections", "list_entities", "run_plan", "look", "answer"])
+        self.assertEqual(names, ["resolve_room_connections", "list_entities", "query", "look", "answer"])
         self.assertEqual(system, escalate.SYSTEM)
         self.assertIn("Use look only when the scene lacks something you need", system)
 
