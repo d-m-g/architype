@@ -4,6 +4,7 @@
  */
 import assert from 'node:assert/strict';
 import {adaptScene,adaptAnswer,imageURL} from './contracts.js';
+import {apiCapabilities} from './api-client.js';
 const [origin='http://127.0.0.1:8001',path,question='How many windows are on this floor?']=process.argv.slice(2);
 if(!path?.startsWith('data/')&&!path?.startsWith('uploads/'))throw new Error('Supply an existing data/ drawing path.');
 const url=p=>new URL(p,origin);
@@ -11,8 +12,8 @@ async function request(route,options={}){
  const response=await fetch(url(route),{...options,signal:AbortSignal.timeout(60000)});
  return {status:response.status,ok:response.ok,value:await response.json()};
 }
-const home=await fetch(url('/'));assert.equal(home.status,200);assert.match(await home.text(),/Drawing editor/);
-const health=await request('/__frontend/api-status');assert.equal(health.value.connected,true);
+const home=await fetch(url('/'));assert.equal(home.status,200);assert.match(await home.text(),/id="drawing"/);
+const health=await request('/openapi.json');assert.equal(health.status,200);assert.equal(apiCapabilities(health.value).connected,true);
 for(const hidden of ['/.runtime/pyvenv.cfg','/serve.py','/voice.test.js','/.cache/test','/api/unknown']){
  assert.equal((await fetch(url(hidden))).status,404,hidden);
 }

@@ -1,9 +1,16 @@
 export async function requestJSON(url,options={}){
  const response=await fetch(url,{...options,signal:options.signal??AbortSignal.timeout(60000)});
  let value;try{value=await response.json();}catch{throw new Error(`Unexpected response (${response.status}). Run the frontend proxy, not a static-only server.`);}
- if(!response.ok)throw new Error(`${response.status}: ${typeof value.detail==='string'?value.detail:value.message??response.statusText}`);
+ if(!response.ok)throw new Error(`${response.status}: ${typeof value.detail==='string'?value.detail:value.error??value.message??response.statusText}`);
  return value;
 }
+/** Inspect the team's actual API contract; no frontend-only route is required. */
+export function apiCapabilities(spec,origin=''){
+ const paths=spec?.paths??{};
+ const connected=Boolean(paths['/api/ask']?.post&&paths['/api/scene']?.get&&paths['/api/image']?.get);
+ return {connected,origin,title:spec?.info?.title??'Team API',upload_available:Boolean(paths['/api/upload']?.post),recompute_available:Boolean(paths['/api/recompute']?.post),message:connected?'API reachable; reader availability is checked per drawing.':'The service is missing required drawing API routes.'};
+}
+export async function getConnectionStatus(){return apiCapabilities(await requestJSON('/openapi.json'),globalThis.location?.origin??'');}
 /** Scene and Answer are independent API responses; an absent builder must not mask Answer.error. */
 export async function requestDrawing(path,question,signal,onProgress=()=>{}){
  // Request scene first so a successful builder populates its cache before /ask.
@@ -26,6 +33,7 @@ export async function uploadDrawing(file,filename,signal){
 /** Friendly recovery copy only; raw backend details remain on the answer. */
 export function recoveryMessage(error){
  const text=String(error?.message??error??'');
+ if(/\b401\b|sign in first/i.test(text))return 'Sign in to the demo again, then retry. Keep this tab open to preserve your drawing and question.';
  if(/GEMINI_API_KEY|api.?key.*(?:not set|missing)|missing.*api.?key/i.test(text))return 'Model setup needed. The server is missing its model API key. Ask the team to configure it, then retry.';
  if(/timed? ?out|timeout|\b504\b/i.test(text))return 'The server took too long. Retry when it is ready; cancelling here may not stop work already running on the server.';
  if(/not written|not implemented|no scene builder|reader pending|\b501\b/i.test(text))return 'Drawing reader not ready. This format or dataset still needs its team reader. Retry after the reader is available, or choose another supported drawing.';

@@ -3,10 +3,10 @@
 The judged interface receives hard live questions. This is the active D ordering; the ten-step mock walkthrough is a backup only. Changes remain under frontend-d.
 
 1. **Real-scene integration and one-origin hosting — active.**
-   - D entry point serve.py imports the existing FastAPI app and mounts only public browser assets after its API routes.
+   - Production blueprints.api and the local D entry point share the public-asset allowlist. D checks the actual /openapi.json contract, so no frontend-only health route is required.
    - start-api.ps1 starts UI and API together. No backend source is changed.
    - live-smoke.js checks the UI, API, scene, answer, evidence IDs and page images. A stub or abstention exits 2, never a false success.
-   - Latest checkout: Swiss, raster detector and room builders remain stubs. The team vision reader now supports uploads when configured; local real inference is blocked by missing GEMINI_API_KEY.
+   - Pulled the lane A Swiss parser and lane C Nemotron/vision workflow. A real Swiss question now passes through the production API into D: 26 unique windows, all evidence IDs resolved, page image loaded, and the duplicate-count explanation displayed. Provider-backed vision/agent calls still require server keys.
 2. **Human corrections — local draft tools built; backend integration pending.**
    - Local delete/add-box/type/area/confirm actions and undo are implemented. The reported answer remains unchanged with a pending-correction notice; old/new answer comparison awaits recompute.
    - POST /api/recompute {scene, plan} now exists. Integration remains gated on the exact QueryPlan associated with the answer; do not implement the executor in JavaScript.
@@ -31,9 +31,13 @@ Cut floor stacking first, then the optional Gemini-audio voice upgrade.
 
 ## Backend handoff needed
 
-- Real Scene and Answer for one known drawing; server image paths.
+- Real Swiss Scene, Answer and image paths are integrated. Next verify the same flow with model-backed uploads and Nemotron on the configured demo server.
 - Answer.query_plan (exact agreed field/type), recompute response/error shape and correction logging policy.
 - Reader stage reporting, multi-page ingestion and additional file formats; basic upload contract is integrated.
 - Formula bindings, floor alignment/scale metadata and tool-call trace shape where existing schema cannot express them.
 
 Do not change shared schemas or invent these fields inside D.
+
+## Current integration boundary
+
+Answer.extra_entities are retained and listed even when /api/scene fails. Without page metadata their normalized geometry is kept as reported but is not projected onto an invented image. Missing referenced IDs remain explicit. Tool steps, interpretations, formulas and reported costs use the backend Answer. No new schema fields or query execution are implemented in D.

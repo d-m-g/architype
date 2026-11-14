@@ -167,3 +167,12 @@ Skip to editor moves focus to the editor heading, including from other panels. F
 ## Multi-page floor plates
 
 Shared Scene inputs with two or more pages show page images as visual plates in 3D. The explode slider changes display spacing; One page isolates the active page. Plate buttons, object outlines and the page selector synchronize with the existing 2D page and evidence selection. Single-page drawings keep the existing illustrative room preview. Try the local `fixtures/floor-stack.scene.json` and `fixtures/floor-stack.answer.json` pair through Sources → Shared schema input. This fixture repeats one available source image on two pages to test interaction; it is not a real multi-floor drawing. Plate position, order and spacing are visual only: there is no inferred alignment, elevation or measured 3D geometry. A/C must supply actual page images and alignment transforms for a real stack.
+
+
+## Production workflow integration — 14 November
+
+Connection checks read GET /openapi.json and verify the actual ask, scene and image methods. The local proxy forwards that contract too. This works with the Docker entry point blueprints.api:app without relying on /__frontend/api-status. Expired sessions show the backend error and ask the user to sign in again while keeping the working tab open.
+
+The current Swiss reader has been exercised through the real API, drawing image and browser overlays. The live-smoke.js check validates the current UI, API methods, answer evidence IDs and page images without loading evaluation answers or seeding caches. The question is sent only as {path, question}.
+
+Vision/agent answers can carry full extra_entities even when no separate Scene is available. D retains these source references, quantities and evidence IDs, but does not invent page dimensions or overlay coordinates. The answer remains marked source unavailable until the backend provides a matching page. Trace tool steps, interpretation and formula are shown as reported. Recompute still requires the exact plan associated with the original answer; GET /api/plan alone does not establish that association.

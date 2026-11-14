@@ -1,7 +1,22 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {validateLocalDrawing,MAX_LOCAL_BYTES} from './local-file.js';
-import {requestDrawing} from './api-client.js';
+import {requestDrawing,getConnectionStatus,requestJSON} from './api-client.js';
+
+test('connection check reads production OpenAPI and verifies route methods',async(t)=>{
+ let route;
+ t.mock.method(globalThis,'fetch',async url=>{route=url;return new Response(JSON.stringify({info:{title:'Team API'},paths:{'/api/ask':{post:{}},'/api/scene':{get:{}},'/api/image':{get:{}},'/api/upload':{post:{}}}}));});
+ const state=await getConnectionStatus();
+ assert.equal(route,'/openapi.json');assert.equal(state.connected,true);assert.equal(state.upload_available,true);assert.equal(state.recompute_available,false);
+ t.mock.method(globalThis,'fetch',async()=>new Response(JSON.stringify({paths:{'/api/ask':{get:{}}}})));
+ assert.equal((await getConnectionStatus()).connected,false);
+});
+
+test('expired sessions retain the backend error and give sign-in recovery',async(t)=>{
+ t.mock.method(globalThis,'fetch',async()=>new Response(JSON.stringify({error:'sign in first'}),{status:401}));
+ await assert.rejects(requestJSON('/api/scene'),/401: sign in first/);
+ assert.match(recoveryMessage('401: sign in first'),/Sign in.*Keep this tab open/);
+});
 test('local preview checks file content, empty files and size before displaying',async()=>{
  assert.equal(await validateLocalDrawing(new Blob(['%PDF-1.7\n'])),'application/pdf');
  assert.equal(await validateLocalDrawing(new Blob([new Uint8Array([137,80,78,71,13,10,26,10])])),'image/png');

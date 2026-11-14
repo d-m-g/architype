@@ -1,5 +1,16 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';import {adaptScene,adaptAnswer,parseEvalJSONL,summarizeEval} from './contracts.js';import {sharedScene,sharedAnswers} from './mock-scene.js';
 const fixture=name=>readFileSync(new URL(`../fixtures/${name}`,import.meta.url),'utf8').replace(/^\uFEFF/,'');
+
+import {adaptAnswerEvidence} from './contracts.js';
+test('inline vision evidence is retained without projecting onto an invented page',()=>{
+ const entity={id:'vision-room',type:'room',label:'Office',page:1,ref:'vision:room:1',geom:[[.1,.2],[.4,.2],[.4,.5]],qty:{m2:0},conf:.7};
+ const raw={answer:0,unit:'m2',confidence:.7,tier:'llm',evidence:['vision-room','missing'],extra_entities:[entity,{...entity}],trace:[{step:'tool:run_plan'}]};
+ const entities=adaptAnswerEvidence(raw),result=adaptAnswer(raw,{entities});
+ assert.equal(entities.length,1);assert.equal(entities[0].page,1);assert.equal(entities[0].sourceRef,'vision:room:1');assert.equal(entities[0].quantity,0);assert.equal(entities[0].geometryUnavailable,true);assert.deepEqual(entities[0].polygon,[]);assert.deepEqual(entity.geom,[[.1,.2],[.4,.2],[.4,.5]]);
+ assert.deepEqual(result.missing,['missing']);assert.equal(result.trace[0].step,'tool:run_plan');
+ assert.throws(()=>adaptAnswerEvidence({...raw,extra_entities:[{...entity,geom:[[4,5]]}]}),/normalized/);
+ assert.throws(()=>adaptAnswerEvidence({...raw,extra_entities:[entity,{...entity,label:'Conflicting'}]}),/Conflicting/);
+});
 test('team Scene and Answer examples map normalized coordinates and resolve evidence',()=>{const raw=JSON.parse(fixture('scene.example.json')),a=JSON.parse(fixture('answer.example.json')),s=adaptScene(raw,a),v=adaptAnswer(a,s);assert.equal(v.missing.length,0);assert.equal(s.entities[0].polygon[0][0],.355*2480);assert.equal(v.answer,72.01);assert.equal(v.unit,'m²');});
 test('D synthetic wire fixtures pass the same adapter',()=>{for(const a of Object.values(sharedAnswers)){const s=adaptScene(sharedScene,a);assert.equal(adaptAnswer(a,s).missing.length,0);}});
 test('extra evidence, absent geometry and page indices remain explicit',()=>{const s={...sharedScene,pages:[...sharedScene.pages,{image:'pages/two.png',width:500,height:400}]};const a={...sharedAnswers.windows,evidence:['extra','unknown'],extra_entities:[{id:'extra',type:'room',page:1,geom:[],qty:{m2:0}}]};const scene=adaptScene(s,a);assert.equal(scene.entities.at(-1).page,1);assert.equal(scene.entities.at(-1).quantity,0);assert.deepEqual(adaptAnswer(a,scene).missing,['unknown']);assert.throws(()=>adaptScene(s,{extra_entities:[{id:'window-1',page:0}]}),/conflicts/);assert.throws(()=>adaptScene(s,{extra_entities:[{id:'bad',page:9}]}),/page/);assert.throws(()=>adaptScene({...s,schema_version:2}),/schema_version/);});
