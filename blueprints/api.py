@@ -246,6 +246,21 @@ def recompute(body: Recompute) -> Answer:
     return checked(execute(body.plan, body.scene), body.plan, body.scene)  # as pipeline.answer: no confident zero from the vision reader's rooms
 
 
+class RoomRankingRequest(BaseModel):
+    scene: Scene
+    question: str = Field(min_length=1, max_length=1000)
+
+
+@app.post("/api/room-ranking")
+def room_ranking(body: RoomRankingRequest) -> Answer:
+    """Recalculate a direct room ranking on the browser's corrected scene, without model calls."""
+    from .room_connections import direct_room_ranking
+    result = direct_room_ranking(body.question, body.scene)
+    if result is None:
+        raise HTTPException(422, "This endpoint supports direct most/fewest room door/window ranking questions.")
+    return result
+
+
 @app.post("/api/upload")
 async def upload(request: Request, filename: str) -> dict:
     """Store an uploaded drawing; send the file as the raw request body. Returns the path to use in /api/ask."""

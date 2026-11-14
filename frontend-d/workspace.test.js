@@ -2,6 +2,22 @@ import test from 'node:test';import assert from 'node:assert/strict';import {rea
 import {runInNewContext} from 'node:vm';
 import {createHistoryStore} from './history-state.js';
 
+test('corrected room rankings use the corrected scene endpoint and ordinary questions retain the plan route',async()=>{
+ const source=readFileSync(new URL('./main.js',import.meta.url),'utf8');
+ const start=source.indexOf('export async function answerFromScene('),end=source.indexOf('// ─',start);
+ const code=source.slice(start,end).replace('export ','');
+ const calls=[],raw={path:'uploads/test.dxf',entities:[{id:'corrected-door'}]};
+ const context={state:{raw},requestJSON:async(url,options)=>{calls.push({url,body:JSON.parse(options.body),signal:options.signal});return {answer:2};},
+  planFor:async question=>{calls.push({plan:question});return {queries:{}};},runPlan:async(plan,signal)=>{calls.push({run:plan,signal});return {answer:3};}};
+ runInNewContext(code,context);
+ const signal={aborted:false};
+ assert.equal((await context.answerFromScene('Which room has the most doors?',signal)).answer,2);
+ assert.equal(calls[0].url,'/api/room-ranking');assert.deepEqual(calls[0].body.scene,raw);assert.equal(calls[0].signal,signal);
+ assert.equal(calls.length,1,'ranking must not call the paid plan endpoint');
+ assert.equal((await context.answerFromScene('How many doors are there?',signal)).answer,3);
+ assert.equal(calls[1].plan,'How many doors are there?');assert.equal(calls[2].signal,signal);
+});
+
 test('verified answers show the uncapped source score separately from arithmetic verification',()=>{
  const source=readFileSync(new URL('./main.js',import.meta.url),'utf8');
  const code=source.slice(source.indexOf(' const confidence=Math.round(raw.confidence*100)'),source.indexOf(' const assumptions='));

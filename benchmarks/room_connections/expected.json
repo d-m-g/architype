@@ -1,0 +1,10 @@
+{
+  "reference_kind": "Reviewed recorded room connections, not independent visual re-annotation or a population accuracy benchmark",
+  "main_baseline_commit": "fb610664e8b4f1dbd325085cc367dd15db488000",
+  "cases": {
+    "screenshot-doors": {"count": 6, "rooms": [["4.05", "A"], ["4.20", "C"]]},
+    "screenshot-windows": {"count": 2, "rooms": [["4.04", "A"], ["4.11", "B"], ["4.22", "C"], ["4.10", "A"], ["4.18", "B"]]},
+    "S03-doors": {"count": 7, "rooms": [["2.14", "B"]]},
+    "S04-doors": {"count": 8, "rooms": [["1.15", "B"], ["1.25", "C"]]}
+  }
+}

@@ -160,4 +160,50 @@ uv run python eval.py --limit 500
 uv run python test_contract.py
 ```
 
-Every plan comes from Gemini (`gemini-3.8-flash`), whatever the language or wording. Quoted names are masked first, so one call serves every question of the same shape. `plans.json` (committed) holds Gemini's plans for the dataset's 1,261 question shapes, so eval runs without a key; new shapes are cached in `.cache/plans/`. Check and re-seed with `uv run --env-file .env --extra brain python -m blueprints.brain.plan [--seed]`: it grades the cached plans against hand-written readings of the English templates and requires every non-English question to plan like its English twin. Keys go in environment variables; `.env` is git-ignored.
+Ordinary plans come from Gemini (`gemini-3.8-flash`), whatever the language or wording. Quoted names are masked first, so one call serves every question of the same shape. `plans.json` (committed) holds Gemini's plans for the dataset's 1,261 question shapes, so eval runs without a key; new shapes are cached in `.cache/plans/`. Check and re-seed with `uv run --env-file .env --extra brain python -m blueprints.brain.plan [--seed]`: it grades the cached plans against hand-written readings of the English templates and requires every non-English question to plan like its English twin. Keys go in environment variables; `.env` is git-ignored.
+
+## Room-connection ranking feature branch
+
+`feature/room-connectivity-ranking` adds deterministic room ranking without changing the shared Scene,
+QueryPlan or Answer schema. `room_connections.rank_rooms` counts unique object IDs at each of their recorded
+room endpoints, reports every tie, and returns the winning rooms plus all their counted objects as evidence.
+Explicit `attrs.room_id` / `room_id2` take precedence; legacy `room` / `room2` numbers are resolved on the same
+page, with unique labels used to disambiguate. A door's apartment is not used to guess its other endpoint.
+Missing links, ambiguous rooms and incomplete coverage produce an explicit abstention. No geometry or vision
+connections are invented. Source scores stay source-derived, without a fixed agent cap.
+
+Direct English questions such as “Which room has the most doors?”, “Which room has the fewest doors?” and
+“Which rooms have the most windows?” bypass the paid planner/agent. The shortcut matches the entire question;
+scoped or compound wording continues to the normal planner. The agent has a `rank_rooms` tool for scoped
+rankings (apartment, level, zero-based page, outdoor inclusion). Its final `result_id` retrieves the actual
+server-computed result, preventing the model from substituting a different winner, count or evidence list.
+Tool previews are limited to 20 ranking rows and explicitly report truncation; computation and final evidence
+are not truncated. `list_entities` exposes only the small relationship-attribute subset, not entire IFC property bags.
+
+The vision-upload route uses the same deterministic ranking after its required reading. The authenticated
+`POST /api/room-ranking` endpoint accepts `{scene, question}` for a direct ranking on browser corrections;
+the UI uses it instead of requesting an unsupported QueryPlan. Removing a door recalculates the ranking.
+Newly drawn boxes without room relationships lead to an abstention until those relationships are supplied.
+
+Cost: direct ranking on an already-read scene makes **zero additional model calls**. Extraction still has its
+normal cost, and general agent-tool wording still uses the agent. A one-time four-question live-demo baseline
+reported $0.0300803; all subsequent comparisons replay those captures offline. Raw captures and credentials
+are not committed (credentials are never written to the captures).
+
+Repeatable checks:
+
+```bash
+uv run --extra brain --with httpx python -m unittest blueprints.test_room_connections blueprints.brain.test_escalate blueprints.brain.test_voice
+uv run --extra brain --with httpx python tools/compare_room_connections.py --label checkpoint-name
+```
+
+The comparison needs the private `.cache/room-ranking-comparison/live-main.json` capture (or `--live-baseline`),
+and a detached main checkout at `fb610664e8b4f1dbd325085cc367dd15db488000` (`--main-root`). References in
+`benchmarks/room_connections/expected.json` are reviewed source-connection records, **not independent visual
+ground truth**. Four captured main answers abstained; the branch matches all four reviewed counts, winning-room
+sets, ties and evidence sets. Three unsuitable-scene checks abstain without model calls. Normal contract checks
+pass on main and feature. Checkpoints are recorded in `benchmarks/room_connections/checkpoints.json`.
+
+The zero-call phrasing, corrected-scene endpoint and agent result binding are tested offline. Browser interaction
+and model selection of the new tool for arbitrary wording still need a staging run; this branch is not deployed
+to main/demo by these changes.

@@ -445,6 +445,7 @@ function suggest(){
 // ───────── right side: the answer ─────────
 const TIER={parse:'Read from the CAD geometry',detect:'Counted from detections',llm:'Vision model and agent',none:'No route answered'};
 const STEP={scene:'Read the drawing',room_types:'Named the room types',plan:'Understood the question',execute:'Counted and measured',escalate:'Agent reasoning',
+ room_connections:'Read room connections',
  look:'Vision model looked at the drawing',verify_answer:'Verified the final calculation','tool:list_entities':'Agent listed what is on the drawing','tool:run_plan':'Agent ran a calculation','tool:look':'Agent asked for a closer look'};
 function renderAnswer(){
  const result=state.result,raw=state.rawAnswer;
@@ -684,7 +685,11 @@ function planFor(question,signal){
 }
 const runPlan=(plan,signal)=>requestJSON('/api/recompute',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scene:state.raw,plan}),signal});
 /** Answer on the scene as it is in this browser (after corrections): the question's plan, run by the server's executor. */
-export async function answerFromScene(question,signal){return runPlan(await planFor(question,signal),signal);}
+export async function answerFromScene(question,signal){
+ if(/^\s*(?:which|what) rooms? (?:has|have) (?:the )?(?:most|fewest|least) (?:doors|windows)\s*[?.]?\s*$/i.test(question))
+  return requestJSON('/api/room-ranking',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scene:state.raw,question}),signal});
+ return runPlan(await planFor(question,signal),signal);
+}
 
 // ───────── one word, two readings: "toilets" are bowls or rooms ─────────
 // The planner picks one silently. The card says which was counted and offers the other, run by the same executor
