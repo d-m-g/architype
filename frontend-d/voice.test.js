@@ -29,3 +29,23 @@ test('dictation requires review, ignores cancelled results, and preserves concur
  assert.equal(get('voice-read').disabled,true);
  unsubscribe();
 });
+test('cancelled playback callbacks cannot overwrite stop status or a newer playback', () => {
+ const elements = new Map();
+ const get = id => { if (!elements.has(id)) elements.set(id,{value:'',textContent:'',setAttribute(){},addEventListener(){}}); return elements.get(id); };
+ const utterances=[];
+ const host={addEventListener(){},SpeechSynthesisUtterance:class{constructor(text){this.text=text;}},speechSynthesis:{speak(u){utterances.push(u);},cancel(){utterances.at(-1)?.onend();}}};
+ const unsubscribe=mountVoice({getElementById:get,addEventListener(){}},host);
+ get('voice-read').onclick();
+ get('voice-stop').onclick();
+ assert.equal(get('voice-status').textContent,'Reading stopped.');
+ utterances[0].onerror();
+ assert.equal(get('voice-status').textContent,'Reading stopped.');
+ get('voice-read').onclick();
+ utterances[0].onend();
+ assert.equal(get('voice-stop').disabled,false);
+ assert.equal(get('voice-status').textContent,'Reading the current answer…');
+ utterances[1].onend();
+ assert.equal(get('voice-stop').disabled,true);
+ assert.equal(get('voice-status').textContent,'Finished reading.');
+ unsubscribe();
+});

@@ -19,11 +19,11 @@ export function mountVoice(root = document, host = window) {
   const stop = get('voice-stop'), language = get('voice-language'), status = get('voice-status');
   const Recognition = host.SpeechRecognition || host.webkitSpeechRecognition;
   const synthesis = host.speechSynthesis;
-  let recognition = null, latest = '', speaking = false;
+  let recognition = null, latest = '', speaking = false, activeUtterance = null;
   const say = text => { status.textContent = text; };
   const resetInput = () => { dictate.textContent = 'Dictate question'; dictate.setAttribute('aria-pressed', 'false'); language.disabled = false; };
   const cancelInput = () => { const old = recognition; recognition = null; old?.abort(); resetInput(); };
-  const cancelOutput = () => { if (speaking) synthesis?.cancel(); speaking = false; stop.disabled = true; };
+  const cancelOutput = () => { const wasSpeaking = speaking; activeUtterance = null; speaking = false; stop.disabled = true; if (wasSpeaking) synthesis?.cancel(); };
   dictate.disabled = !Recognition;
   read.disabled = !synthesis || !host.SpeechSynthesisUtterance;
   say(Recognition ? 'Choose a language, then dictate. Review the text before inspecting evidence.' : 'Dictation is unavailable in this browser. You can still type your question.');
@@ -62,9 +62,9 @@ export function mountVoice(root = document, host = window) {
     const utterance = new host.SpeechSynthesisUtterance(latest);
     // Answer templates are English; the language picker controls input only.
     utterance.lang = 'en-GB';
-    speaking = true; stop.disabled = false;
-    utterance.onend = () => { speaking = false; stop.disabled = true; say('Finished reading.'); };
-    utterance.onerror = () => { speaking = false; stop.disabled = true; say('Reading stopped or unavailable. The answer remains on screen.'); };
+    activeUtterance = utterance; speaking = true; stop.disabled = false;
+    utterance.onend = () => { if (activeUtterance !== utterance) return; activeUtterance = null; speaking = false; stop.disabled = true; say('Finished reading.'); };
+    utterance.onerror = () => { if (activeUtterance !== utterance) return; activeUtterance = null; speaking = false; stop.disabled = true; say('Reading stopped or unavailable. The answer remains on screen.'); };
     say('Reading the current answer…');
     try { synthesis.speak(utterance); } catch { cancelOutput(); say('Reading is unavailable. The answer remains on screen.'); }
   };
