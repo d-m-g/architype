@@ -152,7 +152,7 @@ def build_scene(path: str, file: Path) -> Scene:
         entities.append(Entity(id=f"{kind}-{found[kind]}", type=kind, geom=[to_page(x, y) for x, y in pts], ref=ref))
     png = file.with_suffix(".png")
     width, height = _png_size(png)
-    return Scene(path=path, builder="swiss_dxf@2", tier="parse", covers=["room", "apartment", "door", "window"],
+    return Scene(path=path, builder="swiss_dxf@3", tier="parse", covers=["room", "apartment", "door", "window"],
                  pages=[Page(image=path[:-4] + ".png", width=width, height=height)], entities=entities)
 
 
