@@ -163,10 +163,8 @@ def plan_with_trace(question: str, scene: Scene | None) -> tuple[QueryPlan, list
     return plan, steps
 
 
-def _plan_with_trace(question: str, scene: Scene | None) -> tuple[QueryPlan, list[TraceStep]]:
-    """The plan and what it cost: a $0 cached step on a cache hit, Gemini's steps otherwise.
-    Raises Unsupported (a NotImplementedError) for questions no plan can express, so the pipeline escalates them."""
-    template, slots = mask(question)
+def _cached(template: str, scene: Scene | None):
+    """(the cached plan for a question shape or None, the local file a new one is written to)."""
     local = pipeline.CACHE / "plans" / (hashlib.md5(template.encode()).hexdigest() + ".json")
     plan = SEEDED.get(template) or (json.loads(local.read_text(encoding="utf-8")) if local.exists() else None)
     if plan and scene and any(e.attrs.get("room_link_version") for e in scene.entities):
@@ -178,6 +176,27 @@ def _plan_with_trace(question: str, scene: Scene | None) -> tuple[QueryPlan, lis
                for q in plan.get("queries", {}).values()):
             local = local.with_name(local.stem + "-room-connections-v1.json")
             plan = json.loads(local.read_text(encoding="utf-8")) if local.exists() else None
+    return plan, local
+
+
+def cached_plan(question: str, scene: Scene | None) -> tuple[QueryPlan, list[TraceStep]] | None:
+    """The free path: the plan for a question whose shape is seeded or was planned before, with its $0 step. None for
+    any other question (and for shapes cached as unsupported): those are resolved from the data, brain/resolve.py."""
+    template, slots = mask(question)
+    plan = _cached(template, scene)[0]
+    if plan is None or "unsupported" in plan:
+        return None
+    step = llm_step("plan", GEMINI_MODEL, 0, 0, 0, cached=True)
+    plan = _fill(plan, slots)
+    step.detail = describe(plan)
+    return plan, [step]
+
+
+def _plan_with_trace(question: str, scene: Scene | None) -> tuple[QueryPlan, list[TraceStep]]:
+    """The plan and what it cost: a $0 cached step on a cache hit, Gemini's steps otherwise.
+    Raises Unsupported (a NotImplementedError) for questions no plan can express, so the pipeline escalates them."""
+    template, slots = mask(question)
+    plan, local = _cached(template, scene)
     if plan is not None:
         if "unsupported" in plan:  # cached verdict: repeats skip Gemini too
             raise Unsupported(plan["unsupported"], [llm_step("plan", GEMINI_MODEL, 0, 0, 0, cached=True)])

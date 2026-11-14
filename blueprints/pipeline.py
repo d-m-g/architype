@@ -117,25 +117,33 @@ def get_scene(path: str) -> Scene:
     return scene
 
 
-def answer(path: str, question: str) -> Answer:
+def answer(path: str, question: str, assumptions: dict | None = None) -> Answer:
+    """assumptions: values the user supplies for what the drawing does not hold (a ceiling height, a price)."""
     scene = None
     steps = []
+    settled = False  # the data-first resolver answered or abstained on a parsed file: nothing else may read sizes off it
     try:
         scene = get_scene(path)
         if path in _BUILT_NOW:  # the first question on a drawing carries the scene's build cost
             _BUILT_NOW.discard(path)
             steps += scene.trace
-        from .brain.plan import plan_with_trace
-        plan, plan_steps = plan_with_trace(question, scene)
-        steps += plan_steps
-        result = execute(plan, scene)
-        from .brain.vision import checked
-        result = checked(result, plan, scene)  # rooms the vision reader added to an upload: no surer than the reader
+        from .brain.plan import cached_plan
+        found = cached_plan(question, scene)
+        if found:  # the free path: a question shape planned before, answered exactly as before
+            plan, plan_steps = found
+            steps += plan_steps
+            result = execute(plan, scene)
+            from .brain.vision import checked
+            result = checked(result, plan, scene)  # rooms the vision reader added to an upload: no surer than the reader
+        else:  # any other wording: look at what the scene holds, then decide (one model call, none on a repeat)
+            from .brain.resolve import resolve
+            result = resolve(question, scene, assumptions)
+            settled = scene.tier == "parse"
     except Exception as e:  # a crashed builder (e.g. an undeployed Modal app) escalates instead of failing the answer
         steps += getattr(e, "steps", [])  # the planner's cost when it judged the question unsupported
         result = Answer(error=str(e) if isinstance(e, NotImplementedError) else f"{type(e).__name__}: {e}")
     result.trace = steps + result.trace
-    if result.answer is None or result.confidence < ESCALATE_BELOW:
+    if not settled and (result.answer is None or result.confidence < ESCALATE_BELOW):
         try:
             from .brain.escalate import escalate
             result = escalate(question, path, scene, result)

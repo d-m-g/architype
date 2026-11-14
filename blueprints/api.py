@@ -152,6 +152,8 @@ IFC_MAX_BYTES = 100 * 1024 * 1024
 class Ask(BaseModel):
     path: str  # dataset path ("data/swiss_dwellings/x.pdf") or an upload id ("uploads/<id>.pdf")
     question: str
+    # Values for what the drawing does not hold, by the names an Answer offered in its assumptions ("needed: ...").
+    assumptions: dict[str, float] = {}
 
 
 class Recompute(BaseModel):
@@ -226,7 +228,7 @@ def ask(body: Ask) -> Answer:
             return answer_from_vision(body.question, body.path)
         except NotImplementedError as e:
             return Answer(error=str(e))
-    return pipeline.answer(body.path, body.question)
+    return pipeline.answer(body.path, body.question, body.assumptions or None)
 
 
 @app.get("/api/plan")
