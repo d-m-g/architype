@@ -176,7 +176,7 @@
         <span id="confidence-legend">Outline colour = object type · Ring colour = model score: red 0 → green 100 (from 175% zoom)</span>
         <span id="counted-legend"><i class="key key-counted"></i>Counted in the answer</span>
         <span><i class="key key-other"></i><span id="other-legend">Found, not counted</span></span>
-        <span><i class="key key-review"></i>Score below 80, review</span>
+        <span><i class="key key-review"></i>Score below 60, review</span>
         <span class="edit-key">Outline colour = object type</span>
         <span class="edit-key"><i class="key key-alike"></i>Looks like the selected item</span>
         <span class="edit-key"><i class="key key-added"></i>Added by you</span>
@@ -238,7 +238,8 @@
         </article>
 
         <section id="evidence" class="evidence" hidden>
-          <h2>On the drawing <span id="evidence-count" class="count"></span></h2>
+          <h2><span id="evidence-label">On the drawing</span> <span id="evidence-count" class="count"></span></h2>
+          <div id="calculation-review" hidden></div>
           <p id="evidence-navigation" class="muted small evidence-navigation" role="status" aria-live="polite">Select an item, then use arrow keys to browse.</p>
           <div id="evidence-list" role="group" aria-label="Answer evidence" aria-describedby="evidence-navigation" tabindex="0"></div>
         </section>
