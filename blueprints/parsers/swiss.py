@@ -97,6 +97,57 @@ def _render(doc, path: str):
     return (lambda x, y: (clip((x - x0) / w), clip((y0 + h - y) / h))), Page(image=image, width=pix.width, height=pix.height)
 
 
+def unit_index(units, x, y):
+    from shapely.geometry import Point
+    return next((i for i, u in enumerate(units) if u.contains(Point(x, y))), None)
+
+
+def label_units(markers, units, near) -> dict[int, str]:
+    """Unit index -> apartment letter. markers: [letter, marker point, point of the room number below it or None].
+    A marker can sit just outside its unit outline; then its room's number point locates it."""
+    from shapely.geometry import Point
+
+    unit_label, lost = {}, []
+    for letter, at, below in markers:
+        i = unit_index(units, *at)
+        if i is None and below:
+            i = unit_index(units, *below)
+        if i is None:
+            lost.append((letter, at))
+        else:
+            unit_label.setdefault(i, letter)
+    for letter, at in lost:  # neither point inside a unit: the nearest unmarked unit within `near` (a metre)
+        free = [(units[j].distance(Point(at)), j) for j in range(len(units)) if j not in unit_label]
+        if free and min(free)[0] < near:
+            unit_label[min(free)[1]] = letter
+    return unit_label
+
+
+def located(kind, pts, copies, placed, near=0.05):
+    """apartment and attrs for a door, window or fixture: the room(s) it is in or opens into.
+    placed: (room outline, room entity) in the units of pts; near: 5 cm in those units.
+    A fixture's box centre lies inside its room. A door or window box fills a wall gap and its long sides lie on
+    the outlines of the rooms either side, so it touches its rooms rather than lying in one."""
+    from shapely.geometry import Polygon
+
+    box = Polygon(pts)
+    if kind == "fixture":
+        sides = sorted((pr for pr in placed if pr[0].contains(box.centroid)), key=lambda pr: pr[0].area)[:1]
+    else:  # the rooms sharing most edge with the box: two for a door, one for a window
+        zone = box.buffer(near)
+        sides = sorted((pr for pr in placed if pr[0].intersects(zone)), key=lambda pr: -pr[0].intersection(zone).area)
+        if kind == "window":  # a window between a room and its balcony belongs to the room
+            sides = sorted(sides, key=lambda pr: pr[1].outdoor)[:1]
+        # an entrance door belongs to its apartment, not the shared corridor it opens onto
+        sides = sorted(sides[:2], key=lambda pr: pr[1].apartment is None)
+    attrs = {"copies": copies} if copies > 1 else {}
+    for k, (_, r) in zip(("", "2"), sides):
+        attrs[f"room{k}"] = r.number
+        if r.label:
+            attrs[f"room_label{k}"] = r.label
+    return dict(apartment=sides[0][1].apartment if sides else None, attrs=attrs)
+
+
 def build_scene(path: str, file: Path) -> Scene:
     """A dataset plan (file is the .pdf; the same-name .dxf and .png sit beside it) or an uploaded .dxf on its own."""
     import ezdxf
@@ -137,23 +188,8 @@ def build_scene(path: str, file: Path) -> Scene:
         elif not AREA.fullmatch(text):
             pending.append(text)
 
-    def unit_of(x, y):
-        return next((i for i, (u, _) in enumerate(units) if u.contains(Point(x, y))), None)
-
-    unit_label = {}
-    lost = []
-    for letter, at, below in markers:
-        i = unit_of(*at)
-        if i is None and below:
-            i = unit_of(*below)
-        if i is None:
-            lost.append((letter, at))
-        else:
-            unit_label.setdefault(i, letter)
-    for letter, at in lost:  # neither point inside a unit: the nearest unmarked unit within a metre
-        free = [(units[j][0].distance(Point(at)), j) for j in range(len(units)) if j not in unit_label]
-        if free and min(free)[0] < 1:
-            unit_label[min(free)[1]] = letter
+    unit_of = lambda x, y: unit_index([u for u, _ in units], x, y)
+    unit_label = label_units(markers, [u for u, _ in units], 1)
 
     if upload:  # no PDF, so no grey fills: outdoor rooms come from labels only, shared spaces stay in their unit
         (to_page, page), fills = _render(doc, path), {OUTDOOR_GREY: [], SHARED_GREY: []}
@@ -200,36 +236,15 @@ def build_scene(path: str, file: Path) -> Scene:
         if poly:
             placed.append((poly, room))
 
-    def located(kind, pts, copies):
-        """apartment and attrs for a door, window or fixture: the room(s) it is in or opens into.
-        A fixture's box centre lies inside its room. A door or window box fills a wall gap and its long sides lie on
-        the outlines of the rooms either side, so it touches its rooms rather than lying in one."""
-        box = Polygon(pts)
-        if kind == "fixture":
-            sides = sorted((pr for pr in placed if pr[0].contains(box.centroid)), key=lambda pr: pr[0].area)[:1]
-        else:  # the rooms sharing most edge with the box: two for a door, one for a window
-            near = box.buffer(0.05)
-            sides = sorted((pr for pr in placed if pr[0].intersects(near)), key=lambda pr: -pr[0].intersection(near).area)
-            if kind == "window":  # a window between a room and its balcony belongs to the room
-                sides = sorted(sides, key=lambda pr: pr[1].outdoor)[:1]
-            # an entrance door belongs to its apartment, not the shared corridor it opens onto
-            sides = sorted(sides[:2], key=lambda pr: pr[1].apartment is None)
-        attrs = {"copies": copies} if copies > 1 else {}
-        for k, (_, r) in zip(("", "2"), sides):
-            attrs[f"room{k}"] = r.number
-            if r.label:
-                attrs[f"room_label{k}"] = r.label
-        return dict(apartment=sides[0][1].apartment if sides else None, attrs=attrs)
-
     found = Counter()
     for kind, pts, ref, copies in openings(msp):
         found[kind] += 1
         entities.append(Entity(id=f"{kind}-{found[kind]}", type=kind, geom=[to_page(x, y) for x, y in pts], ref=ref,
-                               **located(kind, pts, copies)))
+                               **located(kind, pts, copies, placed)))
     for sub, pts, ref, copies in fixtures(msp):
         found[sub] += 1
         entities.append(Entity(id=f"fixture-{sub}-{found[sub]}", type="fixture", subtype=sub,
-                               geom=[to_page(x, y) for x, y in pts], ref=ref, **located("fixture", pts, copies)))
+                               geom=[to_page(x, y) for x, y in pts], ref=ref, **located("fixture", pts, copies, placed)))
     return Scene(path=path, builder="swiss_dxf_upload@1" if upload else "swiss_dxf@6", tier="parse",
                  covers=covers, pages=[page], entities=entities)
 
