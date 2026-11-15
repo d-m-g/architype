@@ -9,12 +9,12 @@
 | `index.html`, `app.css` | Markup and the one stylesheet. Dark by default; the moon button switches. |
 | `main.js` | Drawing viewer, the ask flow and its progress states, answer card, evidence list, trace, question history, tabs and 3D toggle. |
 | `start.js` | Start screen: drop or choose a file (it uploads and opens in one step, with upload progress), dataset samples, open by path. |
-| `edit.js` | Correct mode: remove, confirm or draw a detection. The answer is recalculated through `/api/plan` and `/api/recompute`, with no model call. |
+| `edit.js` | Correct mode: remove, confirm or draw a detection, or correct a room's outline: drag a corner, click the outline to add one, Alt-click a corner to remove it (3 at least). The room's `m2` follows the outline's area and its `m` and `wall_m2` its perimeter, both measured in page pixels (`correction-state.js`); wall area is an approximation, since the openings scale with it. The answer is recalculated through `/api/plan` and `/api/recompute`, with no model call. |
 | `evaluation.js` | Evaluation tab: load one or more `runs/*.jsonl` logs and compare them. |
 
-Still loaded unchanged: `api-client.js`, `contracts.js`, `local-file.js`, `editor-bridge.js`, `history-state.js`, `voice.js`, `room-renderer.js`, `geometry-3d.js`, and `zoomAt` from `mock-scene.js`.
+Still loaded unchanged: `api-client.js`, `contracts.js`, `local-file.js`, `editor-bridge.js`, `history-state.js`, `voice.js`, `room-renderer.js`, `geometry-3d.js`, `zoomAt` from `mock-scene.js`, and the outline geometry at the end of `correction-state.js` (kept there because the server only serves the files listed in `blueprints/frontend.py`).
 
-No longer loaded: `app.js`, `intake.js`, `workspace.js`, `corrections.js`, `correction-state.js`, `calibration.js`, `calibration-state.js`, `history.js`, `demo.js`, `dashboard.js`, `shared-dashboard.js`, `mock-evaluation.js`, `dashboard.html`, `plan.svg`, `styles.css`, `workspace.css`, `dashboard.css`. Their tests still run. To go back to the previous page, restore `index.html` from git; nothing else needs to change.
+No longer loaded: `app.js`, `intake.js`, `workspace.js`, `corrections.js`, `calibration.js`, `calibration-state.js`, `history.js`, `demo.js`, `dashboard.js`, `shared-dashboard.js`, `mock-evaluation.js`, `dashboard.html`, `plan.svg`, `styles.css`, `workspace.css`, `dashboard.css`. Their tests still run. To go back to the previous page, restore `index.html` from git; nothing else needs to change.
 
 ### General view and dictation
 

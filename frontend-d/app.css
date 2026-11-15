@@ -186,6 +186,7 @@ main>section{height:100%}
 /* Corner handles of the selected box; --u keeps them one size on screen at every zoom, like the number badges. */
 .edit-handle{transform:translate(calc(var(--x)*1px),calc(var(--y)*1px)) scale(var(--u,1));fill:#fff;stroke:#1f4fd8;stroke-width:2;cursor:nwse-resize}
 .edit-handle:is([data-corner="1"],[data-corner="3"]){cursor:nesw-resize}
+.edit-handle[data-vertex]{cursor:move}  /* a corner of a room's outline moves any way */
 
 /* Opaque light/dark backing strokes remain visible on any source colour. */
 .mark polygon,.edit-mark polygon{vector-effect:non-scaling-stroke;stroke-linejoin:round}

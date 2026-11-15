@@ -47,6 +47,8 @@ a scene: a list of entities (rooms, doors, windows, fixtures, apartments, levels
   again. If connections remain uncertain, explain the limitation; do not invent a definitive winner.
   If refinement reports a budget/cooldown limit or leaves a connection unresolved, do not repeat the same
   refinement or identical run_plan. Only use look again if a specific different crop can resolve the issue.
+- A room carries its floor area (qty m2), its perimeter (qty m) and its wall area net of doors and windows (qty
+  wall_m2). Wall area, paint, wallpaper and skirting questions are sums of those over rooms, not over wall entities.
 - Each entity is one room or object. For "the largest / smallest room" call list_entities with sort and limit 1 and
   report that single entity; never combine rooms that share a label unless the question asks for a total.
 - A size is a recorded quantity, never your estimate. list_entities shows each entity's qty by unit, which run_plan
@@ -84,7 +86,7 @@ TOOLS = [
             "type": {"type": "string", "enum": ["door", "window", "fixture"]}}}}},
     {"type": "function", "function": {
         "name": "list_entities", "description": "List scene entities, optionally filtered. Returns id, type, subtype, label, number, apartment, level, area_m2, "
-                                          "qty (the other recorded quantities by unit: m, m3, ft2), sizes (width_m, length_m, height_m, thickness_m "
+                                          "qty (the other recorded quantities by unit: m, m3, ft2, wall_m2), sizes (width_m, length_m, height_m, thickness_m "
                                           "and how they were obtained), conf. A long list is cut short: narrow it with the filters.",
         "parameters": {"type": "object", "properties": {
             "type": {"type": "string", "description": "room, apartment, level, door, window, fixture, wall, slab, column, row or other"},
@@ -98,7 +100,7 @@ TOOLS = [
         "parameters": {"type": "object", "required": ["plan"], "properties": {"plan": {"type": "string", "description":
             'QueryPlan JSON, e.g. {"queries": {"a": {"op": "sum", "type": "room", "subtype": "bathroom", "qty": "m2"}, '
             '"n": {"op": "count", "type": "room", "subtype": "bathroom"}}, "formula": "a / n", "unit": "m2"}. '
-            "Query fields: op (count|sum), type, subtype, label, number, level, apartment, outdoor, where, qty (m2|m|m3|ft2, for sum)."}}}}},
+            "Query fields: op (count|sum), type, subtype, label, number, level, apartment, outdoor, where, qty (m2|m|m3|ft2|wall_m2, for sum)."}}}}},
     {"type": "function", "function": {
         "name": "look", "description": "Ask a vision model a question about the page image, or about one region of it.",
         "parameters": {"type": "object", "required": ["question"], "properties": {

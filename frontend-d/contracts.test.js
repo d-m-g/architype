@@ -26,6 +26,13 @@ import {summarizeScene,describeEntity} from './contracts.js';
 
 test('room names show the number once, also when the label already carries it (IFC)',()=>{assert.equal(describeEntity({type:'room',label:'Bagno',number:'5.06'}).label,'Bagno 5.06');assert.equal(describeEntity({type:'room',label:'Kitchen (A103)',number:'A103'}).label,'Kitchen (A103)');});
 
+test('a room with floor area, perimeter and wall area shows the floor area first, in any order',()=>{
+ const geom=[[.1,.2],[.6,.2],[.6,.8],[.1,.8]];
+ const [room,door]=adaptScene({schema_version:1,path:'uploads/plan.png',builder:'test@1',pages:[{image:'pages/plan.png',width:200,height:100}],entities:[
+  {id:'r',type:'room',geom,qty:{wall_m2:40,m:16,m2:15}},{id:'d',type:'door',geom}]}).entities;
+ assert.equal(room.quantity,15);assert.equal(room.unit,'m²');assert.equal(room.quantityText,'15 m² · 16 m · 40 m² wall');
+ assert.equal(door.quantity,undefined);assert.equal(door.quantityText,undefined);
+});
 test('overview distinguishes unsupported room detection from a covered zero',()=>{
  const raw={covers:['window'],entities:[]};const unavailable=summarizeScene(raw);
  assert.equal(unavailable.answer,'Room detection unavailable');assert.match(unavailable.explanation,/0 detected windows/);assert.equal(unavailable.formula,null);

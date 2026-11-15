@@ -33,7 +33,7 @@ Each `Entity`:
 | `level`, `apartment` | Labels as drawn: `"4.korrus"`, `"A"`. |
 | `outdoor` | `true` for balconies, loggias and terraces. The area questions exclude them. |
 | `geom` | Polygon in page coordinates, each value 0..1 of the page image, origin top-left. Pixels are rejected. |
-| `qty` | Quantities keyed by unit: `{"m2": 4.49}`. Units are `m2`, `m`, `m3`, `ft2`. One value per unit: see Sizes. |
+| `qty` | Quantities keyed by unit: `{"m2": 4.49}`. Units are `m2`, `m`, `m3`, `ft2`, `wall_m2`. One value per unit: see Sizes. For a room, call `outlines.measure(room, outline, ...)`: it adds `wall_m2` (wall area net of the doors and windows on the outline, at the room's height or an assumed 2.5 m, noted in `attrs.wall_height_assumed`) and `m` (perimeter) when the room has none yet. |
 | `attrs` | Anything else a question may filter on, such as schedule columns, and the sizes that do not fit `qty`. |
 | `conf` | Leave at 1.0 for parsed entities. |
 | `ref` | Where it came from: `dxf:<handle>`, `ifc:<GlobalId>`. |
@@ -82,6 +82,7 @@ When a builder's entities change, bump its version string. `pipeline.get_scene` 
 | toilets, washbasins, bathtubs, showers | `fixture` with the subtype |
 | rooms labelled 'X', area of room N, area of rooms labelled 'X' | `room` with `label`, `number`, `qty.m2` |
 | area of apartment A, total indoor area | `room` with `apartment` and `outdoor` set |
+| perimeter, wall area, paint (not in the dataset) | `room` with `qty.m` and `qty.wall_m2` |
 
 Things worth knowing:
 

@@ -54,12 +54,16 @@ def build_scene(path: str) -> Scene:
         if path.lower().endswith(".ifc"):
             from .parsers import ifc
             return ifc.build_scene(path, drawing_file(path))
-        if path.lower().endswith(".dxf"):
-            from .parsers import swiss
-            return swiss.build_scene(path, drawing_file(path))
-        if path.lower().endswith(".pdf"):  # raises NotImplementedError when the PDF is not a plan it can read
-            from .parsers import pdf
-            return pdf.build_scene(path, drawing_file(path))
+        if path.lower().endswith((".dxf", ".pdf")):
+            # The Swiss renderer's layers and styles first (exact), then the generic reader (rooms from a room layer
+            # or fill, else from the walls). Each raises NotImplementedError on a file it cannot read; when both do,
+            # the upload is left to the vision reader.
+            from .parsers import dxf, pdf, swiss, vector_pdf
+            known, generic = (swiss, dxf) if path.lower().endswith(".dxf") else (pdf, vector_pdf)
+            try:
+                return known.build_scene(path, drawing_file(path))
+            except NotImplementedError:
+                return generic.build_scene(path, drawing_file(path))
         raise NotImplementedError("no parser for this upload type")
     file, source = dataset_file(path), source_of(path)
     if source == "swiss_dwellings":
@@ -103,6 +107,15 @@ def get_scene(path: str) -> Scene:
         # cached before this (or while the reader was down) get their rooms the next time they are opened.
         from .brain.vision import add_rooms
         fresh = add_rooms(scene, path) or fresh
+    if read_as_image(path) and "room" in scene.covers:
+        # The reader's rooms are boxes. The segmenter turns them into outlines, and one printed room area gives the
+        # scale for every other room's area, perimeter and wall area. Skipped when it is down; tried again next time.
+        from .brain.vision import drawing_file
+        from .detector import rooms
+        try:
+            fresh = rooms.outline_rooms(scene, drawing_file(path)) or fresh
+        except NotImplementedError:
+            pass
     scene = add_room_types(scene)
     metadata_changed = False
     if path.lower().endswith(IMAGES):
@@ -132,6 +145,17 @@ def answer(path: str, question: str) -> Answer:
         steps += plan_steps
         from .brain.room_link_vision import execute_with_links
         result = execute_with_links(plan, scene)
+        # A filter naming something the drawing calls otherwise ("kitchen" for "Küche") matched nothing: one small
+        # model call picks the drawing's own name, and the executor runs the plan again. No call when every name is known.
+        from .brain import resolve
+        renamed, more = resolve.rename(plan, scene)
+        steps += more
+        if renamed:
+            plan, result = renamed, resolve.capped(execute_with_links(renamed, scene))
+        elif more:  # asked, and nothing in the drawing stands for that name: not a confident zero, the agent decides
+            _, field, asked, values = next(u for u in resolve.unknown(plan, scene) if f"{u[1]} {u[2]!r}" in more[-1].detail)
+            result = Answer(tier=scene.tier, trace=result.trace, error=f"nothing in this drawing has the {field} {asked!r}; "
+                            f"its {field}s are: {', '.join(values[:30])}")
         from .brain.vision import checked
         result = checked(result, plan, scene)  # rooms the vision reader added to an upload: no surer than the reader
     except Exception as e:  # a crashed builder (e.g. an undeployed Modal app) escalates instead of failing the answer

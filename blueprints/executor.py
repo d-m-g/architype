@@ -36,7 +36,7 @@ def evaluate(formula: str, names: dict[str, float]) -> float:
 
 
 def _same(value: str | None, wanted: str) -> bool:
-    return value is not None and value.strip().casefold() == wanted.strip().casefold()
+    return isinstance(value, str) and value.strip().casefold() == wanted.strip().casefold()
 
 
 def select(q: Query, scene: Scene, *, apply_policy=True) -> list[Entity]:
@@ -47,7 +47,8 @@ def select(q: Query, scene: Scene, *, apply_policy=True) -> list[Entity]:
         if e.type == q.type
         and (not apply_policy or not policy.exclusion(e, scene) or q.type not in policy.OBJECT_TYPES or q.op != "count")
         and (q.subtype is None or e.subtype == q.subtype)
-        and (q.label is None or _same(e.label, q.label))
+        # attrs.long_name: a name the label wraps, e.g. "Bathroom 1" for the IFC label "Bathroom 1 (A104)"
+        and (q.label is None or _same(e.label, q.label) or _same(e.attrs.get("long_name"), q.label))
         and (q.number is None or _same(e.number, q.number))
         and (q.level is None or _same(e.level, q.level))
         and (q.apartment is None or _same(e.apartment, q.apartment))
@@ -135,7 +136,7 @@ def execute(plan: QueryPlan, scene: Scene) -> Answer:
                 return done(error=f"no {q.qty} on {', '.join(missing[:3])}")
             terms = [e.qty[q.qty] for e in hits]
             values[name] = round(sum(terms), 6)
-            shown = (" + ".join(f"{t:g}" for t in terms) if len(terms) <= 12 else f"sum of {len(terms)} {key}") + f" = {values[name]:g} {q.qty}"
+            shown = (" + ".join(f"{t:g}" for t in terms) if len(terms) <= 12 else f"sum of {len(terms)} {key}") + f" = {values[name]:g} {q.qty.replace('wall_m2', 'm2 of wall')}"
         evidence += [e.id for e in hits]
         # The typical (geometric mean) confidence of the matched items; the weakest query sets the answer's.
         # A product over the items fell to ~0 for any large count (124 doors at 0.9 each) and escalated every one,
@@ -149,6 +150,11 @@ def execute(plan: QueryPlan, scene: Scene) -> Answer:
                        f"{len(hits)} x {key}: typical item score {typical:.0%} (geometric mean; lowest {lowest:.0%}).")
         else:
             why.append(f"No {key} matched; a zero is only as sure as the reader's search for {key}, which no item score lowers.")
+        if q.label and len(hits) > 1 and not all(_same(e.label, q.label) for e in hits):
+            # Matched by the name inside the label, which several items share: say so instead of adding them up surely.
+            confidence = min(confidence, 0.6)
+            why.append(f"{len(hits)} items are named {q.label!r} ({', '.join(e.label or e.id for e in hits[:4])}) and were "
+                       f"added up; ask for one by its full name to get that one alone.")
     if len(why) > 1:
         why.append("The weakest of these sets the answer's confidence.")
 
