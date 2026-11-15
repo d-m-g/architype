@@ -69,6 +69,7 @@ main>section{height:100%}
  background:linear-gradient(color-mix(in srgb,var(--ink) 4%,transparent) 1px,transparent 1px) 0 0/100% 28px,
   linear-gradient(90deg,color-mix(in srgb,var(--ink) 4%,transparent) 1px,transparent 1px) 0 0/28px 100%,var(--surface)}
 .start-inner{max-width:720px;margin:0 auto}
+.start.guest .start-inner{max-width:960px}  /* the guest gallery: four cards a row */
 .start h1{font-size:clamp(24px,3.4vw,34px);line-height:1.18;font-weight:600;letter-spacing:-.02em;margin-bottom:28px;text-wrap:balance}
 .start h2{font-size:13px;font-weight:500;color:var(--ink-2);margin:32px 0 10px}
 .dropzone{display:grid;justify-items:center;gap:6px;padding:36px 20px;border:1.5px dashed var(--ink-3);border-radius:14px;background:var(--paper);cursor:pointer;text-align:center;color:var(--ink-2);transition:border-color .15s,background .15s}

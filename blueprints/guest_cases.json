@@ -1,0 +1,462 @@
+[
+ {
+  "path": "data/cubicasa5k/high_quality_architectural-8741.png",
+  "thumb": "guest/a7d66cb475b9.jpg",
+  "name": "Home 8741",
+  "kind": "Brochure plan, image only",
+  "questions": [
+   {
+    "question": "How many saunas are on this floor plan?",
+    "answer": 1,
+    "unit": "count"
+   },
+   {
+    "question": "How many sinks and wash basins (kitchen and bathroom combined; a double-bowl sink counts as one) are drawn on this floor plan?",
+    "answer": 3,
+    "unit": "count"
+   },
+   {
+    "question": "How many toilet bowls (WC seats) are drawn on this floor plan?",
+    "answer": 2,
+    "unit": "count"
+   }
+  ]
+ },
+ {
+  "path": "data/cubicasa5k/high_quality_architectural-10212.png",
+  "thumb": "guest/ebe08c20d9a5.jpg",
+  "name": "Home 10212",
+  "kind": "Brochure plan, image only",
+  "questions": [
+   {
+    "question": "How many toilet bowls (WC seats) are drawn on this floor plan?",
+    "answer": 2,
+    "unit": "count"
+   },
+   {
+    "question": "How many sinks and wash basins (kitchen and bathroom combined; a double-bowl sink counts as one) are drawn on this floor plan?",
+    "answer": 3,
+    "unit": "count"
+   },
+   {
+    "question": "How many floors (storeys) does this floor plan show?",
+    "answer": 1,
+    "unit": "count"
+   }
+  ]
+ },
+ {
+  "path": "data/cubicasa5k/high_quality_architectural-9118.png",
+  "thumb": "guest/53e107f3ce0d.jpg",
+  "name": "Home 9118",
+  "kind": "Brochure plan, image only",
+  "questions": [
+   {
+    "question": "How many floors (storeys) does this floor plan show?",
+    "answer": 2,
+    "unit": "count"
+   },
+   {
+    "question": "How many sinks and wash basins (kitchen and bathroom combined; a double-bowl sink counts as one) are drawn on this floor plan?",
+    "answer": 1,
+    "unit": "count"
+   },
+   {
+    "question": "How many bedrooms (makuuhuone, usually marked MH) are on this floor plan?",
+    "answer": 2,
+    "unit": "count"
+   }
+  ]
+ },
+ {
+  "path": "data/cubicasa5k/high_quality_architectural-5946.png",
+  "thumb": "guest/0046433c7160.jpg",
+  "name": "Home 5946",
+  "kind": "Brochure plan, image only",
+  "questions": [
+   {
+    "question": "How many toilet bowls (WC seats) are drawn on this floor plan?",
+    "answer": 1,
+    "unit": "count"
+   },
+   {
+    "question": "How many floors (storeys) does this floor plan show?",
+    "answer": 1,
+    "unit": "count"
+   },
+   {
+    "question": "How many sinks and wash basins (kitchen and bathroom combined; a double-bowl sink counts as one) are drawn on this floor plan?",
+    "answer": 2,
+    "unit": "count"
+   }
+  ]
+ },
+ {
+  "path": "data/cubicasa5k/high_quality_architectural-2561.png",
+  "thumb": "guest/fd9d6716437e.jpg",
+  "name": "Home 2561",
+  "kind": "Brochure plan, image only",
+  "questions": [
+   {
+    "question": "How many saunas are on this floor plan?",
+    "answer": 1,
+    "unit": "count"
+   },
+   {
+    "question": "How many toilet bowls (WC seats) are drawn on this floor plan?",
+    "answer": 2,
+    "unit": "count"
+   },
+   {
+    "question": "How many doors are shown on this floor plan? Count doorways fitted with a door; open doorways without a door leaf do not count.",
+    "answer": 10,
+    "unit": "count"
+   }
+  ]
+ },
+ {
+  "path": "data/cubicasa5k/high_quality_architectural-8757.png",
+  "thumb": "guest/7a4ef6cdfe2d.jpg",
+  "name": "Home 8757",
+  "kind": "Brochure plan, image only",
+  "questions": [
+   {
+    "question": "How many windows are shown on this floor plan?",
+    "answer": 6,
+    "unit": "count"
+   },
+   {
+    "question": "How many kitchens (including kitchenettes, open kitchens and utility kitchens) are on this floor plan?",
+    "answer": 1,
+    "unit": "count"
+   },
+   {
+    "question": "How many saunas are on this floor plan?",
+    "answer": 1,
+    "unit": "count"
+   }
+  ]
+ },
+ {
+  "path": "data/cubicasa5k/colorful-10315.png",
+  "thumb": "guest/9418c731c214.jpg",
+  "name": "Home 10315",
+  "kind": "Brochure plan, image only",
+  "questions": [
+   {
+    "question": "How many sinks and wash basins (kitchen and bathroom combined; a double-bowl sink counts as one) are drawn on this floor plan?",
+    "answer": 2,
+    "unit": "count"
+   },
+   {
+    "question": "How many kitchens (including kitchenettes, open kitchens and utility kitchens) are on this floor plan?",
+    "answer": 1,
+    "unit": "count"
+   },
+   {
+    "question": "How many toilet bowls (WC seats) are drawn on this floor plan?",
+    "answer": 1,
+    "unit": "count"
+   }
+  ]
+ },
+ {
+  "path": "data/cubicasa5k/high_quality_architectural-14946.png",
+  "thumb": "guest/12e2dcb5a422.jpg",
+  "name": "Home 14946",
+  "kind": "Brochure plan, image only",
+  "questions": [
+   {
+    "question": "How many windows are shown on this floor plan?",
+    "answer": 9,
+    "unit": "count"
+   },
+   {
+    "question": "How many toilet bowls (WC seats) are drawn on this floor plan?",
+    "answer": 1,
+    "unit": "count"
+   },
+   {
+    "question": "How many separate WC rooms (toilet rooms marked WC) are on this floor plan?",
+    "answer": 1,
+    "unit": "count"
+   }
+  ]
+ },
+ {
+  "path": "data/swiss_dwellings/site702_bldg18650_floor51499.pdf",
+  "thumb": "guest/31b52629dde2.jpg",
+  "name": "Apartment floor 51499",
+  "kind": "CAD plan, read from its vector data",
+  "questions": [
+   {
+    "question": "What is the net floor area of room 0.10 ('Korridor') in m²?",
+    "answer": 6.29,
+    "unit": "m2"
+   },
+   {
+    "question": "What is the total net area in m² of all rooms labelled 'Schlafzimmer' on this floor?",
+    "answer": 38.74,
+    "unit": "m2"
+   },
+   {
+    "question": "How many rooms labelled 'Korridor' are there on this floor?",
+    "answer": 1,
+    "unit": "count"
+   }
+  ]
+ },
+ {
+  "path": "data/swiss_dwellings/site2135_bldg2978_floor13581.pdf",
+  "thumb": "guest/fad9fa17ecc9.jpg",
+  "name": "Apartment floor 13581",
+  "kind": "CAD plan, read from its vector data",
+  "questions": [
+   {
+    "question": "How many rooms labelled 'Zimmer' are there on this floor?",
+    "answer": 1,
+    "unit": "count"
+   },
+   {
+    "question": "How many apartments (residential units) are shown on this floor plan?",
+    "answer": 1,
+    "unit": "count"
+   },
+   {
+    "question": "How many windows are drawn on this floor plan?",
+    "answer": 4,
+    "unit": "count"
+   }
+  ]
+ },
+ {
+  "path": "data/swiss_dwellings/site4068_bldg6501_floor26580.pdf",
+  "thumb": "guest/46fd6661b09f.jpg",
+  "name": "Apartment floor 26580",
+  "kind": "CAD plan, read from its vector data",
+  "questions": [
+   {
+    "question": "What is the net floor area of room 3.05 ('Wohnen/Essen') in m²?",
+    "answer": 18.45,
+    "unit": "m2"
+   },
+   {
+    "question": "How many rooms labelled 'Korridor' are there on this floor?",
+    "answer": 2,
+    "unit": "count"
+   },
+   {
+    "question": "How many windows are drawn on this floor plan?",
+    "answer": 8,
+    "unit": "count"
+   }
+  ]
+ },
+ {
+  "path": "data/swiss_dwellings/site3863_bldg6018_floor25218.pdf",
+  "thumb": "guest/0c024da8e02a.jpg",
+  "name": "Apartment floor 25218",
+  "kind": "CAD plan, read from its vector data",
+  "questions": [
+   {
+    "question": "How many rooms labelled 'Bain' are there on this floor?",
+    "answer": 2,
+    "unit": "count"
+   },
+   {
+    "question": "What is the net floor area of apartment B in m², summing all its rooms except balconies, loggias, terraces and other outdoor spaces?",
+    "answer": 62.88,
+    "unit": "m2"
+   },
+   {
+    "question": "What is the total net area in m² of all rooms labelled 'Chambre à coucher' on this floor?",
+    "answer": 60.62,
+    "unit": "m2"
+   }
+  ]
+ },
+ {
+  "path": "data/swiss_dwellings/site10686_bldg15413_floor40060.pdf",
+  "thumb": "guest/16122bf25fe3.jpg",
+  "name": "Apartment floor 40060",
+  "kind": "CAD plan, read from its vector data",
+  "questions": [
+   {
+    "question": "How many rooms labelled 'Zimmer' are there on this floor?",
+    "answer": 2,
+    "unit": "count"
+   },
+   {
+    "question": "What is the net floor area of room 2.13 ('Schlafzimmer') in m²?",
+    "answer": 15.39,
+    "unit": "m2"
+   },
+   {
+    "question": "What is the net floor area of apartment A in m², summing all its rooms except balconies, loggias, terraces and other outdoor spaces?",
+    "answer": 101.26,
+    "unit": "m2"
+   }
+  ]
+ },
+ {
+  "path": "data/swiss_dwellings/site940_bldg1980_floor8731.pdf",
+  "thumb": "guest/c2230b35db3f.jpg",
+  "name": "Apartment floor 8731",
+  "kind": "CAD plan, read from its vector data",
+  "questions": [
+   {
+    "question": "What is the total net floor area in m² of all numbered indoor rooms on this floor (excluding balconies, loggias, terraces and other outdoor spaces, shafts and voids)?",
+    "answer": 691.35,
+    "unit": "m2"
+   },
+   {
+    "question": "What is the net floor area of apartment E in m², summing all its rooms except balconies, loggias, terraces and other outdoor spaces?",
+    "answer": 90.66,
+    "unit": "m2"
+   },
+   {
+    "question": "How many rooms labelled 'Wohnen' are there on this floor?",
+    "answer": 8,
+    "unit": "count"
+   }
+  ]
+ },
+ {
+  "path": "data/swiss_dwellings/site262_bldg474_floor1877.pdf",
+  "thumb": "guest/e699da9c51a3.jpg",
+  "name": "Apartment floor 1877",
+  "kind": "CAD plan, read from its vector data",
+  "questions": [
+   {
+    "question": "How many rooms labelled 'Küche' are there on this floor?",
+    "answer": 8,
+    "unit": "count"
+   },
+   {
+    "question": "What is the total net floor area in m² of all numbered indoor rooms on this floor (excluding balconies, loggias, terraces and other outdoor spaces, shafts and voids)?",
+    "answer": 454.12,
+    "unit": "m2"
+   },
+   {
+    "question": "What is the net floor area of room 1.20 ('Küche') in m²?",
+    "answer": 4.64,
+    "unit": "m2"
+   }
+  ]
+ },
+ {
+  "path": "data/ifc_models/tuwien-escape-route_real-world-escape-route-test-model-zdb_plan-07-da.pdf",
+  "thumb": "guest/9c4b16bf189a.jpg",
+  "name": "Escape Route",
+  "kind": "BIM model (IFC), with a 3D view",
+  "questions": [
+   {
+    "question": "What is the total length of all walls on 'DA', in metres?",
+    "answer": 67.6019,
+    "unit": "m"
+   },
+   {
+    "question": "What is the total net side area of all walls on 'DA', in m²?",
+    "answer": 90.3427,
+    "unit": "m2"
+   },
+   {
+    "question": "What is the total net volume of all walls on 'DA', in m³?",
+    "answer": 18.3977,
+    "unit": "m3"
+   }
+  ]
+ },
+ {
+  "path": "data/ifc_models/kit-smiley-west_ac-20-smiley-west-10-bldg_plan-02-eg.pdf",
+  "thumb": "guest/20202e697b64.jpg",
+  "name": "Smiley West",
+  "kind": "BIM model (IFC), with a 3D view",
+  "questions": [
+   {
+    "question": "How many columns are shown on the floor plan of 'EG'?",
+    "answer": 20,
+    "unit": "count"
+   },
+   {
+    "question": "How many rooms (spaces) are shown on the floor plan of 'EG'?",
+    "answer": 30,
+    "unit": "count"
+   },
+   {
+    "question": "What is the total net volume of all slabs on 'EG', in m³?",
+    "answer": 104.63,
+    "unit": "m3"
+   }
+  ]
+ },
+ {
+  "path": "data/ifc_models/bsc-molio_molio-with-uris_plan-03-grundplan.pdf",
+  "thumb": "guest/d956c45094fe.jpg",
+  "name": "Molio",
+  "kind": "BIM model (IFC), with a 3D view",
+  "questions": [
+   {
+    "question": "What is the total net volume of all slabs on 'Grundplan', in m³?",
+    "answer": 185.1892,
+    "unit": "m3"
+   },
+   {
+    "question": "How many doors are shown on the floor plan of 'Grundplan'?",
+    "answer": 12,
+    "unit": "count"
+   },
+   {
+    "question": "What is the net floor area of the room 'Toilet (Rum nr. S10)' on 'Grundplan', in m²?",
+    "answer": 3.96,
+    "unit": "m2"
+   }
+  ]
+ },
+ {
+  "path": "data/ifc_models/bimspeed-vitoria_ald26-project_plan-02-p1.pdf",
+  "thumb": "guest/7e09464b011c.jpg",
+  "name": "Vitoria",
+  "kind": "BIM model (IFC), with a 3D view",
+  "questions": [
+   {
+    "question": "What is the net floor area of the room '1IZQ-DIST (01.16)' on 'P1', in m²?",
+    "answer": 13.6252,
+    "unit": "m2"
+   },
+   {
+    "question": "How many doors are shown on the floor plan of 'P1'?",
+    "answer": 16,
+    "unit": "count"
+   },
+   {
+    "question": "What is the total net floor area of all rooms (spaces) on 'P1', in m²?",
+    "answer": 157.0637,
+    "unit": "m2"
+   }
+  ]
+ },
+ {
+  "path": "data/ifc_models/kit-institute_ac20-institute-var-2_plan-03-1-obergeschoss.pdf",
+  "thumb": "guest/fb3246da8b08.jpg",
+  "name": "Institute",
+  "kind": "BIM model (IFC), with a 3D view",
+  "questions": [
+   {
+    "question": "What is the total net side area of all walls on '1. Obergeschoss', in m²?",
+    "answer": 589.83,
+    "unit": "m2"
+   },
+   {
+    "question": "How many rooms (spaces) are shown on the floor plan of '1. Obergeschoss'?",
+    "answer": 22,
+    "unit": "count"
+   },
+   {
+    "question": "How many windows are shown on the floor plan of '1. Obergeschoss'?",
+    "answer": 54,
+    "unit": "count"
+   }
+  ]
+ }
+]

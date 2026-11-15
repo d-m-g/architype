@@ -3,7 +3,21 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Blueprints Talk</title>
+<title>ArchiType: ask a drawing a question, see where the answer comes from</title>
+<meta name="description" content="ArchiType answers questions about floor plans, CAD drawings and BIM models, and marks on the drawing exactly what each answer was counted or measured from.">
+<link rel="canonical" href="https://blueprints.d-m-g.dev/">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#0c1016">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="ArchiType">
+<meta property="og:title" content="ArchiType: ask a drawing a question">
+<meta property="og:description" content="Answers about floor plans, CAD drawings and BIM models, with the evidence marked on the drawing so you can check it.">
+<meta property="og:url" content="https://blueprints.d-m-g.dev/">
+<meta property="og:image" content="https://blueprints.d-m-g.dev/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
 <script id="theme-bootstrap">
 // Resolve the saved appearance before styles paint; drawing images are never filtered.
 (()=>{
@@ -43,7 +57,7 @@
 <header class="topbar">
   <a class="brand" href="#ask" data-panel="ask">
     <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M3 3h18v18H3z" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3 10h8V3M11 10v11M11 15h10" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M14.5 15a3.5 3.5 0 0 1 3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>
-    <span>Blueprints Talk</span>
+    <span>ArchiType</span>
   </a>
   <nav class="tabs" aria-label="Sections">
     <a href="#ask" data-panel="ask" aria-current="page">Ask</a>
@@ -87,7 +101,7 @@
         <ol id="recent-list" class="recent"></ol>
       </section>
 
-      <h2>Or open one from the dataset</h2>
+      <h2 id="samples-title">Or open one from the dataset</h2>
       <div id="samples" class="samples"></div>
 
       <details class="by-path">

@@ -73,12 +73,13 @@ window.addEventListener('drop',event=>{
  else{$('open-another').click();take(event.dataTransfer.files[0]);}
 });
 
-for(const sample of SAMPLES){
+function sampleCard(sample,src=imageURL(sample.thumb??sample.path)){
  const card=el('button',{type:'button',class:'sample',onclick:()=>openDrawing(sample.path,{name:sample.name})},
-  el('img',{src:imageURL(sample.thumb??sample.path),alt:'',loading:'lazy',onerror:()=>card.remove()}),  // no dataset on this server: no card
+  el('img',{src,alt:'',loading:'lazy',onerror:()=>card.remove()}),  // no dataset on this server: no card
   el('span',{},sample.name,el('small',{},sample.kind)));
- $('samples').append(card);
+ return card;
 }
+$('samples').append(...SAMPLES.map(sample=>sampleCard(sample)));
 /** Drawings answered in this browser before: reopen one with its last answer and earlier questions, no model call. */
 function renderRecent(){
  const saved=savedResults();
@@ -98,11 +99,10 @@ renderRecent();
 fetch('/api/access').then(r=>r.ok?r.json():null).then(access=>{
  if(!access)return;
  if(access.guest){
-  for(const c of access.cases)prepared.set(c.path,c.questions);
-  $('sign-in').hidden=false;$('dropzone').hidden=true;document.querySelector('.by-path').hidden=true;
-  status(access.cases.length?'Demo mode: pick a prepared drawing and question; answers replay without a model call.':'Demo mode: no prepared drawings on this server yet.');
-  const pick=el('select',{'aria-label':'Prepared drawing'},...access.cases.map(c=>el('option',{value:c.path},`${c.path.replace(/^data\//,'')} (${c.questions.length})`)));
-  $('samples').replaceChildren(pick,el('button',{type:'button',class:'btn',onclick:()=>pick.value&&openDrawing(pick.value)},'Open'));
+  for(const c of access.cases)prepared.set(c.path,c.questions.map(q=>q.question));
+  $('sign-in').hidden=false;$('dropzone').hidden=true;document.querySelector('.by-path').hidden=true;$('start').classList.add('guest');
+  $('samples-title').textContent=access.cases.length?'Pick a drawing. Each comes with three prepared questions, answered without a model call.':'No prepared drawings on this server yet.';
+  $('samples').replaceChildren(...access.cases.map(c=>sampleCard(c,c.thumb)));
  }else if(access.login){
   $('cache-toggle').hidden=false;$('use-cache').checked=!access.fresh;
   $('use-cache').onchange=()=>{document.cookie=`blueprints_fresh=${$('use-cache').checked?0:1}; path=/; max-age=31536000; samesite=lax`;};

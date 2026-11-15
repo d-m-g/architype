@@ -9,6 +9,7 @@ PUBLIC = {
     "dashboard.js", "mock-evaluation.js", "shared-dashboard.js", "workspace.js",
     "editor-bridge.js", "geometry-3d.js", "room-renderer.js", "voice.js", "voice-input.js", "voice-live.js", "voice-pcm-worklet.js",
     "demo.js", "intake.js", "local-file.js", "corrections.js", "correction-state.js", "history.js", "history-state.js", "calibration.js", "calibration-state.js",
+    "favicon.svg", "apple-touch-icon.png", "og.png", "robots.txt",
     "app.css", "main.js", "object-question.js", "start.js", "edit.js", "evaluation.js",  # the current page; the files above it are the previous one's
     "vendor/three/build/three.module.js", "vendor/three/build/three.core.js",
     "vendor/three/examples/jsm/controls/OrbitControls.js",
@@ -28,7 +29,7 @@ class PublicFrontend(StaticFiles):
         path = path.replace("\\", "/")
         if path in ("", "."):
             path = "index.html"
-        if path not in PUBLIC:
+        if path not in PUBLIC and not (path.startswith("guest/") and path.endswith(".jpg")):  # guest gallery thumbnails
             raise HTTPException(status_code=404)
         response = await super().get_response(path, scope)
         response.headers["Cache-Control"] = "no-store"

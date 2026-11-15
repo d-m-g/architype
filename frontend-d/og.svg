@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630" font-family="'IBM Plex Sans','Helvetica Neue',Helvetica,Arial,sans-serif">
+<!-- Source of og.png (the link preview). Render: Chrome headless, 1200 x 630. -->
+<defs><pattern id="grid" width="28" height="28" patternUnits="userSpaceOnUse"><path d="M28 0H0V28" fill="none" stroke="#fff" stroke-opacity=".045"/></pattern></defs>
+<rect width="1200" height="630" fill="#0c1016"/><rect width="1200" height="630" fill="url(#grid)"/>
+<g transform="translate(72 70)">
+ <rect width="56" height="56" rx="12" fill="#1f4fd8"/>
+ <g fill="none" stroke="#fff"><path d="M12 12h32v32H12zM12 24.500h14V12M26 24.500V44M26 33.500h18" stroke-width="3.6"/><path d="M32 33.500a6.500 6.500 0 0 1 6.500-6.500" stroke-width="2.4"/></g>
+ <text x="76" y="40" font-size="36" font-weight="600" fill="#e9edf2" letter-spacing="-.5">ArchiType</text>
+</g>
+<text font-size="60" font-weight="600" fill="#e9edf2" letter-spacing="-1.6">
+ <tspan x="72" y="268">Ask a drawing</tspan><tspan x="72" y="340">a question.</tspan>
+</text>
+<text font-size="30" fill="#aab4c1"><tspan x="72" y="410">See exactly where the answer</tspan><tspan x="72" y="450">comes from.</tspan></text>
+<text x="72" y="556" font-size="22" fill="#7d8897" font-family="'IBM Plex Mono',Menlo,monospace">floor plans · CAD · BIM models</text>
+<!-- the drawing: white paper, the counted doors marked in highlighter yellow -->
+<g transform="translate(640 96)">
+ <rect width="488" height="438" rx="10" fill="#fff"/>
+ <g fill="none" stroke="#141b24" stroke-width="7" stroke-linejoin="miter">
+  <path d="M44 44h400v350H44z"/>
+  <path d="M44 190h96M196 190h70V44M266 190v70M266 316v78M266 240h64M386 240h58"/>
+ </g>
+ <g fill="none" stroke="#141b24" stroke-width="2.5">
+  <path d="M140 190a56 56 0 0 1 56 -56v56"/><path d="M266 260a56 56 0 0 0 -56 56h56"/><path d="M330 240a56 56 0 0 1 56 -56v56"/>
+ </g>
+ <g fill="#ffe14a" fill-opacity=".55" stroke="#b98a00" stroke-width="3">
+  <rect x="132" y="126" width="72" height="72" rx="6"/><rect x="202" y="252" width="72" height="72" rx="6"/><rect x="322" y="176" width="72" height="72" rx="6"/>
+ </g>
+ <g fill="#465264" font-size="17" font-family="'IBM Plex Mono',Menlo,monospace"><text x="70" y="110">Kitchen</text><text x="300" y="110">Bedroom</text><text x="70" y="330">Living</text><text x="322" y="340">Bath</text></g>
+ <g transform="translate(206 372)"><rect width="306" height="92" rx="14" fill="#171d26" stroke="#29313c" stroke-width="2"/>
+  <text x="22" y="34" font-size="17" fill="#aab4c1">How many doors?</text>
+  <text x="22" y="74" font-size="34" font-weight="600" fill="#e9edf2">3 <tspan font-size="19" font-weight="400" fill="#4cc47a">counted on the plan</tspan></text></g>
+</g>
+</svg>

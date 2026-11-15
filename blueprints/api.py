@@ -3,8 +3,8 @@
 Run from the repo root:  uv run --env-file .env --extra brain uvicorn blueprints.api:app --reload
 
 Login (the same pattern as work-tracker): set BLUEPRINTS_PASSWORD_HASH to a hash from
-`python -m blueprints.api hash`. A browser without the signed session cookie is a guest: it opens dataset drawings
-already read and gets answers from the caches and the data, never a model call; uploads, voice and corrections get
+`python -m blueprints.api hash`. A browser without the signed session cookie is a guest: it opens the prepared
+drawings (guest_cases.json) and gets answers from the caches and the data, never a model call; uploads, voice and corrections get
 a 401. /login is the sign-in page and POST /api/login {"password"} hands out the cookie. Signed in, the viewer can
 turn cached answers off (cookie blueprints_fresh=1). With no hash set the server runs open (local development, eval).
 """
@@ -28,7 +28,7 @@ from . import pipeline
 from .executor import execute
 from .schemas import Answer, QueryPlan, Scene
 
-app = FastAPI(title="Make Blueprints Talk")
+app = FastAPI(title="ArchiType")
 
 
 @app.get("/api/health")
@@ -116,26 +116,18 @@ def access() -> dict:
     return {"guest": guest, "login": bool(PASSWORD_HASH), "fresh": pipeline.FRESH.get(), "cases": _cases() if guest else []}
 
 
-RUNS = Path(__file__).parent.parent / "frontend-d" / "runs"
+GUEST_CASES = json.loads((Path(__file__).parent / "guest_cases.json").read_text(encoding="utf-8"))  # tools/guest_cases.py
 
 
-@lru_cache(maxsize=1)  # ponytail: computed once per process; restart after new scenes or runs land
 def _cases() -> list[dict]:
-    """Dataset drawings whose scene is cached, each with the questions the latest pipeline run answered without the
-    agent (parsed or detected), so a guest replays them from the caches."""
-    runs = sorted(RUNS.glob("*-pipeline.jsonl"))
-    by_path: dict[str, list[str]] = {}
-    for line in runs[-1].read_text(encoding="utf-8").splitlines() if runs else []:
-        row = json.loads(line)
-        if row.get("error") is None and row.get("pred") is not None and row.get("tier") != "llm":
-            by_path.setdefault(row["path"], []).append(row["question"])
-    return [{"path": p, "questions": q} for p, q in sorted(by_path.items()) if pipeline.scene_file(p).exists()]
+    """The prepared drawings this server has read, each with the questions a guest replays from the caches."""
+    return [case for case in GUEST_CASES if pipeline.scene_file(case["path"]).exists()]
 
 
 def _guest_may_open(path: str) -> None:
-    """A guest opens dataset drawings already read: reading a new one is a model call or minutes of CPU."""
-    if pipeline.GUEST.get() and not (path.startswith("data/") and pipeline.scene_file(path).exists()):
-        raise HTTPException(401, "Sign in to open drawings that have not been read yet.")
+    """A guest opens the prepared drawings only: reading another one is a model call or minutes of CPU."""
+    if pipeline.GUEST.get() and not any(case["path"] == path for case in _cases()):
+        raise HTTPException(401, "Sign in to open drawings outside the prepared set.")
 
 
 @app.post("/api/login")
@@ -167,7 +159,7 @@ def logout() -> JSONResponse:
 
 _LOGIN_PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Make Blueprints Talk: sign in</title>
+<title>ArchiType: sign in</title><meta name="robots" content="noindex"><link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <style>
  :root{color-scheme:light dark;--page:#f9f9f7;--card:#fcfcfb;--ink:#0b0b0b;--ink-2:#52514e;--rule:rgba(11,11,11,.12);--accent:#2a78d6;--bad:#d03b3b}
  @media (prefers-color-scheme:dark){:root{--page:#0d0d0d;--card:#1a1a19;--ink:#f0efec;--ink-2:#c3c2b7;--rule:rgba(255,255,255,.12);--accent:#3987e5}}
@@ -179,7 +171,7 @@ _LOGIN_PAGE = """<!doctype html>
  button{width:100%;min-height:44px;margin-top:12px;font:inherit;font-weight:600;color:#fff;background:var(--accent);border:0;border-radius:8px;cursor:pointer}
  .err{color:var(--bad);font-size:14px;min-height:1.5em;margin:10px 0 0}
 </style></head><body>
-<form id="f"><h1>Make Blueprints Talk</h1><p>Enter the password for uploads, voice and live model calls. <a href="/">Back to the demo</a></p>
+<form id="f"><h1>ArchiType</h1><p>Enter the password for uploads, voice and live model calls. <a href="/">Back to the demo</a></p>
  <input id="pw" type="password" placeholder="Password" autocomplete="current-password" autofocus required>
  <button>Sign in</button><div class="err" id="err" role="alert"></div></form>
 <script>
