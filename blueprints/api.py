@@ -159,11 +159,20 @@ IFC_MAX_BYTES = 100 * 1024 * 1024
 class Ask(BaseModel):
     path: str  # dataset path ("data/swiss_dwellings/x.pdf") or an upload id ("uploads/<id>.pdf")
     question: str
+    # Values for what the drawing does not hold, by the names an Answer offered in its assumptions ("needed: ...").
+    assumptions: dict[str, float] = {}
+    # The conversation's earlier turns, oldest first, so a follow-up ("and the bedrooms?") can refer to them. Each:
+    # question, answer, unit, error, interpretation, query, assumptions, evidence, evidence_count, path. Untrusted:
+    # the server keeps the last 4, cut to size (resolve.clean_history), and shows them to the model as quoted data.
+    history: list[dict] = Field(default=[], max_length=50)
 
 
 class Recompute(BaseModel):
     scene: Scene  # the scene as the user corrected it in the viewer
-    plan: QueryPlan
+    plan: QueryPlan | None = None  # a plan to run; without one, the question is answered on this scene as /api/ask does
+    question: str | None = None
+    assumptions: dict[str, float] = {}
+    history: list[dict] = Field(default=[], max_length=50)  # as in Ask
 
 
 Coord = Annotated[float, Field(ge=0, le=1)]
@@ -230,27 +239,38 @@ def ask(body: Ask) -> Answer:
     if _vision_only(body.path):
         from .brain.escalate import answer_from_vision
         try:
-            return answer_from_vision(body.question, body.path)
+            return answer_from_vision(body.question, body.path, None, body.history or None)
         except NotImplementedError as e:
             return Answer(error=str(e))
-    return pipeline.answer(body.path, body.question)
+    return pipeline.answer(body.path, body.question, body.assumptions or None, body.history or None)
 
 
 @app.get("/api/plan")
 def plan(question: str) -> QueryPlan:
     """The plan for a question, so the viewer can rerun it on a corrected scene with /api/recompute."""
-    from .brain.plan import make_plan
-    try:
-        return make_plan(question, None)
-    except NotImplementedError as e:
-        raise HTTPException(501, str(e)) from None
+    from .brain.plan import cached_plan
+    found = cached_plan(question, None)  # never a model call: other questions are resolved from the scene's data
+    if not found:
+        raise HTTPException(404, "no cached plan for this question: post it to /api/recompute with the scene instead")
+    return found[0]
 
 
 @app.post("/api/recompute")
 def recompute(body: Recompute) -> Answer:
     """Run a plan on a scene the user edited: no model call, the same executor as every other answer."""
+    from .brain.plan import cached_plan
     from .brain.vision import checked
-    return checked(execute(body.plan, body.scene), body.plan, body.scene)  # as pipeline.answer: no confident zero from the vision reader's rooms
+    found = cached_plan(body.question, body.scene) if body.plan is None and body.question else None
+    plan = body.plan or (found[0] if found else None)
+    if plan is None:
+        if not body.question:
+            raise HTTPException(422, "send a plan, or a question to answer on this scene")
+        from .brain.resolve import resolve
+        try:  # the corrected scene's own data decides, as for any question without a cached plan
+            return resolve(body.question, body.scene, body.assumptions or None, body.history or None)
+        except NotImplementedError as e:
+            return Answer(error=str(e))
+    return checked(execute(plan, body.scene), plan, body.scene)  # as pipeline.answer: no confident zero from the vision reader's rooms
 
 
 @app.post("/api/upload")

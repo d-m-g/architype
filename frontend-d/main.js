@@ -1,6 +1,6 @@
 /** The Ask view: drawing viewer, question flow, answer card, evidence and trace. */
 import {createSourcePreviewLoader,sourcePreviewKind,loadPDFPreview} from './local-file.js';
-import {historyStore,createWorkspaceStorage} from './history-state.js';
+import {historyStore,createWorkspaceStorage,conversationTurns} from './history-state.js';
 import {requestJSON,getDrawingScene,recoveryMessage,LIVE_REQUEST_TIMEOUT_MS} from './api-client.js';
 import {publishEditor,subscribeEditor,selectEditorEntity} from './editor-bridge.js';
 import {zoomAt} from './mock-scene.js';
@@ -627,6 +627,7 @@ export async function openDrawing(path,{name,question='',preview=null,restore=fa
  if(snapshot&&!historyStore.list(key).length)for(const entry of snapshot.entries??[])historyStore.add(key,name,entry);
  // Answers saved in an earlier visit come back as this drawing's earlier questions.
  if(saved&&!historyStore.list(key).length)for(const entry of saved.entries)historyStore.add(key,name,{question:entry.question,payload:{rawAnswer:entry.rawAnswer,ms:entry.ms}});
+ conversationAfter=Number(historyStore.list(key)[0]?.id??0);  // restored answers are earlier visits, not this conversation
  $('start').hidden=true;$('workspace').hidden=false;$('open-another').hidden=false;
  showPanel('ask');setView('2d');
  $('question').value=question;autosize();
@@ -711,8 +712,14 @@ function planFor(question,signal){
  return plans.get(question);
 }
 const runPlan=(plan,signal)=>requestJSON('/api/recompute',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scene:state.raw,plan}),signal});
-/** Answer on the scene as it is in this browser (after corrections): the question's plan, run by the server's executor. */
-export async function answerFromScene(question,signal){return runPlan(await planFor(question,signal),signal);}
+// A conversation is the questions asked since this drawing was opened: opening another (or the same one again) starts afresh.
+let conversationAfter=0;
+const conversation=()=>state.path?conversationTurns(historyStore.list('drawing:'+state.path),{after:conversationAfter,path:state.path}):[];
+/** Answer on the scene as it is in this browser (after corrections). The server runs the question's cached plan, or
+ *  decides from this scene's data, with the conversation so far so that a follow-up question can refer to it. */
+export async function answerFromScene(question,signal){
+ return requestJSON('/api/recompute',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scene:state.raw,question,history:conversation()}),signal});
+}
 
 // ───────── one word, two readings: "toilets" are bowls or rooms ─────────
 // The planner picks one silently. The card says which was counted and offers the other, run by the same executor
@@ -763,10 +770,10 @@ export async function ask(text){
   if(askAbort!==controller)return;
   if(state.edited){
    // The server only knows the drawing as it read it, so a corrected drawing is answered from this browser's copy.
-   answer=await track(answerFromScene(question,controller.signal)).catch(()=>null);
+   answer=await track(answerFromScene(question,controller.signal)).then(a=>a.answer===null&&/GEMINI_API_KEY|lane C/.test(a.error??'')?null:a).catch(()=>null);
    note=answer?'Answered on your corrected drawing.':'This question needs the agent, which reads the original drawing, so your corrections are not in this answer.';
   }
-  answer??=await track(requestJSON('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path,question}),signal:controller.signal}));
+  answer??=await track(requestJSON('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path,question,history:conversation()}),signal:controller.signal}));
   // The first question on an unread drawing may have produced its scene; pick it up for the outlines.
   if(!state.edited&&(!state.raw||calculationAudit(answer))&&!controller.signal.aborted)try{setScene(await getDrawingScene(path,controller.signal),{keepView:!!state.raw});}catch{}
  }catch(error){

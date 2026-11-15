@@ -63,3 +63,23 @@ test('abstentions, zero answers, imported unknown questions and errors remain ex
  assert.equal(store.list('a')[1].question,null);
  assert.equal(store.list('a')[0].payload.result.error,'Reader unavailable');
 });
+test('a follow-up carries the conversation since the drawing was opened: small turns, capped, never the scene or trace',async()=>{
+ const {conversationTurns}=await import('./history-state.js');
+ const store=createHistoryStore();
+ const add=(question,rawAnswer)=>store.add('drawing:a','A',{question,payload:{rawAnswer,ms:5,scene:{entities:[{id:'big'}]}}});
+ add('From an earlier visit',{answer:1,evidence:[]});
+ const after=Number(store.list('drawing:a')[0].id);
+ add('How big are the bathrooms?',{answer:9.8,unit:'m2',interpretation:'Bathrooms',assumptions:{},evidence:Array.from({length:30},(_,i)=>'room-'+i),
+  trace:[{step:'decide',detail:'direct'},{step:'execute',detail:"direct: a = SELECT sum(m2) AS value FROM entities WHERE subtype = 'bathroom'"}]});
+ add('How high are the ceilings?',{answer:null,error:"Not in this drawing's data: the ceiling height.",evidence:[],assumptions:{ceiling_height_m:'needed: the ceiling height in metres'}});
+ for(let i=0;i<4;i++)add('Question '+i+' '+'x'.repeat(500),{answer:i,unit:'count',evidence:[]});
+ const turns=conversationTurns(store.list('drawing:a'),{after,path:'data/a.pdf'});
+ assert.equal(turns.length,4);assert.deepEqual(turns.map(t=>t.answer),[0,1,2,3]);  // the last four, oldest first
+ assert.ok(turns.every(t=>t.question.length<=300&&t.path==='data/a.pdf'&&!('scene' in t)&&!('trace' in t)));
+ const all=conversationTurns(store.list('drawing:a'),{after,limit:9});
+ assert.equal(all.length,6);assert.ok(!all.some(t=>t.question==='From an earlier visit'));
+ assert.deepEqual({...all[0],evidence:all[0].evidence.length},{question:'How big are the bathrooms?',answer:9.8,unit:'m2',interpretation:'Bathrooms',
+  query:"direct: a = SELECT sum(m2) AS value FROM entities WHERE subtype = 'bathroom'",evidence:12,evidence_count:30});
+ assert.deepEqual(all[1],{question:'How high are the ceilings?',error:"Not in this drawing's data: the ceiling height.",assumptions:{ceiling_height_m:'needed: the ceiling height in metres'}});
+ assert.deepEqual(conversationTurns(store.list('drawing:a'),{after:Number(store.list('drawing:a')[0].id)}),[]);  // a newly opened drawing: fresh
+});

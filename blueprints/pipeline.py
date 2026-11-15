@@ -119,32 +119,42 @@ def get_scene(path: str) -> Scene:
     return scene
 
 
-def answer(path: str, question: str) -> Answer:
+def answer(path: str, question: str, assumptions: dict | None = None, history: list | None = None) -> Answer:
+    """assumptions: values the user supplies for what the drawing does not hold (a ceiling height, a price).
+    history: the conversation's earlier turns, from the client, so a follow-up question can refer to them. A question
+    whose shape has a cached plan is complete by construction and is answered the same with or without it."""
     scene = None
     steps = []
+    settled = False  # the data-first resolver answered or abstained on a parsed file: nothing else may read sizes off it
     try:
         scene = get_scene(path)
         if path in _BUILT_NOW:  # the first question on a drawing carries the scene's build cost
             _BUILT_NOW.discard(path)
             steps += scene.trace
-        from .brain.plan import plan_with_trace
-        plan, plan_steps = plan_with_trace(question, scene)
-        steps += plan_steps
-        from .brain.room_link_vision import execute_with_links
-        result = execute_with_links(plan, scene)
-        from .brain.vision import checked
-        result = checked(result, plan, scene)  # rooms the vision reader added to an upload: no surer than the reader
+        from .brain.plan import cached_plan
+        found = cached_plan(question, scene)
+        if found:  # the free path: a question shape planned before, answered exactly as before
+            plan, plan_steps = found
+            steps += plan_steps
+            from .brain.room_link_vision import execute_with_links
+            result = execute_with_links(plan, scene)
+            from .brain.vision import checked
+            result = checked(result, plan, scene)  # rooms the vision reader added to an upload: no surer than the reader
+        else:  # any other wording: look at what the scene holds, then decide (one model call, none on a repeat)
+            from .brain.resolve import resolve
+            result = resolve(question, scene, assumptions, history)
+            settled = scene.tier == "parse"
     except Exception as e:  # a crashed builder (e.g. an undeployed Modal app) escalates instead of failing the answer
         steps += getattr(e, "steps", [])  # the planner's cost when it judged the question unsupported
         result = Answer(error=str(e) if isinstance(e, NotImplementedError) else f"{type(e).__name__}: {e}")
     result.trace = steps + result.trace
     from .brain.room_link_vision import refinement_exhausted
-    if refinement_exhausted(result):
-        return result  # exact scoped count already tried vision; retain evidence gap without paid agent loops
+    if settled or refinement_exhausted(result):
+        return result  # a parsed file's data settled it, or an exact scoped count already tried vision: no paid agent loops
     if result.answer is None or result.confidence < ESCALATE_BELOW:
         try:
             from .brain.escalate import escalate
-            result = escalate(question, path, scene, result)
+            result = escalate(question, path, scene, result, **({"history": history} if history else {}))
         except NotImplementedError:
             pass
     if result.answer is not None:
