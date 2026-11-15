@@ -144,6 +144,11 @@ def answer(path: str, question: str, assumptions: dict | None = None, history: l
         if path in _BUILT_NOW:  # the first question on a drawing carries the scene's build cost
             _BUILT_NOW.discard(path)
             steps += scene.trace
+        from .room_ranking import answer_question
+        ranking = answer_question(question, scene)
+        if ranking is not None:
+            ranking.trace = steps + ranking.trace
+            return ranking
         from .brain.plan import cached_plan
         found = cached_plan(question, scene)
         if found:  # the free path: a question shape planned before, answered exactly as before

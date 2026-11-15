@@ -284,6 +284,8 @@ answer says what the reply is:
 - "rows": a list (which rooms are over 15 m2). One query returning the rows to list.
 unit: the unit of the number or of each row's value: count, m2, m, m3 or ft2.
 Rooms connect to doors, windows and fixtures through links only. Never match them by label or number columns.
+A selected drawing object includes its exact id: filter entities.id by that id for the object itself, or
+links.room_id for objects connected to a selected room. Selection is not a measurement; missing sizes stay missing.
 A building's or storey's floor area is the m2 of its rooms. Only in a model without rooms (a structural model) is it
 the m2 of slabs with subtype 'floor', never every slab: roof slabs are not floor area.
 

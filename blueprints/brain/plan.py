@@ -67,6 +67,9 @@ or sums one quantity over them (op "sum" with qty). Filters are exact text match
 - A room also has wall_m2: its wall area net of doors and windows (paint, wallpaper, wall tiles), at the room's
   height where the drawing gives one and an assumed 2.5 m otherwise. Paint for a room sums wall_m2 over rooms, not m2 over walls.
 - outdoor: false when the question excludes balconies, loggias, terraces or other outdoor spaces; otherwise leave it out.
+- For a selected drawing object, the question includes its exact entity id: use where.entity_id to select that
+  object itself. For doors/windows/fixtures in a selected ROOM, use where.connected_room_id instead. Never count
+  every object of that type when asked about the selected object. Missing recorded quantities are not zero.
 - For doors, windows or fixtures connected to a room, use where with connected_room_number, connected_room_label,
   connected_room_type, connected_room_apartment, connected_room_level or connected_room_id. These refer to the ROOM, not the object.
   When an internal room id is explicitly provided (such as vis-room-7), use connected_room_id exactly.

@@ -9,7 +9,7 @@ PUBLIC = {
     "dashboard.js", "mock-evaluation.js", "shared-dashboard.js", "workspace.js",
     "editor-bridge.js", "geometry-3d.js", "room-renderer.js", "voice.js", "voice-input.js", "voice-live.js", "voice-pcm-worklet.js",
     "demo.js", "intake.js", "local-file.js", "corrections.js", "correction-state.js", "history.js", "history-state.js", "calibration.js", "calibration-state.js",
-    "app.css", "main.js", "start.js", "edit.js", "evaluation.js",  # the current page; the files above it are the previous one's
+    "app.css", "main.js", "object-question.js", "start.js", "edit.js", "evaluation.js",  # the current page; the files above it are the previous one's
     "vendor/three/build/three.module.js", "vendor/three/build/three.core.js",
     "vendor/three/examples/jsm/controls/OrbitControls.js",
     # the 3D view's fixture models (frontend-d/assets/models/CREDITS.md) and the loader that reads them
