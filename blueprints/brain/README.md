@@ -87,7 +87,7 @@ mocked; actual transcription/speech quality must be checked with event credentia
 
 **Settings** (environment): `GEMINI_API_KEY`, `VERDA_INFERENCE_KEY` (Nemotron); `BLUEPRINTS_VISION_MODEL` (default `gemini-3.8-flash`; `gemini-4-carbon` reads better at ~3x the cost); `NEMOTRON_URL`, `NEMOTRON_MODEL`, `NEMOTRON_KEY_VAR` to switch Nemotron provider; `BLUEPRINTS_PASSWORD_HASH` from `python -m blueprints.api hash`.
 
-**Measured** on eval.py's 300 test questions: plain Gemini 4 Carbon 78.3%, plain Flash 72.7%, vision path 68% (Flash reader) / 71% (Carbon reader) with evidence on every answer. Nemotron answers multi-step questions (largest room, rooms over 12 m²) in 3–6 tool turns for about $0.002, and declines when the drawing lacks the data.
+**Measured** on eval.py's 300 test questions: plain Gemini 4 Carbon 78.3%, plain Flash 72.7%, vision path 68% (Flash reader) / 71% (Carbon reader) with evidence on every answer. Nemotron answers multi-step questions (largest room, rooms over 12 m²) in 3–6 tool turns for about $0.002, and declines when the drawing lacks the data. Agent benchmark (`bench_agent.py`, 66 multi-step Swiss questions with gold from the scene): Nemotron reasoning off 59%, reasoning on 86% ($0.004/question, 7 s median, the default), Gemini 4 Carbon 100% ($0.04, 26 s).
 
 All models are in [`../schemas.py`](../schemas.py).
 
