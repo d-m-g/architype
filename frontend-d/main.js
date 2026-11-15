@@ -621,6 +621,7 @@ export function showStart(){
  history.replaceState(null,'',location.pathname+'#ask');showPanel('ask');
 }
 $('open-another').onclick=showStart;
+document.querySelector('.brand').onclick=event=>{event.preventDefault();showStart();};  // the logo is the way home
 /** Open a dataset or uploaded drawing: show it at once, then outline what its reader finds. */
 export async function openDrawing(path,{name,question='',preview=null,restore=false}={}){
  resetDrawing();opening=true;const id=generation,key='drawing:'+path,saved=savedResults().find(d=>d.path===path);
