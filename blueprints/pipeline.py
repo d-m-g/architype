@@ -164,8 +164,10 @@ def answer(path: str, question: str, assumptions: dict | None = None, history: l
             steps += plan_steps
             from .brain.room_link_vision import execute_with_links
             result = execute_with_links(plan, scene)
-            from .brain.vision import checked
+            from .brain.vision import checked, from_reader
+            from .calibration import calibrate
             result = checked(result, plan, scene)  # rooms the vision reader added to an upload: no surer than the reader
+            result = calibrate(result, "vision" if from_reader(plan, scene) else scene.tier)  # raw score -> measured rate
         else:  # any other wording: look at what the scene holds, then decide (one model call, none on a repeat)
             from .brain.resolve import resolve
             result = resolve(question, scene, assumptions, history)

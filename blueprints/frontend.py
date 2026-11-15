@@ -17,6 +17,8 @@ PUBLIC = {
     "vendor/three/examples/jsm/utils/SkeletonUtils.js",
     "assets/models/toilet.glb", "assets/models/bathroomSinkSquare.glb", "assets/models/kitchenSink.glb",
     "assets/models/bathtub.glb", "assets/models/shower.glb",
+    # eval runs the Evaluation tab preloads (evaluation.js PRELOAD)
+    "runs/20261115-033300-pipeline.jsonl", "runs/20261114-215508-plain-gemini-4-carbon.jsonl",
 }
 
 class PublicFrontend(StaticFiles):

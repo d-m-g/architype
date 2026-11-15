@@ -164,14 +164,15 @@ def answer_from_vision(question: str, path: str, draft: Answer | None = None, hi
         except NotImplementedError as e:  # no model to decide with: escalate() hands it to the agent
             return Answer(tier="llm", error=str(e), trace=draft.trace + getattr(e, "steps", []) + (vision.trace if fresh else []))
     hits = set(result.evidence)
-    return result.model_copy(update={
+    from ..calibration import calibrate
+    return calibrate(result.model_copy(update={
         "tier": "llm",
         "confidence": VISION_CONFIDENCE if result.answer is not None else 0.0,
         "confidence_note": f"A fixed {VISION_CONFIDENCE:.0%} for answers on the vision model's reading of the drawing; "
                            f"the model gives no per-item score." if result.answer is not None else None,
         "extra_entities": [e for e in vision.entities if e.id in hits],  # the viewer has no scene to look these up in
         "trace": draft.trace + plan_steps + (vision.trace if fresh else []) + result.trace,
-    })
+    }), "vision")
 
 
 def _page_file(scene: Scene):

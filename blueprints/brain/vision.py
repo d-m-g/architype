@@ -251,6 +251,11 @@ def _image_connections(scene: Scene, path: str) -> bool:
 ADDED_KINDS = ("room", "apartment", "level")  # what add_rooms takes from the vision reader
 
 
+def from_reader(plan, scene: Scene) -> bool:
+    """Whether the answer rests on what add_rooms took from the vision reader, so it is rated as the reader is."""
+    return f"+{BUILDER}" in scene.builder and any(q.type in ADDED_KINDS for q in plan.queries.values())
+
+
 def checked(result, plan, scene: Scene):
     """An Answer about the kinds add_rooms took from the vision reader is no surer than the reader. When the reader
     listed nothing the question asks for, that is weak evidence of none (it named 5 zones on a sheet of 48 dorm

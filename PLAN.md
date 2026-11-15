@@ -105,7 +105,7 @@ The dataset gives us sibling files (the Swiss DXF, the IFC behind a plan PDF), a
 
 - **Viewer:** the server renders every format to a page image and the frontend draws an SVG overlay on it, so all formats share one code path.
 - **Evidence:** counted items get numbered highlights, with low-confidence ones in amber so the checker looks there first. Areas show the formula, for example `5.08 + 18.91 + … = 83.52 m²`.
-- **Buildings:** extrude room polygons per floor in three.js and stack them by level. What can be combined:
+- **Buildings:** show each floor's page image as a flat plate in three.js, stacked by level, with the evidence drawn on it. The gap between plates is display-only; no heights are invented (IFC storey elevations are an optional toggle). What can be combined:
   - IFC models: 52 of the 54 with questions have two or more storeys (median 4, max 19), and their plan PDFs link to the model by filename.
   - cubicasa: 963 images show 2–4 floors of one home side by side; split them and stack.
   - Finna: 12 sets have two or more sheets, grouped by the set id in the filename.
@@ -146,6 +146,21 @@ The dataset gives us sibling files (the Swiss DXF, the IFC behind a plan PDF), a
 | D | viewer, dashboard, 3D, voice add-on, demo | overlay viewer against a mocked scene |
 
 Rasters carry 67% of the questions, so A moves to raster room types and floors as soon as Swiss parsing passes the eval. IFC is 3% of the questions and comes after.
+
+### D's list (14 November)
+
+The overlay viewer, dashboard, illustrative 3D, dictation and read-aloud are done against mocks. Since the judged run is a few hard questions live in our UI, D works in this order:
+
+1. **End to end with real scenes.** Wire the viewer to the first real Swiss or detector scenes as A and B land them. FastAPI serves `frontend-d/` as static files so one public URL serves both.
+2. **Correct the model's results in the viewer.** Delete a false positive, draw a missed box, change a type, edit an area, confirm an amber item. The answer recalculates with no model call: the edited scene plus the same plan go through the existing executor. The card shows "corrected by user" with old and new values, and undo. Corrections append to a JSONL file as free labels for B's detector. Editable assumptions (tile size, waste) use the same path.
+   - Needs from C: the `QueryPlan` returned inside `Answer`, and `POST /api/recompute {scene, plan}` that runs the executor. Do not port the executor to JS.
+3. **Upload flow.** Drag and drop PDF, image, IFC or DXF; show which reader was chosen and the build stages; page picker for multi-page PDFs. Scale calibration: click two points, type a known length. Scans and hand drawings land in the amber "please verify" state, which leads into step 2.
+   - Needs from C: an upload endpoint.
+4. **Complex-question answers.** One highlight colour per formula variable, the formula with real numbers, Nemotron's tool-call trace on the card (required for the NVIDIA challenge), follow-up questions with a history on the same drawing.
+5. **Floor stack in 3D.** Replace the illustrative extrusions with page images as flat plates stacked by level, evidence drawn on each plate, 2D/3D selection sync kept. An explode slider and a solo-floor mode. Alignment: exact for IFC plan PDFs, wall bounding box for split cubicasa floors, drag to align for uploads and Finna sets (the same correction interaction as step 2). Hide 3D for single-page drawings. IFC storey elevations as an optional toggle.
+6. **Throughout:** cost and confidence visible on every live answer, abstention and error states that read as deliberate, the demo script and a backup video.
+
+Cut first if time runs short: step 5, then the Gemini-audio voice upgrade (only if browser recognition is poor on the demo machine).
 
 ## Models and credits
 

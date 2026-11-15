@@ -20,12 +20,12 @@ test('malformed audits use the existing evidence route rather than hiding ordina
   assert.equal(calculationAudit({trace:[{step:'calculation_evidence',detail}]}),null);
  }
 });
-test('60 percent cutoff is inclusive and explicit exclusions remain inspectable in the adapter',()=>{
+test('low scores are drawn dashed for review, not hidden; explicit exclusions remain inspectable in the adapter',()=>{
  const scene={schema_version:1,path:'uploads/x.png',builder:'test',tier:'detect',covers:['door'],pages:[{image:'uploads/x.png',width:100,height:100}],
   entities:[{id:'edge',type:'door',conf:.6,geom:[]},{id:'low',type:'door',conf:.59,geom:[]},
    {id:'legend',type:'door',conf:.9,geom:[],attrs:{calculation_excluded:true,calculation_exclusion_reason:'Legend symbol'}}]};
  const adapted=adaptScene(scene);
- assert.deepEqual(adapted.entities.map(e=>[e.id,e.calculationExcluded,e.uncertain]),[['edge',false,false],['low',true,true],['legend',true,false]]);
+ assert.deepEqual(adapted.entities.map(e=>[e.id,e.calculationExcluded,e.uncertain]),[['edge',false,false],['low',false,true],['legend',true,false]]);
  assert.equal(adapted.entities[2].calculationExclusion,'Legend symbol');
- assert.equal(calculationExclusion(scene.entities[1],{...scene,tier:'parse',path:'uploads/x.dxf'}),null);
+ assert.equal(calculationExclusion(scene.entities[1],scene),null);
 });
