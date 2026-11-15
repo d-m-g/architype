@@ -171,7 +171,7 @@ _LOGIN_PAGE = """<!doctype html>
  button{width:100%;min-height:44px;margin-top:12px;font:inherit;font-weight:600;color:#fff;background:var(--accent);border:0;border-radius:8px;cursor:pointer}
  .err{color:var(--bad);font-size:14px;min-height:1.5em;margin:10px 0 0}
 </style></head><body>
-<form id="f"><h1>ArchiType</h1><p>Enter the password for uploads, voice and live model calls. <a href="/">Back to the demo</a></p>
+<form id="f"><h1>ArchiType</h1><p>Enter the password for uploads, voice and live model calls. The password is in the project description. <a href="/">Back to the demo</a></p>
  <input id="pw" type="password" placeholder="Password" autocomplete="current-password" autofocus required>
  <button>Sign in</button><div class="err" id="err" role="alert"></div></form>
 <script>
