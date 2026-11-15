@@ -59,7 +59,8 @@ def _done(scene: Scene, seg: dict, detail: str) -> None:
 
 
 MARK = "+outlines:"  # in Scene.builder once a scene has its outlines, so a cached scene is not segmented again
-VERSION = 2  # @2: uploads keep the masks no reader's room matches, and get the spaces that rooms stand around
+VERSION = 3  # @2: uploads keep the masks no reader's room matches, and get the spaces that rooms stand around;
+#              @3: an outlined room names both readers in its ref and takes the mask's score when they agree on its type
 
 
 def _outlined(scene: Scene) -> bool:
@@ -161,8 +162,14 @@ def outline_rooms(scene: Scene, file: Path, seg: dict | None = None) -> bool:
                 for e in scene.entities if e.type in ("door", "window") and len(e.geom) >= 3]
     for i, o in outlines.items():
         room = rooms[i]
-        if i in pairs:
-            room.geom = _geom(seg["rooms"][pairs[i]]["polygon"])
+        if i in pairs:  # the reader's room, the segmenter's outline: the room says so, and how sure the outline is
+            f = seg["rooms"][pairs[i]]
+            room.geom = _geom(f["polygon"])
+            room.attrs["outline_score"] = round(f["score"], 2)
+            if room.ref:
+                room.ref = f"{room.ref.split(' + seg:')[0]} + seg:{pairs[i]}"
+            if f["cls"] == room.subtype:  # two readers that call it the same kind of room
+                room.conf = max(room.conf, f["score"])
         if not m_per_px:
             continue
         area = round(o.area * m_per_px ** 2, 2)
@@ -209,7 +216,8 @@ if __name__ == "__main__":
     def upload(printed=True):
         vis = lambda i, b, **more: Entity(id=f"vis-room-{i}", type="room", geom=box(*b), conf=0.7, **more)
         return Scene(path="uploads/x.png", builder="fixtures-6:tiled@2+vision:x@5", tier="detect", covers=["room", "door"], pages=[page], entities=[
-            vis(0, (0.09, 0.1, 0.5, 0.62), qty={"m2": 20.0} if printed else {}), vis(1, (0.52, 0.12, 0.8, 0.4)), vis(2, (0.1, 0.7, 0.2, 0.8)),
+            vis(0, (0.09, 0.1, 0.5, 0.62), qty={"m2": 20.0} if printed else {}, subtype="bedroom", ref="gem:0"),
+            vis(1, (0.52, 0.12, 0.8, 0.4), subtype="kitchen", ref="gem:1"), vis(2, (0.1, 0.7, 0.2, 0.8)),
             Entity(id="det-0", type="door", geom=box(0.6, 0.39, 0.69, 0.41), conf=0.9)])
     seen = out(found("bedroom", box(0.1, 0.1, 0.5, 0.6)), found("other", box(0.5, 0.1, 0.8, 0.4)))
     u = upload()
@@ -219,6 +227,8 @@ if __name__ == "__main__":
     assert b.qty == {"m2": 9.0, "m": 12.0, "wall_m2": 28.2} and b.attrs["area_estimated"] and b.attrs["wall_openings"] == 1
     assert list(b.qty)[0] == "m2" and b.geom == box(0.5, 0.1, 0.8, 0.4) and c.geom == box(0.1, 0.7, 0.2, 0.8) and not c.qty
     assert "10.0 mm per pixel from 1 printed" in u.trace[-1].detail
+    # A is a bedroom to both readers, so it takes the mask's score; B is a kitchen to one and "other" to the other
+    assert (a.conf, a.ref, a.attrs["outline_score"]) == (0.9, "gem:0 + seg:0", 0.9) and (b.conf, b.ref) == (0.7, "gem:1 + seg:1")
     Scene.model_validate(u.model_dump())
     assert not outline_rooms(u, Path("x.png"), seen) and len(u.trace) == 1  # already outlined
     # no printed area: outlines only; nothing overlapping: nothing changes

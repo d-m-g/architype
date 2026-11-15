@@ -135,6 +135,17 @@ def answer(path: str, question: str) -> Answer:
         plan, plan_steps = plan_with_trace(question, scene)
         steps += plan_steps
         result = execute(plan, scene)
+        # A filter naming something the drawing calls otherwise ("kitchen" for "Küche") matched nothing: one small
+        # model call picks the drawing's own name, and the executor runs the plan again. No call when every name is known.
+        from .brain import resolve
+        renamed, more = resolve.rename(plan, scene)
+        steps += more
+        if renamed:
+            plan, result = renamed, resolve.capped(execute(renamed, scene))
+        elif more:  # asked, and nothing in the drawing stands for that name: not a confident zero, the agent decides
+            _, field, asked, values = next(u for u in resolve.unknown(plan, scene) if f"{u[1]} {u[2]!r}" in more[-1].detail)
+            result = Answer(tier=scene.tier, trace=result.trace, error=f"nothing in this drawing has the {field} {asked!r}; "
+                            f"its {field}s are: {', '.join(values[:30])}")
         from .brain.vision import checked
         result = checked(result, plan, scene)  # rooms the vision reader added to an upload: no surer than the reader
     except Exception as e:  # a crashed builder (e.g. an undeployed Modal app) escalates instead of failing the answer
