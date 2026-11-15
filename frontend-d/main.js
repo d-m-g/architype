@@ -651,7 +651,9 @@ export async function openDrawing(path,{name,question='',preview=null,restore=fa
  steps([{state:'done',text:'Drawing opened'},{state:'active',text:'Finding rooms, doors, windows and fixtures'}]);
  stageStatus('Reading the drawing');
  try{
-  const raw=snapshot?.raw??await (reading=track(getDrawingScene(path)));
+  // Cached answers off: the server reads the drawing again, so the copy kept in this browser is not reused.
+  const fresh=document.cookie.split('; ').includes('blueprints_fresh=1');
+  const raw=(!fresh&&snapshot?.raw)||await (reading=track(getDrawingScene(path)));
   if(id!==generation)return;
   setScene(raw);steps(null);
  }catch(error){
@@ -836,7 +838,7 @@ export function showPanel(name){
  panel=name==='evaluation'?'evaluation':'ask';
  for(const section of document.querySelectorAll('[data-workspace-panel]'))section.hidden=section.dataset.workspacePanel!==panel;
  for(const link of document.querySelectorAll('.tabs [data-panel]'))link.toggleAttribute('aria-current',link.dataset.panel===panel);
- document.title=panel==='ask'?'Blueprints Talk':'Evaluation · Blueprints Talk';
+ document.title=panel==='ask'?'ArchiType':'Evaluation · ArchiType';
  renderer?.setVisible?.(mode==='3d'&&panel==='ask');
  if(panel==='ask')updateView(false);
 }

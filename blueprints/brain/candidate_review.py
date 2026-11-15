@@ -63,7 +63,7 @@ def _apply(entity, verdict):
 
 def apply_cached(scene):
     """Re-apply earlier verdicts; no model call."""
-    if not scene.path.lower().endswith(pipeline.IMAGES):
+    if not scene.path.lower().endswith(pipeline.IMAGES) or not pipeline.use_cache():
         return 0
     directory, changed = _directory(scene), 0
     if not directory.exists():
@@ -145,7 +145,7 @@ def review(plan, scene):
         return []
     reused = apply_cached(scene)
     directory = _directory(scene)
-    pending = [e for e in candidates(plan, scene) if not _file(directory, e).exists()][:MAX_OBJECTS]
+    pending = [e for e in candidates(plan, scene) if not (pipeline.use_cache() and _file(directory, e).exists())][:MAX_OBJECTS]
     if not pending or not pipeline.model_key():
         return [TraceStep(step="review_candidates", cached=True, detail=f"Reused {reused} earlier verdicts; no new model call.")] if reused else []
     try:

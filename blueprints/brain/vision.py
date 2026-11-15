@@ -198,7 +198,7 @@ def not_a_floor_plan(scene: Scene) -> str | None:
 def read_scene(path: str) -> tuple[Scene, bool]:
     """The vision scene for a drawing and whether it was built just now (so its cost belongs to this answer)."""
     cached = pipeline.CACHE / "scenes" / "vision" / (hashlib.md5(f"{BUILDER}:{path}".encode()).hexdigest() + ".json")
-    if pipeline.READ_CACHE and cached.exists():
+    if pipeline.use_cache() and cached.exists():
         scene = Scene.model_validate_json(cached.read_text())
         if _image_connections(scene, path):
             cached.write_text(scene.model_dump_json(), encoding="utf-8")

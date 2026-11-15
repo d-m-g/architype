@@ -206,7 +206,7 @@ test('reopening a saved upload restores the displayed answer, corrections and ca
   entries:[{question:'Older answer',payload:{rawAnswer:{answer:7}}}],edited:true,corrected:'Corrected',page:1,
   generalView:false,layers:['door'],selected:'user-door',askAbout:'user-door',view:{x:5,y:10,w:200,h:300},draft:'Next question'};
  const nodes=new Map(),node=id=>{if(!nodes.has(id))nodes.set(id,{focus(){}});return nodes.get(id);};
- const state={},context={state,URL,location:{href:'https://example.test/?path=old&question=old'},history:{replaceState(){}},
+ const state={},context={state,URL,document:{cookie:'blueprints_fresh=0'},location:{href:'https://example.test/?path=old&question=old'},history:{replaceState(){}},
   generation:0,opening:false,ACTIVE:'active',savedResults:()=>[],workspaceStorage:{load:async()=>snapshot},localStorage:{setItem(){}},
   historyStore:createHistoryStore(),$:node,resetDrawing(){},storageWarning:assert.fail,
   showPanel(){},setView(){},autosize(){},showImage(){},fit(){},renderDrawingSide(){},renderAnswer(){},sourcePreviewKind:()=>false,

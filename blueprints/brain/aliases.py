@@ -51,7 +51,7 @@ def _ask(kind: str, field: str, asked: str, values: list[str]) -> tuple[str | No
     """The drawing's value for `asked`, or None; cached per question of this kind, so a repeat is free."""
     key = hashlib.md5(json.dumps([kind, field, asked.strip().casefold(), values], ensure_ascii=False).encode()).hexdigest()
     cached = pipeline.CACHE / "resolved" / f"{key}.json"
-    if pipeline.READ_CACHE and cached.exists():
+    if pipeline.use_cache() and cached.exists():
         return json.loads(cached.read_text(encoding="utf-8"))["match"], [llm_step("aliases", GEMINI_MODEL, 0, 0, 0, cached=True)]
     api_key = pipeline.model_key()
     if not api_key or len(values) > MAX_VALUES:

@@ -120,7 +120,7 @@ def _accept(scene, entity, decision):
 
 def apply_cached(scene):
     """Apply previous decisions without requesting a model or billing the original call again."""
-    if not scene.path.lower().endswith(pipeline.IMAGES):
+    if not scene.path.lower().endswith(pipeline.IMAGES) or not pipeline.use_cache():
         return 0
     directory = _directory(scene)
     changed = 0
@@ -239,7 +239,7 @@ def resolve(scene, kind):
         reused = apply_cached(scene)
         directory = _directory(scene)
         pending = [e for e in scene.entities if e.type == kind and e.attrs.get("room_link_status") in ("partial", "uncertain")
-                   and e.geom and not _file(directory, e).exists()][:MAX_OBJECTS]
+                   and e.geom and not (pipeline.use_cache() and _file(directory, e).exists())][:MAX_OBJECTS]
         if not pending or not pipeline.model_key():
             reviewed = any(e.type == kind and "room_link_review" in e.attrs for e in scene.entities)
             return [TraceStep(step="resolve_room_connections", cached=True, detail=f"Reused {reused} vision connections and cached reviews; no new model call.")] if reused or reviewed else []

@@ -18,9 +18,15 @@ READ_CACHE = True  # eval.py --fresh turns this off while you iterate on a build
 ESCALATE_BELOW = 0.5  # ponytail: one fixed threshold; tune it on the eval's cost-against-accuracy curve
 _BUILT_NOW: set[str] = set()  # scenes built in this process; the next answer on that drawing pays their cost
 # Set per request by api.py. GUEST: a visitor without the password, answered from caches and the data, no model call.
-# FRESH: a signed-in user turned cached answers off, so plans and decisions are asked of the model again.
+# FRESH: a signed-in user turned cached answers off, so everything is asked of the models again: the scene (detector,
+# segmenter, vision reader), plans, decisions, name matches and reviews.
 GUEST = ContextVar("guest", default=False)
 FRESH = ContextVar("fresh", default=False)
+
+
+def use_cache() -> bool:
+    """Whether a model's cached result may stand in for calling it."""
+    return READ_CACHE and not FRESH.get()
 
 
 def model_key(name: str = "GEMINI_API_KEY") -> str | None:
@@ -97,14 +103,21 @@ def build_scene(path: str) -> Scene:
     raise NotImplementedError(f"no scene builder for {source}")
 
 
-@lru_cache(maxsize=16)
 def get_scene(path: str) -> Scene:
-    """The scene for a drawing, from .cache/scenes/<source>/ when it was built before."""
+    """The scene for a drawing, from .cache/scenes/<source>/ when it was built before; built by the models again when
+    cached answers are off."""
+    return _scene(path, FRESH.get())
+
+
+# ponytail: with cached answers off a drawing is rebuilt once per server process, then held like any other; key it on
+# the request if every question must rebuild (30 s on a large sheet).
+@lru_cache(maxsize=16)
+def _scene(path: str, rebuild: bool) -> Scene:
     if not path.startswith("uploads/"):  # uploads are checked by build_scene; their names are content hashes
         dataset_file(path)
     cached = scene_file(path)
     from .brain.room_types import add_room_types  # room labels in any language -> room types (Küche -> kitchen)
-    fresh = not (READ_CACHE and cached.exists())
+    fresh = not (READ_CACHE and not rebuild and cached.exists())
     try:
         scene = None if fresh else Scene.model_validate_json(cached.read_bytes())
     except ValueError:  # written before scenes were saved as UTF-8 (Windows wrote cp1252): build it again
@@ -148,6 +161,9 @@ def get_scene(path: str) -> Scene:
         cached.parent.mkdir(parents=True, exist_ok=True)
         cached.write_text(scene.model_dump_json(), encoding="utf-8")  # IFC labels like "Ściana" are not in cp1252
     return scene
+
+
+get_scene.cache_clear = _scene.cache_clear
 
 
 def answer(path: str, question: str, assumptions: dict | None = None, history: list | None = None) -> Answer:
