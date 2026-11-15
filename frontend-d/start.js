@@ -47,7 +47,7 @@ async function take(file){
   if(prepared.type==='application/pdf')preview=await renderPDFPreview(prepared.blob).catch(()=>null);
   else if(prepared.width)preview={displayURL:objectURL=URL.createObjectURL(prepared.blob),width:prepared.width,height:prepared.height};
   showProgress(`Uploading ${file.name}`,0);
-  const uploaded=await track(upload(prepared.blob,prepared.name,fraction=>showProgress(`Uploading ${file.name}`,fraction)));
+  const uploaded=await track(upload(prepared.blob,prepared.name,fraction=>fraction<1?showProgress(`Uploading ${file.name}`,fraction):showProgress('Checking that it is a floor plan',null)));
   openDrawing(uploaded.path,{name:file.name,preview});
  }catch(error){
   // local-file.js already words its own validation errors; transport errors get the recovery copy.

@@ -281,6 +281,14 @@ def add_rooms(scene: Scene, path: str, seen: Scene | None = None) -> bool:
             seen = read_scene(path)[0]
         except NotImplementedError:
             return False
+    kind = not_a_floor_plan(seen)
+    if kind:  # the reader saw no floor plan: the detector's boxes on it are not doors or fixtures (a bridge's arch, a map marker)
+        if not_a_floor_plan(scene):
+            return False
+        scene.entities, scene.covers = [], []
+        scene.trace += seen.trace
+        scene.builder += f"+{BUILDER}{NOT_A_PLAN}{kind}"
+        return True
     kinds = ADDED_KINDS
     covers = [c for c in seen.covers if c.partition(":")[0] in kinds and c not in scene.covers]
     if not covers:
@@ -330,7 +338,11 @@ if __name__ == "__main__":  # self-check of the conversion, no model call
     assert Counter(e.type for e in det.entities) == {"door": 1, "room": 3, "apartment": 1, "level": 2}
     assert {"room", "room:bedroom", "level", "apartment", "door"} <= set(det.covers) and "window" not in det.covers
     assert det.entities[0].conf == 0.9 and all(e.conf < 1 for e in det.entities[1:]) and "+vision:" in det.builder
-    assert not_a_floor_plan(det) is None and not add_rooms(det.model_copy(update={"covers": ["door"]}), "uploads/x.png", section)
+    assert not_a_floor_plan(det) is None
+    # a drawing the reader says is no floor plan keeps none of the detector's boxes, and covers nothing, so it answers nothing
+    bridge = det.model_copy(update={"covers": ["door"], "entities": [door]}, deep=True)
+    assert add_rooms(bridge, "uploads/x.png", section) and not add_rooms(bridge, "uploads/x.png", section)
+    assert not bridge.entities and not bridge.covers and not_a_floor_plan(bridge) == "section"
     Scene.model_validate(det.model_dump())
     # no sauna was listed: weak evidence of none, so no answer (the pipeline escalates); a listed bedroom is as sure
     # as the reader; the detector's own doors are left alone
