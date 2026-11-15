@@ -29,6 +29,13 @@ COVERS = sorted({f"{t}:{s}" if s else t for t, s, _ in KINDS.values()})
 # escalate instead of trusting a "bedroom" found in a school.
 UPLOAD_CLASSES = ("door", "window", "toilet", "sink", "bathtub", "shower")
 UPLOAD_COVERS = ["door", "window", "fixture:toilet", "fixture:sink", "fixture:bathtub", "fixture:shower"]
+TILED = "fixtures-6:tiled@3"  # @3: a sheet whose doors came out small is run again at a larger scale (train.rescale)
+
+
+def stale(scene: Scene) -> bool:
+    """A cached upload scene from an older tiled detector: built again, so the upload gets today's detections."""
+    head = scene.builder.split("+")[0]
+    return head.startswith("fixtures-6:tiled@") and head != TILED
 
 
 def build_scene(path: str, file: Path, upload: bool = False) -> Scene:
@@ -41,7 +48,10 @@ def build_scene(path: str, file: Path, upload: bool = False) -> Scene:
     out = detect.remote(file.read_bytes(), tile=upload)
     if upload:
         out["boxes"] = [b for b in out["boxes"] if b["cls"] in UPLOAD_CLASSES]
-        return scene_from(path, out, covers=UPLOAD_COVERS, merge=False)
+        scene = scene_from(path, out, covers=UPLOAD_COVERS, merge=False)
+        if out["model"] == TILED.split("@")[0]:
+            scene.builder = TILED
+        return scene
     return scene_from(path, out)
 
 
@@ -118,6 +128,10 @@ if __name__ == "__main__":
     got = merge_windows([w(0.1, 0.2), w(0.2, 0.3), w(0.5, 0.6), {"cls": "door", "score": 0.9, "box": [0.1, 0.1, 0.2, 0.2]}], 1000, 1000)
     assert sorted(round(b["box"][0], 2) for b in got if b["cls"] == "window") == [0.1, 0.5], got
     assert sum(b["cls"] == "door" for b in got) == 1
+    # an upload detected before rescaling is built again; today's, a single-pass upload and a CubiCasa scene are not
+    sc = lambda b: Scene(path="uploads/x.png", builder=b, tier="detect", covers=[], pages=[])
+    assert stale(sc("fixtures-6:tiled@2+vision:gemini-3.8-flash@5+outlines:rooms-1@4"))
+    assert not any(stale(sc(b)) for b in (TILED + "+vision:g@5", "fixtures-6+all-13@2+vision:g@5", "fixtures-6+all-13@2"))
     # same x-range but different walls (rows) do not merge
     assert len(merge_windows([w(0.1, 0.2, 0.1), w(0.2, 0.3, 0.6)], 1000, 1000)) == 2
     print("ok")

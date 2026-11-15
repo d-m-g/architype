@@ -114,6 +114,10 @@ def get_scene(path: str) -> Scene:
         current = {b.split("@")[0]: b for b in (ifc.BUILDER, pdf.BUILDER, swiss.BUILDER, swiss.UPLOAD_BUILDER)}
         if current.get(scene.builder.split("@")[0], scene.builder) != scene.builder:
             scene, fresh = None, True
+    if scene and read_as_image(path):  # detected by an older tiled detector: detected again (the vision reader runs again too)
+        from .detector import raster
+        if raster.stale(scene):
+            scene, fresh = None, True
     scene = scene or build_scene(path)
     if read_as_image(path) and scene.tier == "detect" and "room" not in scene.covers:
         # A PNG or JPG: the detector finds doors, windows and fixtures, and the vision reader adds rooms by
