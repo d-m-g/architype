@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 
 from .. import pipeline
 from ..costs import llm_step
-from ..schemas import Entity, Page, Scene, SUBTYPES
+from ..schemas import Entity, Page, Scene, SUBTYPES, TraceStep
 from .plan import GEMINI_URL
 
 VISION_MODEL = os.environ.get("BLUEPRINTS_VISION_MODEL", "gemini-3.8-flash")
@@ -60,7 +60,6 @@ class _Reply(BaseModel):
     """The structured output the model must return; JSON mode alone let Flash emit broken JSON on ~18% of drawings."""
     is_floor_plan: bool
     drawing_kind: str  # "floor plan", or what it is instead: "section", "elevation", "site plan", "photo", ...
-    rotation: Literal[0, 90, 180, 270] = 0  # clockwise turn that makes the drawing's text read upright
     floors: list[_Item]
     apartments: list[_Named]
     rooms: list[_Room]
@@ -71,7 +70,6 @@ class _Reply(BaseModel):
 
 PROMPT = f"""Look at this drawing. If it is a floor plan, list everything below that is drawn, as JSON only:
 {{"is_floor_plan": true or false, "drawing_kind": "floor plan", or what it is instead (section, elevation, detail, site plan, photo, schedule, text),
- "rotation": 0, 90, 180 or 270: how many degrees clockwise the image must be turned for most of its text (room names, areas) to read upright,
  "floors": [{{"box_2d": [ymin, xmin, ymax, xmax]}}],
  "apartments": [{{"label": "the apartment's name as written, e.g. A", "box_2d": [...]}}],
  "rooms": [{{"label": "the room's name only", "number": "the room's number, e.g. 3.01, or null",
@@ -156,7 +154,6 @@ def to_scene(path: str, page: Page, found: dict) -> Scene:
         kind = str(found.get("drawing_kind") or "not a floor plan")[:40].replace(":", " ")
         return Scene(path=path, builder=f"{BUILDER}{NOT_A_PLAN}{kind}", tier="detect", covers=[], pages=[page])
     entities: list[Entity] = []
-    turn = found.get("rotation") if found.get("rotation") in (90, 180, 270) else 0
 
     def add(kind: str, subtype: str | None, item: dict, label: str | None = None, **more):
         try:
@@ -187,17 +184,99 @@ def to_scene(path: str, page: Page, found: dict) -> Scene:
         if item.get("type") in FIXTURE_TYPES:
             add("fixture", item["type"], item)
     covers = ["level", "apartment", "room", "door", "window"] + [f"room:{t}" for t in ROOM_TYPES] + [f"fixture:{t}" for t in FIXTURE_TYPES]
-    return Scene(path=path, builder=BUILDER + (f"{TURN}{turn}" if turn else ""), tier="detect", covers=covers, pages=[page], entities=entities)
+    return Scene(path=path, builder=BUILDER, tier="detect", covers=covers, pages=[page], entities=entities)
 
 
 BUILDER = f"vision:{VISION_MODEL}@5"  # bump the version when the prompt or the conversion changes; it keys the cache
 NOT_A_PLAN = ":not-a-floor-plan:"  # builder suffix for drawings the reader refused, followed by what they are
-TURN = ":turn-"  # builder suffix for an image the reader saw rotated, followed by the clockwise degrees that make it upright
+TILE, BAND = 1024, 72  # the orientation sheet: tile side and the label band above each tile, pixels
+TURNS = {"A": 0, "B": 90, "C": 180, "D": 270}  # tile label -> clockwise turn of the drawing shown in it
 
 
-def turn_needed(scene: Scene) -> int:
-    """Clockwise degrees that would make the drawing upright, as the vision reader saw it; 0 when it is upright."""
-    return int(scene.builder.split(TURN, 1)[1].split(":")[0]) if TURN in scene.builder else 0
+class _Glance(BaseModel):
+    is_floor_plan: bool
+    drawing_kind: str
+    upright: Literal["A", "B", "C", "D"]
+
+
+GLANCE = """The image shows ONE drawing four times, in tiles labelled A, B, C and D. Each tile shows it turned a different way.
+Reply as JSON only: {"is_floor_plan": true or false, "drawing_kind": "floor plan" or what it is instead (section, elevation, detail, site plan, map, photo, schedule, text), "upright": "A", "B", "C" or "D"}
+- upright: the tile in which the drawing's text (room names, numbers, dimensions, the title) reads the normal way: left to
+  right, not upside down, not sideways. Read a few words in each tile before choosing. If text runs several ways, choose
+  the tile where most of it is upright. If there is no text at all, choose A.
+- is_floor_plan: true only for a plan view of a building's rooms (a floor plan or an apartment layout)."""
+
+
+def _four_ways(image) -> bytes:
+    """The drawing turned 0, 90, 180 and 270 degrees clockwise, as four labelled tiles in one JPEG. Choosing the upright
+    tile is a comparison, which a vision model does far better than naming an angle for a single image."""
+    import io
+
+    from PIL import Image, ImageDraw, ImageFont
+    image = image.convert("RGB")
+    image.thumbnail((TILE, TILE))
+    sheet = Image.new("RGB", (2 * TILE, 2 * (TILE + BAND)), "white")
+    draw, font = ImageDraw.Draw(sheet), ImageFont.load_default(size=56)
+    for i, (label, turn) in enumerate(TURNS.items()):
+        tile = image.rotate(-turn, expand=True)
+        x, y = (i % 2) * TILE, (i // 2) * (TILE + BAND)
+        draw.rectangle([x, y, x + TILE - 1, y + BAND - 1], fill="black")
+        draw.text((x + 20, y + 4), label, fill="white", font=font)
+        sheet.paste(tile, (x + (TILE - tile.width) // 2, y + BAND + (TILE - tile.height) // 2))
+    out = io.BytesIO()
+    sheet.save(out, "JPEG", quality=85)
+    return out.getvalue()
+
+
+def _checked(path: str) -> Path:
+    return pipeline.CACHE / "checked" / (path.split("/", 1)[1] + ".json")
+
+
+def glance(path: str) -> dict | None:
+    """Before anything reads an upload: is it a floor plan, and which way up is it? One small call, kept beside the
+    upload so a drawing is only asked once. {"kind": what it is when not a floor plan, else None, "turn": clockwise
+    degrees that make it upright, "steps": the call's cost}. None when there is no reader (no key) or the call fails:
+    the upload then goes through unchecked, as before."""
+    import io
+    import json
+
+    from PIL import Image
+    done = _checked(path)
+    if done.exists():
+        return json.loads(done.read_text(encoding="utf-8"))
+    key = os.environ.get("GEMINI_API_KEY")
+    if not key:
+        return None
+    import openai
+    try:
+        sheet = _four_ways(Image.open(io.BytesIO(_page(path)[0])))
+    except OSError:
+        return None  # not an image Pillow reads: the readers say so when they open it
+    client = openai.OpenAI(api_key=key, base_url=GEMINI_URL, max_retries=1, timeout=45)
+    schema = {"type": "json_schema", "json_schema": {"name": "Glance", "schema": _Glance.model_json_schema()}}
+    t0 = time.perf_counter()
+    try:
+        reply = client.chat.completions.create(model=VISION_MODEL, response_format=schema, temperature=0, messages=[{"role": "user", "content": [
+            {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(sheet).decode()}},
+            {"type": "text", "text": GLANCE}]}])
+        seen = _Glance.model_validate_json(reply.choices[0].message.content or "")
+    except (openai.OpenAIError, ValueError):
+        return None
+    step = llm_step("orientation", VISION_MODEL, reply.usage.prompt_tokens, reply.usage.completion_tokens, (time.perf_counter() - t0) * 1000)
+    turn = TURNS[seen.upright]
+    kind = None if seen.is_floor_plan else (seen.drawing_kind or "not a floor plan")[:40].replace(":", " ")
+    step.detail = f"Read as {kind}" if kind else f"Upright as drawn" if not turn else f"Turned {turn}° clockwise to read upright"
+    result = {"kind": kind, "turn": turn, "steps": [step.model_dump(mode="json")]}
+    done.parent.mkdir(parents=True, exist_ok=True)
+    done.write_text(json.dumps(result), encoding="utf-8")
+    return result
+
+
+def glance_steps(path: str) -> list[TraceStep]:
+    """What the upload check cost, for the drawing's first answer card."""
+    import json
+    done = _checked(path) if path.startswith("uploads/") else None
+    return [TraceStep.model_validate(s) for s in json.loads(done.read_text(encoding="utf-8"))["steps"]] if done and done.exists() else []
 
 
 def upright(file: Path, turn: int = 0) -> bool:
@@ -217,8 +296,12 @@ def upright(file: Path, turn: int = 0) -> bool:
 
 
 def forget(path: str) -> None:
-    """Drop the cached vision read of a drawing, after its file changed (turned upright)."""
+    """Drop everything cached from a drawing's pixels, after its file was turned upright: the vision read, the detector
+    scene, the scaled page the viewer shows, and the scenes held in memory."""
     (pipeline.CACHE / "scenes" / "vision" / (hashlib.md5(f"{BUILDER}:{path}".encode()).hexdigest() + ".json")).unlink(missing_ok=True)
+    pipeline.scene_file(path).unlink(missing_ok=True)
+    (pipeline.CACHE / "pages" / f"{hashlib.md5(path.encode()).hexdigest()}-view.png").unlink(missing_ok=True)
+    pipeline._scene.cache_clear()
 
 
 def not_a_floor_plan(scene: Scene) -> str | None:
@@ -366,10 +449,11 @@ if __name__ == "__main__":  # self-check of the conversion, no model call
     section = to_scene("data/x.png", page, {"is_floor_plan": False, "drawing_kind": "section", "doors": [{"box_2d": [1, 1, 2, 2]}]})
     assert not section.entities and not section.covers and not_a_floor_plan(section) == "section"
     assert not_a_floor_plan(s) is None
-    turned = to_scene("data/x.png", page, {"rotation": 90, "rooms": [{"label": "K", "type": "kitchen", "box_2d": [1, 1, 2, 2]}]})
-    assert turn_needed(turned) == 90 and turn_needed(s) == 0 and turn_needed(to_scene("data/x.png", page, {"rotation": 45})) == 0
+    import io
     import tempfile
     from PIL import Image
+    sheet = Image.open(io.BytesIO(_four_ways(Image.new("RGB", (400, 200), "white"))))
+    assert sheet.size == (2 * TILE, 2 * (TILE + BAND))  # four labelled tiles, each way up once
     with tempfile.TemporaryDirectory() as folder:  # a 40 x 20 image, turned 90 degrees clockwise: 20 x 40, its top-left pixel now top-right
         file = Path(folder) / "plan.png"
         image = Image.new("RGB", (40, 20), "white")

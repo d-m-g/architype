@@ -131,7 +131,11 @@ def _scene(path: str, rebuild: bool) -> Scene:
         from .detector import raster
         if raster.stale(scene):
             scene, fresh = None, True
-    scene = scene or build_scene(path)
+    if scene is None:
+        scene = build_scene(path)
+        if path.startswith("uploads/"):  # the upload's floor-plan and orientation check belongs to the drawing's cost
+            from .brain.vision import glance_steps
+            scene.trace = glance_steps(path) + scene.trace
     if read_as_image(path) and scene.tier == "detect" and "room" not in scene.covers:
         # A PNG or JPG: the detector finds doors, windows and fixtures, and the vision reader adds rooms by
         # type, apartments and floors, so it gives what a PDF upload gives. Done here, not in build_scene, so scenes
