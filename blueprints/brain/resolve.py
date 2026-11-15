@@ -33,11 +33,13 @@ from pydantic import ValidationError
 from .. import pipeline
 from ..costs import llm_step
 from ..executor import evaluate
+from ..outlines import HEIGHT_M
 from ..room_queries import endpoints
 from ..schemas import SUBTYPES, Answer, EntityType, Scalar, Scene, Strict, TraceStep, Unit
 from .plan import GEMINI_MODEL, GEMINI_URL
 
 UNITS = ("m2", "m", "m3", "ft2", "wall_m2")
+WALL_HEIGHT = "wall_height_m"  # the assumption a room's wall_m2 rests on when the drawing records no height
 BASE = ("id", "type", "subtype", "label", "number", "level", "apartment", "outdoor", "page", "conf")
 LINKED = ("door", "window", "fixture")  # the types that carry room links
 SIZES = ("width_m", "length_m", "height_m", "thickness_m")  # always columns, so asking for one not recorded reads NULL
@@ -175,6 +177,27 @@ def run(conn: sqlite3.Connection, sql: str) -> list[dict]:
     return [dict(zip(names, row)) for row in rows]
 
 
+def _wall_height(conn: sqlite3.Connection, scene: Scene, height: float) -> set[str]:
+    """Set wall_m2 in the table for the rooms whose wall area rests on an assumed height, at `height`; return their ids.
+    From each room's own values, so calling it again with another height replaces, never compounds.
+    ponytail: openings keep their own heights, so a wall lower than its doors counts too little cut out; outlines.surface
+    with the room's outline is the exact upgrade if anyone asks about walls under 2.1 m."""
+    rooms = [e for e in scene.entities if e.attrs.get("wall_height_assumed") and e.qty.get("wall_m2") is not None]
+    rows = []
+    for e in rooms:
+        cut, h0 = e.attrs.get("wall_openings_m2", 0), e.attrs.get("wall_height_m") or HEIGHT_M
+        rows.append((round(max((e.qty["wall_m2"] + cut) / h0 * height - cut, 0), 2), e.id))  # perimeter x height - openings
+    conn.set_authorizer(None)
+    try:
+        conn.execute("PRAGMA query_only = 0")
+        conn.executemany("UPDATE entities SET wall_m2 = ? WHERE id = ?", rows)
+        conn.commit()
+        conn.execute("PRAGMA query_only = 1")
+    finally:
+        conn.set_authorizer(_authorize)
+    return {e.id for e in rooms}
+
+
 # ---- 1. the inventory ----
 
 def _listed(values, cap: int) -> str:
@@ -288,6 +311,10 @@ A selected drawing object includes its exact id: filter entities.id by that id f
 links.room_id for objects connected to a selected room. Selection is not a measurement; missing sizes stay missing.
 A building's or storey's floor area is the m2 of its rooms. Only in a model without rooms (a structural model) is it
 the m2 of slabs with subtype 'floor', never every slab: roof slabs are not floor area.
+A room's wall_m2 is its wall area net of doors and windows (paint, wallpaper, wall tiles); its unit is m2. Read it,
+never perimeter times a height. Where the drawing records no height it is at an assumed 2.5 m, which the server shows
+on the answer. Only if the question states a wall or ceiling height, put it in assumptions as wall_height_m and still
+read wall_m2: the server recomputes wall_m2 at that height.
 
 Examples (the inventory decides the real column values):
 "How big is the kitchen?" -> {"kind": "direct", "queries": {"a": "SELECT sum(m2) AS value, group_concat(id) AS ids FROM entities WHERE type = 'room' AND subtype = 'kitchen'"}, "unit": "m2"}
@@ -296,7 +323,9 @@ Examples (the inventory decides the real column values):
 "Which room has the most doors?" -> {"kind": "direct", "queries": {"q": "SELECT r.id, count(d.id) AS value, group_concat(d.id) AS ids FROM entities r JOIN links l ON l.room_id = r.id JOIN entities d ON d.id = l.entity_id AND d.type = 'door' WHERE r.type = 'room' GROUP BY r.id ORDER BY value DESC"}, "answer": "top", "unit": "count"}
 "Total width of the windows in the bedrooms?" -> {"kind": "direct", "queries": {"w": "SELECT sum(m) AS value, group_concat(id) AS ids FROM entities WHERE type = 'window' AND id IN (SELECT l.entity_id FROM links l JOIN entities r ON r.id = l.room_id WHERE r.subtype = 'bedroom')"}, "unit": "m"}
 "What would parquet at 85 per m2 cost for room 7.03?" -> {"kind": "computed", "queries": {"area": "SELECT m2 AS value, id FROM entities WHERE type = 'room' AND number = '7.03'"}, "formula": "area * price_per_m2", "assumptions": {"price_per_m2": 85}, "interpretation": "Floor area times the stated price; the answer is in the price's currency."}
-"How much paint for the walls of room 7.03?" (no room height recorded) -> {"kind": "missing", "missing": "the ceiling height of room 7.03: no height is recorded for rooms in this drawing", "needs": {"ceiling_height_m": "ceiling height in metres"}, "queries": {"p": "SELECT m AS value, id FROM entities WHERE type = 'room' AND number = '7.03'"}, "formula": "p * ceiling_height_m", "unit": "m2"}
+"How much paint for the walls of room 7.03?" (rooms have wall_m2) -> {"kind": "direct", "queries": {"p": "SELECT wall_m2 AS value, id FROM entities WHERE type = 'room' AND number = '7.03'"}, "unit": "m2"}
+"How much paint for the walls of room 7.03 with 2.7 m ceilings?" (rooms have wall_m2) -> {"kind": "direct", "queries": {"p": "SELECT wall_m2 AS value, id FROM entities WHERE type = 'room' AND number = '7.03'"}, "assumptions": {"wall_height_m": 2.7}, "unit": "m2"}
+"How much paint for the walls of room 7.03?" (no wall_m2 and no room height recorded) -> {"kind": "missing", "missing": "the ceiling height of room 7.03: no height is recorded for rooms in this drawing", "needs": {"ceiling_height_m": "ceiling height in metres"}, "queries": {"p": "SELECT m AS value, id FROM entities WHERE type = 'room' AND number = '7.03'"}, "formula": "p * ceiling_height_m", "unit": "m2"}
 Reply with the JSON only."""
 
 
@@ -536,6 +565,10 @@ def execute(decision: Decision, scene: Scene, supplied: dict | None = None, conn
         return result
 
     conn = conn or table(scene)
+    # A room's wall_m2 where the drawing has no height rests on an assumed one: the user's, the question's, else 2.5 m.
+    height = next((float(v) for v in ((supplied or {}).get(WALL_HEIGHT), decision.assumptions.get(WALL_HEIGHT))
+                   if type(v) in (int, float) and 0 < v < 20), None)
+    assumed = _wall_height(conn, scene, height or HEIGHT_M) if any(re.search(r"\bwall_m2\b", q) for q in decision.queries.values()) else set()
     by_id = {e.id: e for e in scene.entities}
     results = {name: run(conn, sql) for name, sql in decision.queries.items()}
     picked: list[str] = []  # the entities the answer names, first in the evidence
@@ -611,6 +644,11 @@ def execute(decision: Decision, scene: Scene, supplied: dict | None = None, conn
         unit = None  # the answer is names; the values and their unit are in the formula line
 
     evidence = list(dict.fromkeys(picked + behind))
+    walls = None
+    if assumed & set(evidence):
+        assumptions[WALL_HEIGHT] = height or HEIGHT_M
+        walls = (f"Wall area at a {height:g} m wall height, as given." if height else
+                 f"Wall area at an assumed {HEIGHT_M:g} m wall height: the drawing records none. Give {WALL_HEIGHT} to recompute.")
     if not evidence and not _asked(decision)[0]:
         return abstain("nothing matched, and the query names no entity type, so a zero cannot be checked against what the reader looked for")
     confs = [by_id[i].conf for i in evidence]
@@ -619,7 +657,7 @@ def execute(decision: Decision, scene: Scene, supplied: dict | None = None, conn
            f"{len(evidence)} item(s): typical item score {confidence:.0%} (geometric mean)." if confs else
            "Nothing matched; a zero is only as sure as the reader's search, which no item score lowers.")
     result = Answer(answer=answer, unit=unit, confidence=confidence, confidence_note=" ".join(filter(None, [why, note])), tier=scene.tier,
-                    evidence=evidence, formula=shown, interpretation=" ".join(filter(None, [decision.interpretation, said])) or None,
+                    evidence=evidence, formula=shown, interpretation=" ".join(filter(None, [decision.interpretation, said, walls])) or None,
                     assumptions=assumptions, trace=refined + steps(f"{decision.kind}: " + "; ".join(f"{n} = {s}" for n, s in decision.queries.items()) +
                                                                    (f"; {decision.formula}" if decision.formula else "")))
     return _vision_checked(result, decision, scene)

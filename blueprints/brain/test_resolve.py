@@ -220,6 +220,25 @@ class Execution(unittest.TestCase):
         dead_end = execute(Decision(kind="missing", missing="the construction year: a drawing does not hold it"), scene())
         self.assertEqual((dead_end.answer, dead_end.assumptions), (None, {}))
 
+    def test_wall_area_on_an_assumed_height_says_so_and_follows_a_given_one(self):
+        s = scene()  # k1: 14 m around, 2 m2 of openings, no height recorded; b1: the model's own 3 m
+        s.entities[0].qty["wall_m2"] = 33.0
+        s.entities[0].attrs |= {"wall_height_m": 2.5, "wall_height_assumed": True, "wall_openings_m2": 2.0}
+        s.entities[1].qty["wall_m2"] = 40.0
+        s.entities[1].attrs |= {"wall_height_m": 3.0, "wall_height_assumed": False, "wall_openings_m2": 2.0}
+        walls = lambda room, **more: decide(queries={"w": f"SELECT wall_m2 AS value, id FROM entities WHERE id = '{room}'"}, unit="m2", **more)
+        a = execute(walls("k1"), s)
+        self.assertEqual((a.answer, a.assumptions), (33.0, {"wall_height_m": 2.5}))
+        self.assertIn("assumed 2.5 m wall height", a.interpretation)
+        conn = table(s)
+        given = execute(walls("k1"), s, supplied={"wall_height_m": 3.0}, conn=conn)  # 14 x 3 - 2
+        self.assertEqual((given.answer, given.assumptions), (40.0, {"wall_height_m": 3.0}))
+        self.assertIn("3 m wall height, as given", given.interpretation)
+        self.assertEqual(execute(walls("k1"), s, conn=conn).answer, 33.0)  # the same table again: replaced, not compounded
+        self.assertEqual(execute(walls("k1", assumptions={"wall_height_m": 2.7}), s).answer, 35.8)  # stated in the question
+        real = execute(walls("b1"), s, supplied={"wall_height_m": 2.0})  # a recorded height is never overridden
+        self.assertEqual((real.answer, real.assumptions, real.interpretation), (40.0, {}, None))
+
 
 class OneCallThenNone(unittest.TestCase):
     """resolve(): the path of a question with no cached plan, with the model replaced by canned replies."""
