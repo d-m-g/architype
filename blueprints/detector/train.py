@@ -284,9 +284,22 @@ def tune(name: str, classes: str = FIXTURES, imgsz: int = 1024):
 # with rooms, saunas and floors. Fixture counts are otherwise within noise of each other.
 SERVE = {"fixtures-6": (CLASSES[:ROOMS - 1], 1024), "all-13": (CLASSES[ROOMS - 1:13], 1024)}  # run: (classes, imgsz)
 
-# Tiled inference for uploads. ponytail: one fixed working size; it puts doors on a 14,000 px A2 school sheet at
-# roughly CubiCasa size (~30-50 px). A drawing scale read from the sheet (1:100, 1:200) would set it per drawing.
+# Tiled inference for uploads. A first pass at TILE_LONG_SIDE probes the drawing's scale: when its doors come out
+# under DOOR_MIN_PX (a 7,000 px dormitory sheet: 16 px, and armchairs taken for doors), the sheet is run again so the
+# median door is DOOR_PX, never above the full resolution. A 14,000 px school sheet keeps the first pass.
 TILE, TILE_OVERLAP, TILE_LONG_SIDE = 1024, 256, 3072
+DOOR_PX, DOOR_MIN_PX = 40, 30  # CubiCasa doors are ~30-50 px at the size trained on
+
+
+def rescale(s: float, door_sides: list[float]) -> float | None:
+    """The scale for a second pass, or None when the first one (at s) already saw doors big enough, or saw too few
+    doors to tell. door_sides: long sides in pixels at scale s."""
+    import statistics
+
+    if len(door_sides) < 3:
+        return None
+    d = statistics.median(door_sides)
+    return min(1.0, s * DOOR_PX / d) if d < DOOR_MIN_PX and s < 1.0 else None
 
 
 def merge_tiles(boxes: list[dict], iou: float = 0.5, inside: float = 0.6) -> list[dict]:
@@ -339,10 +352,9 @@ class Detector:
 
     def _tiled(self, im) -> dict:
         """Fixtures model only (the room classes are Finnish-residential). Scale the long side to TILE_LONG_SIDE,
-        run 1024 px tiles with overlap, drop blank tiles, merge duplicates across tile edges."""
+        run 1024 px tiles with overlap, drop blank tiles, merge duplicates across tile edges; again at a larger
+        scale when that left the doors too small (rescale)."""
         import time
-
-        import numpy as np
 
         t = time.perf_counter()
         im = im.convert("RGB")
@@ -352,7 +364,21 @@ class Detector:
             out = self._run(im, runs=["fixtures-6"])
             out["seconds"] = time.perf_counter() - t
             return out
-        small = im.resize((round(W * s), round(H * s)), resample=1)  # LANCZOS
+        boxes, n = self._tiles(im, s)
+        doors = [max((b["box"][2] - b["box"][0]) * W, (b["box"][3] - b["box"][1]) * H) * s for b in boxes if b["cls"] == "door"]
+        s2 = rescale(s, doors)
+        if s2:
+            boxes, n2 = self._tiles(im, s2)
+            n += n2
+        return {"model": "fixtures-6:tiled", "gpu": "T4", "seconds": time.perf_counter() - t, "width": W,
+                "height": H, "boxes": boxes, "tiles": n, "scale": round(s2 or s, 3)}
+
+    def _tiles(self, im, s: float) -> tuple[list[dict], int]:
+        """Boxes (0..1) of the sheet scaled by s and cut into overlapping tiles, and the number of tiles run."""
+        import numpy as np
+
+        W, H = im.size
+        small = im.resize((round(W * s), round(H * s)), resample=1) if s < 1.0 else im  # LANCZOS
         w, h = small.size
         step = TILE - TILE_OVERLAP
         xs = sorted({*range(0, max(w - TILE, 0) + 1, step), max(w - TILE, 0)})
@@ -379,8 +405,7 @@ class Detector:
         for b in merge_tiles(found):
             x0, y0, x1, y1 = b["box"]
             boxes.append({**b, "box": [x0 / w, y0 / h, x1 / w, y1 / h]})
-        return {"model": "fixtures-6:tiled", "gpu": "T4", "seconds": time.perf_counter() - t, "width": W,
-                "height": H, "boxes": boxes, "tiles": len(tiles)}
+        return boxes, len(tiles)
 
     @modal.method()
     def detect_raw(self, folder: str) -> dict:
@@ -451,4 +476,7 @@ if __name__ == "__main__":
     # the same door whole in one tile and cut in half in the next -> one; a door further along stays
     assert len(merge_tiles([door(0, 10), door(5, 10, 0.6), door(50, 60)])) == 2
     assert len(merge_tiles([door(0, 10), {"cls": "window", "score": 0.5, "box": [0, 0, 10, 10]}])) == 2
+    # dormitory sheet: doors 16 px at 0.437 -> full resolution; school sheet: doors big enough -> no second pass
+    assert rescale(0.437, [16, 15, 17]) == 1.0 and rescale(0.2, [10, 10, 10]) == 0.8
+    assert rescale(0.22, [40, 45, 38]) is None and rescale(0.437, [16, 16]) is None and rescale(1.0, [10, 10, 10]) is None
     print("ok")

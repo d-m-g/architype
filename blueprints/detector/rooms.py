@@ -59,9 +59,10 @@ def _done(scene: Scene, seg: dict, detail: str) -> None:
 
 
 MARK = "+outlines:"  # in Scene.builder once a scene has its outlines, so a cached scene is not segmented again
-VERSION = 4  # @2: uploads keep the masks no reader's room matches, and get the spaces that rooms stand around;
+VERSION = 5  # @2: uploads keep the masks no reader's room matches, and get the spaces that rooms stand around;
 #              @3: an outlined room names both readers in its ref and takes the mask's score when they agree on its type
 #              @4: a reader's box without an outline, inside another room's outline, is dropped as a repeat of it
+#              @5: an unnamed space that widens out (a school corridor round a block of rooms) is found whole
 
 
 def _outlined(scene: Scene) -> bool:
@@ -71,8 +72,11 @@ def _outlined(scene: Scene) -> bool:
 def _gaps(outlines: list) -> list:
     """Spaces that no room covers but rooms stand around on most sides: a stair, a hall, a shaft that neither reader
     named. Sizes are judged against the plan's own typical room, so this needs no scale.
-    ponytail: a missed room at the edge of the plan, open on two sides, is not found; nor is a gap wider than 0.8 of a
-    typical room's side. Train the segmenter on stairs and unnamed spaces when these matter."""
+    A space up to 0.8 of a typical room's side wide is found; one that opens out from it, up to 1.4 sides wide (a
+    school corridor that widens round a block of rooms), is found whole. A wide space with no narrow part is not:
+    closing that wide everywhere also fills the notches along a plan's outside walls.
+    ponytail: a missed room at the edge of the plan, open on two sides, is not found. Train the segmenter on stairs,
+    halls and unnamed spaces when these matter."""
     from shapely.ops import unary_union
 
     if len(outlines) < 3:
@@ -81,12 +85,22 @@ def _gaps(outlines: list) -> list:
     side = areas[len(areas) // 2] ** 0.5  # the side of a typical room
     wall = 0.1 * side  # outlines stop at the wall faces
     covered = unary_union([o.buffer(wall, join_style="mitre") for o in outlines])
-    free = covered.buffer(0.4 * side, join_style="mitre").buffer(-0.4 * side, join_style="mitre").difference(covered)
-    # A real space is wide both ways (opening it drops the strips and pockets a closing leaves) and has rooms on most sides.
-    wide = free.buffer(-0.15 * side, join_style="mitre").buffer(0.15 * side, join_style="mitre").intersection(free)
-    return [g.simplify(0.1 * wall) for g in getattr(wide, "geoms", [wide])
-            if g.geom_type == "Polygon" and g.area >= 0.25 * side ** 2
-            and g.boundary.intersection(covered.buffer(0.2 * wall)).length >= 0.6 * g.length]
+
+    def free(close):  # the spaces a closing of this radius fills, each wide both ways (an opening drops the strips)
+        f = covered.buffer(close * side, join_style="mitre").buffer(-close * side, join_style="mitre").difference(covered)
+        wide = f.buffer(-0.15 * side, join_style="mitre").buffer(0.15 * side, join_style="mitre").intersection(f)
+        return [g for g in getattr(wide, "geoms", [wide]) if g.geom_type == "Polygon"]
+
+    def room_like(g):  # big enough, and rooms on most sides
+        return g.area >= 0.25 * side ** 2 and g.boundary.intersection(covered.buffer(0.2 * wall)).length >= 0.6 * g.length
+
+    wider = free(0.7)
+    found = []
+    for g in filter(room_like, free(0.4)):
+        whole = next((w for w in wider if w.intersects(g)), None)
+        found.append(whole if whole is not None and room_like(whole) else g)
+    merged = unary_union(found)  # two narrow parts of one corridor grow into the same space
+    return [g.simplify(0.1 * wall) for g in getattr(merged, "geoms", [merged]) if g.geom_type == "Polygon"]
 
 
 def add_rooms(scene: Scene, file: Path, seg: dict | None = None) -> None:
@@ -279,6 +293,12 @@ if __name__ == "__main__":
     x0, y0, x1, y1 = _box(gap[0].geom)
     assert 0.3 < x0 < 0.36 and 0.3 < y0 < 0.34 and 0.64 < x1 <= 0.72 and 0.46 < y1 < 0.5, gap[0].geom
     Scene.model_validate(u.model_dump())
+    # A corridor narrow at the top that widens past 0.8 of a room's side lower down: found whole, not just its neck.
+    from shapely.geometry import box as sbox
+    wing = [sbox(100, y, 300, y + 200) for y in (100, 300, 500, 700)] + [sbox(420, 100, 620, 300), sbox(420, 300, 620, 500),
+            sbox(550, 500, 750, 700), sbox(550, 700, 750, 900), sbox(300, 0, 420, 100), sbox(300, 900, 550, 1000)]
+    (hall,) = _gaps(wing)
+    assert hall.bounds[1] < 150 and hall.bounds[3] > 850 and hall.bounds[2] > 520, hall.bounds
     # a scene outlined by an older version is outlined again, without doubling what was added
     u.builder = u.builder.replace(f"@{VERSION}", "@1")
     assert outline_rooms(u, Path("y.png"), out(*(found("other", b) for b in ring[:3]))) and sum(e.attrs.get("unnamed", False) for e in u.entities) == 1
