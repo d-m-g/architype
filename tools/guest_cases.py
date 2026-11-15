@@ -23,11 +23,38 @@ THUMBS = Path(__file__).parent.parent / "frontend-d" / "guest"
 SCENE_MAX_BYTES = 1_000_000  # a larger scene (a whole apartment block's model) opens too slowly for a first visit
 MIX = {"cubicasa5k": 8, "swiss_dwellings": 7, "ifc_models": 5}  # the sources whose answers need no agent
 PER_DRAWING, TRIES = 3, 12  # questions kept per drawing; questions tried before giving up on it
+MIN_ROOMS = 5  # outlined on the page a visitor first sees: fewer is a roof, a basement or a structural model
+# Half the brochure scans are sideways or upside down, which nothing here detects. These were looked at with the
+# reader's finds drawn on top: upright, and every room outlined. The first MIX of them that pass are offered.
+BY_EYE = {"cubicasa5k": [f"data/cubicasa5k/{name}.png" for name in (
+    "high_quality_architectural-2561", "high_quality_architectural-12617", "high_quality-6128",
+    "high_quality_architectural-14946", "high_quality_architectural-13579", "high_quality_architectural-10212",
+    "high_quality_architectural-13791", "high_quality_architectural-8775", "high_quality_architectural-8741",
+    "colorful-10315")]}
+SKIP = {  # looked at and left out: the answers are right, the first look is poor
+    "tuwien-escape-route_real-world-escape-route-test-model-zdb",  # its spaces are drawn apart from its walls
+}
 KIND = {"cubicasa5k": "Brochure plan, image only", "swiss_dwellings": "CAD plan, read from its vector data"}
 
 
 def template(question: str) -> str:
     return re.sub(r"'[^']*'|\d+(?:[.,]\d+)?", "#", question)
+
+
+def read_again_if_old(path: str) -> None:
+    """A brochure plan cached before the room segmenter has boxes for six room types and nothing for the living room,
+    the hall or the storage: read it again with the current detector and segmenter (two GPU calls, no language model)."""
+    from blueprints.detector import rooms
+    if pipeline.source_of(path) != "cubicasa5k" or rooms._outlined(pipeline.get_scene(path)):
+        return
+    token = pipeline.FRESH.set(True)
+    try:
+        pipeline.get_scene(path)
+    finally:
+        pipeline.FRESH.reset(token)
+        pipeline.get_scene.cache_clear()  # the old scene is still held for the cached route
+    if not rooms._outlined(pipeline.get_scene(path)):
+        raise RuntimeError("the room segmenter did not outline this plan")
 
 
 def as_guest(path: str, question: str):
@@ -48,14 +75,23 @@ def named(path: str) -> tuple[str, str]:
     return name, "BIM model (IFC), with a 3D view"
 
 
+def sheet_page(path: str) -> int:
+    """The page a drawing opens on: a BIM plan sheet <model>_plan-<n>-<level>.pdf shows storey n of its model's pages."""
+    sheet = re.search(r"_plan-(\d+)", path)
+    return min(int(sheet.group(1)) - 1, len(pipeline.get_scene(path).pages) - 1) if sheet else 0
+
+
+def rooms_shown(path: str) -> int:
+    page = sheet_page(path)
+    return sum(e.type == "room" and e.page == page and len(e.geom) >= 3 for e in pipeline.get_scene(path).entities)
+
+
 def thumbnail(path: str) -> str:
     """A small JPEG of the drawing for the guest gallery, in frontend-d/guest/: the originals run to megabytes."""
     import hashlib
 
     from PIL import Image
-    pages = pipeline.get_scene(path).pages
-    sheet = re.search(r"_plan-(\d+)", path)  # a BIM plan sheet shows one storey of its model's pages
-    image = pages[min(int(sheet.group(1)) - 1, len(pages) - 1) if sheet else 0].image
+    image = pipeline.get_scene(path).pages[sheet_page(path)].image
     picture = Image.open(pipeline.CACHE / image if image.startswith("pages/") else pipeline.dataset_file(image)).convert("RGBA")
     flat = Image.new("RGB", picture.size, "white")
     flat.paste(picture, mask=picture.getchannel("A"))
@@ -76,25 +112,26 @@ def pick() -> None:
     old = {json.loads(line)["path"] for line in runs[-1].open(encoding="utf-8")} if runs else set()  # shown before
     for old_thumb in THUMBS.glob("*.jpg"):
         old_thumb.unlink()  # the set is replaced whole
-    rng, cases = random.Random(2026), []
+    cases = []
     for source, wanted in MIX.items():
         paths = sorted(p for p in questions if pipeline.source_of(p) == source and p not in old)
-        rng.shuffle(paths)
+        random.Random(f"2026:{source}").shuffle(paths)  # seeded per source and per drawing: SKIP only removes entries
         models, found = set(), 0
-        for path in paths:
+        for path in BY_EYE.get(source, paths):
             model = Path(path).stem.split("_plan-")[0]  # one sheet or model per building
             if found == wanted:
                 break
-            if model in models:
+            if model in models or model in SKIP:
                 continue
             t0, kept, rows = time.perf_counter(), [], questions[path][:]
-            rng.shuffle(rows)
+            random.Random(path).shuffle(rows)
             for q in rows[:TRIES]:
                 if len(kept) == PER_DRAWING:
                     break
                 if template(q["question"]) in {template(k["question"]) for k in kept} or not q["answer"]:
                     continue  # one question per wording, and none whose answer is nothing to look at
                 try:
+                    read_again_if_old(path)
                     a = as_guest(path, q["question"])
                 except Exception as e:  # a drawing whose builder fails is simply not offered
                     print(f"  skip {path}: {type(e).__name__}: {e}", file=sys.stderr)
@@ -103,7 +140,8 @@ def pick() -> None:
                 if (a.evidence and a.tier != "llm" and a.confidence >= pipeline.ESCALATE_BELOW
                         and is_correct(a.answer, a.unit, q["answer"], q["unit"], q["type"])):
                     kept.append({"question": q["question"], "answer": a.answer, "unit": a.unit})
-            fits = len(kept) == PER_DRAWING and pipeline.scene_file(path).stat().st_size <= SCENE_MAX_BYTES
+            fits = (len(kept) == PER_DRAWING and pipeline.scene_file(path).stat().st_size <= SCENE_MAX_BYTES
+                    and rooms_shown(path) >= MIN_ROOMS)
             print(f"{'ok  ' if fits else 'drop'} {path} ({time.perf_counter() - t0:.1f}s)", file=sys.stderr)
             if fits:
                 name, kind = named(path)
@@ -119,6 +157,7 @@ def warm() -> None:
     wrong = 0
     for case in json.loads(OUT.read_text(encoding="utf-8")):
         path = case["path"]
+        read_again_if_old(path)
         if pipeline.source_of(path) == "ifc_models":
             from blueprints.parsers import ifc
             ifc.model_glb(path, pipeline.dataset_file(path))  # the 3D view's model, built on first request otherwise
