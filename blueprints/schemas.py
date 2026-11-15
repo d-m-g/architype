@@ -160,6 +160,9 @@ class Answer(BaseModel):
     assumptions: dict[str, Scalar] = {}
     trace: list[TraceStep] = []  # cost of answering this question, excluding the scene build
     error: str | None = None
+    # A refused count still knows its bounds: the counted items, plus every candidate under the cutoff.
+    lower: int | None = None
+    upper: int | None = None
 
     @computed_field
     @property
