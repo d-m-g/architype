@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {runInNewContext} from 'node:vm';
-import {scopedQuestion,questionLabel} from './object-question.js';
+import {scopedQuestion,questionLabel,isScopedQuestion} from './object-question.js';
 
 test('selected questions preserve identity while conversation labels omit technical context',()=>{
  const entity={id:'room-2',type:'room',label:'Korridor',number:'0.05',page:1};
@@ -36,13 +36,16 @@ test('Ask sends the selected identity to the existing API and keeps it in histor
  const code=text.slice(text.indexOf('export async function ask(text)'),text.indexOf('export function setQuestionScope')).replace('export ','');
  const entity={id:'door-2',type:'door',label:'Door',page:0},state={path:'uploads/plan.png',askAbout:entity.id,raw:{entities:[entity]},edited:false};
  const nodes=new Map(),requests=[],entries=[];
- const context={state,scopedQuestion,AbortController,setTimeout,clearTimeout,performance,LIVE_REQUEST_TIMEOUT_MS:30000,
+ const context={state,scopedQuestion,isScopedQuestion,AbortController,setTimeout,clearTimeout,performance,LIVE_REQUEST_TIMEOUT_MS:30000,
   abortAsk(){},askAbort:null,autosize(){},select(){},setAsking(){},renderAnswer(){},reading:null,conversation:()=>[],
   $:id=>{if(!nodes.has(id))nodes.set(id,{value:'',scrollIntoView(){},scrollTo(){},offsetTop:0});return nodes.get(id);},
-  track:p=>p,requestJSON:async(url,options)=>{requests.push(JSON.parse(options.body));return {answer:'.8',trace:[]};},calculationAudit:()=>null,
+  answerFromScene:async question=>{requests.push({scene:state.raw,question});return {answer:.8,trace:[]};},
+  track:p=>p,requestJSON:async()=>assert.fail('Selected questions must use the visible scene'),calculationAudit:()=>({}),
+  getDrawingScene:async()=>{requests.push({refresh:true});return {};},setScene(){},
   historyStore:{add:(...args)=>entries.push(args)},saveResult(){},showAnswer(){},frameEvidence(){},matchMedia:()=>({matches:true})};
  await runInNewContext(code+';ask("How wide is this?")',context);
- assert.match(requests[0].question,/id="door-2"/);assert.equal(requests[0].path,state.path);
+ assert.match(requests[0].question,/id="door-2"/);assert.equal(requests[0].scene,state.raw);
+ assert.equal(requests.length,1,'do not replace the selected source with a rebuilt server scene');
  assert.equal(entries[0][2].question,requests[0].question);
 });
 

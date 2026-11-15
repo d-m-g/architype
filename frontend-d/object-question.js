@@ -1,5 +1,6 @@
 /** Keep the exact source identity in requests and a readable label in the conversation. */
 const MARKER='\n\nSelected drawing object: ';
+export const isScopedQuestion=question=>question.includes(MARKER);
 export function scopedQuestion(question,entity){
  if(!entity||question.includes(MARKER))return question;
  const {id,type,label,number,page}=entity;

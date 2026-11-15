@@ -6,7 +6,7 @@ import {publishEditor,subscribeEditor,selectEditorEntity} from './editor-bridge.
 import {zoomAt} from './mock-scene.js';
 import {adaptScene,adaptAnswer,adaptAnswerEvidence,imageURL,calculationAudit} from './contracts.js';
 import {finishVoiceInput} from './voice-input.js';
-import {scopedQuestion,questionLabel} from './object-question.js';
+import {scopedQuestion,questionLabel,isScopedQuestion} from './object-question.js';
 
 export const $=id=>document.getElementById(id);
 const SVG='http://www.w3.org/2000/svg';
@@ -764,6 +764,7 @@ export async function ask(text){
  const target=state.askAbout?state.raw?.entities.find(e=>e.id===state.askAbout):null;
  if(state.askAbout&&!target){setQuestionScope(null,{focus:false});say('The selected object no longer exists. Select another object.');return;}
  const question=scopedQuestion(text.trim(),target),path=state.path;
+ const scoped=isScopedQuestion(question);
  if(!text.trim()||!path)return;
  abortAsk();
  const controller=askAbort=new AbortController(),timer=setTimeout(()=>controller.abort(new Error('timeout')),LIVE_REQUEST_TIMEOUT_MS);
@@ -776,14 +777,18 @@ export async function ask(text){
   // A question typed while the drawing is still being read waits for the reader, so the drawing is read once.
   await reading?.catch(()=>{});
   if(askAbort!==controller)return;
-  if(state.edited){
+  if(scoped){
+   // The selected id belongs to the visible snapshot, even if a deployment rebuilt the server's scene.
+   answer=await track(answerFromScene(question,controller.signal));
+   note='Answered about the selected object in the drawing shown here.';
+  }else if(state.edited){
    // The server only knows the drawing as it read it, so a corrected drawing is answered from this browser's copy.
    answer=await track(answerFromScene(question,controller.signal)).then(a=>a.answer===null&&/GEMINI_API_KEY|lane C/.test(a.error??'')?null:a).catch(()=>null);
    note=answer?'Answered on your corrected drawing.':'This question needs the agent, which reads the original drawing, so your corrections are not in this answer.';
   }
   answer??=await track(requestJSON('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path,question,history:conversation()}),signal:controller.signal}));
   // The first question on an unread drawing may have produced its scene; pick it up for the outlines.
-  if(!state.edited&&(!state.raw||calculationAudit(answer))&&!controller.signal.aborted)try{setScene(await getDrawingScene(path,controller.signal),{keepView:!!state.raw});}catch{}
+  if(!state.edited&&!scoped&&(!state.raw||calculationAudit(answer))&&!controller.signal.aborted)try{setScene(await getDrawingScene(path,controller.signal),{keepView:!!state.raw});}catch{}
  }catch(error){
   if(askAbort!==controller)return;  // stopped by the user or replaced by a newer question
   reached=false;
