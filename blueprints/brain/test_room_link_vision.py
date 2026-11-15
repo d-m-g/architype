@@ -159,6 +159,35 @@ class VisionRoomLinks(unittest.TestCase):
         self.assertEqual([r.object_id for r in records], ["d"])
         self.assertEqual(step.out_tokens, 500)
 
+    def test_cutoff_refusal_asks_vision_once_and_counts_only_what_it_confirms(self):
+        from blueprints.brain import candidate_review as review
+        from blueprints.schemas import Entity
+        self.scene.entities += [Entity(id=f"s{i}", type="fixture", subtype="shower", conf=c, geom=[[.1*i, .1], [.1*i+.05, .15]])
+                                for i, c in enumerate([.55, .4, .3], 1)]
+        self.scene.covers.append("fixture:shower")
+        showers = QueryPlan(queries={"n": Query(op="count", type="fixture", subtype="shower")}, unit="count")
+        verdicts = [review.Verdict(object_id="s1", verdict="yes"), review.Verdict(object_id="s2", verdict="no")]
+        with patch.object(review, "_request", return_value=(verdicts, TraceStep(step="review_candidates", usd=.001))) as request:
+            first = links.execute_with_links(showers, self.scene)
+            self.assertIsNone(first.answer)  # s3 got no verdict: still unresolved, so the refusal stands
+            self.assertTrue(links.refinement_exhausted(first))
+            fresh = self.scene.model_copy(deep=True)
+            for e in fresh.entities:  # a fresh load of the drawing: verdicts come back from the cache, free
+                if e.id == "s1":
+                    e.conf, e.attrs = .55, {}
+                if e.id == "s2":
+                    e.attrs = {}
+                if e.id == "s3":  # the person rejects the unclear one in Correct: the confirmed shower counts, not the rejected
+                    e.attrs = {"calculation_excluded": True}
+            again = links.execute_with_links(showers, fresh)
+            self.assertEqual(again.answer, 1)
+            self.assertEqual(sum(s.usd for s in again.trace), 0)
+            self.assertEqual(request.call_count, 1)
+
+    def test_cutoff_refusal_no_refinement_looked_at_still_goes_to_the_agent(self):
+        from blueprints.schemas import Answer
+        self.assertFalse(links.refinement_exhausted(Answer(error="Calculation support 0% is below the provisional 60% cutoff.")))
+
     def test_exact_count_does_not_pay_for_agent_after_negative_vision_review(self):
         from blueprints.brain import plan, escalate
         with patch.object(pipeline, "get_scene", return_value=self.scene), \
