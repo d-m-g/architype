@@ -10,6 +10,8 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request as URLRequest, urlopen
 
 from fastapi import APIRouter, HTTPException, Request, Response
+
+from .. import pipeline
 from pydantic import BaseModel, Field
 
 router = APIRouter(prefix="/api/voice", tags=["voice"])
@@ -26,7 +28,7 @@ def _model(kind):
 
 
 def _post_google(payload, *, auth_token=False):
-    key = os.environ.get("GEMINI_API_KEY")
+    key = pipeline.model_key()
     if not key:
         raise HTTPException(503, "Google voice is not configured. Set GEMINI_API_KEY on the server.")
     url = "https://generativelanguage.googleapis.com/v1beta/auth_tokens" if auth_token else GOOGLE_URL
@@ -66,7 +68,7 @@ def _output_content(reply):
 
 @router.get("/config")
 def config():
-    return {"configured": bool(os.environ.get("GEMINI_API_KEY")),
+    return {"configured": bool(pipeline.model_key()),
             "transcription_model": _model("transcribe"), "speech_model": _model("speech"),
             "max_record_seconds": 30, "max_audio_bytes": MAX_AUDIO_BYTES,
             "live_transcription": os.environ.get("BLUEPRINTS_LIVE_TRANSCRIPTION", "1") != "0",

@@ -69,9 +69,18 @@ class VoiceTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_existing_login_protects_voice_endpoints(self):
         with patch.object(api, "PASSWORD_HASH", "enabled"):
-            for path in ("/api/voice/config", "/api/voice/transcribe", "/api/voice/speak", "/api/voice/live-token"):
-                response = await self.client.get(path) if path.endswith("config") else await self.client.post(path)
-                self.assertEqual(response.status_code, 401)
+            for path in ("/api/voice/transcribe", "/api/voice/speak", "/api/voice/live-token", "/api/upload"):
+                self.assertEqual((await self.client.post(path)).status_code, 401)
+            # A guest still opens the viewer, but the server hides the model key from it.
+            self.assertFalse((await self.client.get("/api/voice/config")).json()["configured"])
+            self.assertTrue((await self.client.get("/api/access")).json()["guest"])
+            self.assertEqual((await self.client.get("/api/scene", params={"path": "data/nope/x.pdf"})).status_code, 404)
+
+    async def test_signed_in_user_can_turn_cached_answers_off(self):
+        self.assertFalse((await self.client.get("/api/access")).json()["fresh"])  # setUp: no password, so signed in
+        self.client.cookies.set(api.FRESH_COOKIE, "1")
+        self.assertTrue((await self.client.get("/api/access")).json()["fresh"])
+        self.assertTrue((await self.client.get("/api/voice/config")).json()["configured"])
 
     async def test_config_never_exposes_key(self):
         response = await self.client.get("/api/voice/config")

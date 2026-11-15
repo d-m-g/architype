@@ -117,7 +117,7 @@ def _request(scene, pending):
               "object or an empty area is 'no'. Use 'unsure' when the drawing does not make it clear. Never count.\n"
               'Return JSON: {"items":[{"object_id":"det-1","verdict":"yes|no|unsure","reason":"brief visible evidence"}]}\n'
               + json.dumps({"objects": objects}))
-    client = openai.OpenAI(api_key=os.environ["GEMINI_API_KEY"], base_url=GEMINI_URL, max_retries=0, timeout=60)
+    client = openai.OpenAI(api_key=pipeline.model_key(), base_url=GEMINI_URL, max_retries=0, timeout=60)
     t = time.perf_counter()
     response = client.chat.completions.create(model=VISION_MODEL, temperature=0, max_tokens=4096, reasoning_effort="low",
         response_format={"type": "json_object"}, messages=[{"role": "user", "content": [
@@ -146,7 +146,7 @@ def review(plan, scene):
     reused = apply_cached(scene)
     directory = _directory(scene)
     pending = [e for e in candidates(plan, scene) if not _file(directory, e).exists()][:MAX_OBJECTS]
-    if not pending or not os.environ.get("GEMINI_API_KEY"):
+    if not pending or not pipeline.model_key():
         return [TraceStep(step="review_candidates", cached=True, detail=f"Reused {reused} earlier verdicts; no new model call.")] if reused else []
     try:
         verdicts, step = _request(scene, pending)

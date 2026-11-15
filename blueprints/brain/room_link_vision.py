@@ -198,7 +198,7 @@ non_object_kind (legend/annotation/other or null). A legend/sample symbol is not
 use non_object, classification_clear=true, non_object_kind=legend. Identify windows misdetected as doors.
 Object classification certainty is separate from clear, which describes room endpoints.
 """+json.dumps({"rooms": descriptions, "objects": objects})
-    client = openai.OpenAI(api_key=os.environ["GEMINI_API_KEY"], base_url=GEMINI_URL, max_retries=0, timeout=60)
+    client = openai.OpenAI(api_key=pipeline.model_key(), base_url=GEMINI_URL, max_retries=0, timeout=60)
     t = time.perf_counter()
     response = client.chat.completions.create(model=VISION_MODEL, temperature=0, max_tokens=8192, reasoning_effort="low",
         response_format={"type": "json_object"},
@@ -240,7 +240,7 @@ def resolve(scene, kind):
         directory = _directory(scene)
         pending = [e for e in scene.entities if e.type == kind and e.attrs.get("room_link_status") in ("partial", "uncertain")
                    and e.geom and not _file(directory, e).exists()][:MAX_OBJECTS]
-        if not pending or not os.environ.get("GEMINI_API_KEY"):
+        if not pending or not pipeline.model_key():
             reviewed = any(e.type == kind and "room_link_review" in e.attrs for e in scene.entities)
             return [TraceStep(step="resolve_room_connections", cached=True, detail=f"Reused {reused} vision connections and cached reviews; no new model call.")] if reused or reviewed else []
         budget = directory/"budget.json"

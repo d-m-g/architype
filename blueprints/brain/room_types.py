@@ -53,7 +53,7 @@ def classify(labels: list[str]) -> tuple[dict[str, str], list[TraceStep]]:
     todo = sorted({_key(l) for l in labels if l and _key(l) not in known})
     steps: list[TraceStep] = []
     if todo:
-        key = os.environ.get("GEMINI_API_KEY")
+        key = pipeline.model_key()
         if not key:
             raise NotImplementedError("lane C: unknown room labels and no GEMINI_API_KEY to classify them")
         import openai

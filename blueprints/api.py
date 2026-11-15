@@ -3,18 +3,21 @@
 Run from the repo root:  uv run --env-file .env --extra brain uvicorn blueprints.api:app --reload
 
 Login (the same pattern as work-tracker): set BLUEPRINTS_PASSWORD_HASH to a hash from
-`python -m blueprints.api hash` and every request needs a signed session cookie. A browser without one gets the
-sign-in page in place of the app, /api/* gets a 401, and POST /api/login {"password"} hands out the cookie.
-With no hash set the server runs open, as it always has (local development, eval).
+`python -m blueprints.api hash`. A browser without the signed session cookie is a guest: it opens dataset drawings
+already read and gets answers from the caches and the data, never a model call; uploads, voice and corrections get
+a 401. /login is the sign-in page and POST /api/login {"password"} hands out the cookie. Signed in, the viewer can
+turn cached answers off (cookie blueprints_fresh=1). With no hash set the server runs open (local development, eval).
 """
 import hashlib
 import hmac
+import json
 import os
 import secrets
 import sys
 import threading
 import time
 from functools import lru_cache
+from pathlib import Path
 from typing import Annotated, Literal
 
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -86,13 +89,53 @@ def _client(request: Request) -> str:
     return forwarded.split(",")[-1].strip() or (request.client.host if request.client else "?")
 
 
+FRESH_COOKIE = "blueprints_fresh"  # "1": a signed-in user turned cached answers off (set by the viewer)
+# What a guest may not do: everything here either calls a model or writes to the server.
+GUEST_BLOCKED = ("/api/upload", "/api/labels", "/api/reject", "/api/voice/live-token", "/api/voice/transcribe", "/api/voice/speak")
+
+
 @app.middleware("http")
 async def _require_login(request: Request, call_next):
-    if not PASSWORD_HASH or request.url.path in ("/api/login", "/api/logout") or _signed_in(request):
-        return await call_next(request)
-    if request.url.path.startswith("/api/"):
-        return JSONResponse({"error": "sign in first"}, status_code=401)
-    return HTMLResponse(_LOGIN_PAGE, headers={"Cache-Control": "no-store"})
+    """Without the password the viewer still opens, as a guest: prepared dataset drawings, answered from caches and
+    the drawing's data, never a model call (pipeline.model_key hides the key). The password unlocks everything."""
+    path = request.url.path
+    if path == "/login":
+        return HTMLResponse(_LOGIN_PAGE, headers={"Cache-Control": "no-store"})
+    signed_in = not PASSWORD_HASH or _signed_in(request)
+    if not signed_in and path in GUEST_BLOCKED:
+        return JSONResponse({"error": "sign in for uploads, voice and model calls"}, status_code=401)
+    pipeline.GUEST.set(not signed_in)
+    pipeline.FRESH.set(signed_in and request.cookies.get(FRESH_COOKIE) == "1")
+    return await call_next(request)
+
+
+@app.get("/api/access")
+def access() -> dict:
+    """Who is asking: a guest gets the prepared drawings and questions it can open without a model call."""
+    guest = pipeline.GUEST.get()
+    return {"guest": guest, "login": bool(PASSWORD_HASH), "fresh": pipeline.FRESH.get(), "cases": _cases() if guest else []}
+
+
+RUNS = Path(__file__).parent.parent / "frontend-d" / "runs"
+
+
+@lru_cache(maxsize=1)  # ponytail: computed once per process; restart after new scenes or runs land
+def _cases() -> list[dict]:
+    """Dataset drawings whose scene is cached, each with the questions the latest pipeline run answered without the
+    agent (parsed or detected), so a guest replays them from the caches."""
+    runs = sorted(RUNS.glob("*-pipeline.jsonl"))
+    by_path: dict[str, list[str]] = {}
+    for line in runs[-1].read_text(encoding="utf-8").splitlines() if runs else []:
+        row = json.loads(line)
+        if row.get("error") is None and row.get("pred") is not None and row.get("tier") != "llm":
+            by_path.setdefault(row["path"], []).append(row["question"])
+    return [{"path": p, "questions": q} for p, q in sorted(by_path.items()) if pipeline.scene_file(p).exists()]
+
+
+def _guest_may_open(path: str) -> None:
+    """A guest opens dataset drawings already read: reading a new one is a model call or minutes of CPU."""
+    if pipeline.GUEST.get() and not (path.startswith("data/") and pipeline.scene_file(path).exists()):
+        raise HTTPException(401, "Sign in to open drawings that have not been read yet.")
 
 
 @app.post("/api/login")
@@ -136,7 +179,7 @@ _LOGIN_PAGE = """<!doctype html>
  button{width:100%;min-height:44px;margin-top:12px;font:inherit;font-weight:600;color:#fff;background:var(--accent);border:0;border-radius:8px;cursor:pointer}
  .err{color:var(--bad);font-size:14px;min-height:1.5em;margin:10px 0 0}
 </style></head><body>
-<form id="f"><h1>Make Blueprints Talk</h1><p>Enter the password to continue.</p>
+<form id="f"><h1>Make Blueprints Talk</h1><p>Enter the password for uploads, voice and live model calls. <a href="/">Back to the demo</a></p>
  <input id="pw" type="password" placeholder="Password" autocomplete="current-password" autofocus required>
  <button>Sign in</button><div class="err" id="err" role="alert"></div></form>
 <script>
@@ -145,7 +188,7 @@ _LOGIN_PAGE = """<!doctype html>
    const err = document.getElementById('err'); err.textContent = '';
    const r = await fetch('/api/login', {method: 'POST', headers: {'Content-Type': 'application/json'},
      body: JSON.stringify({password: document.getElementById('pw').value})});
-   if (r.ok) location.reload(); else err.textContent = (await r.json().catch(() => ({}))).error || 'sign in failed';
+   if (r.ok) location.href = "/"; else err.textContent = (await r.json().catch(() => ({}))).error || 'sign in failed';
  });
 </script></body></html>"""
 
@@ -241,13 +284,17 @@ def _vision_only(path: str) -> bool:
 @app.post("/api/ask")
 def ask(body: Ask) -> Answer:
     _drawing(body.path)
+    _guest_may_open(body.path)
     if _vision_only(body.path):
         from .brain.escalate import answer_from_vision
         try:
             return answer_from_vision(body.question, body.path, None, body.history or None)
         except NotImplementedError as e:
             return Answer(error=str(e))
-    return pipeline.answer(body.path, body.question, body.assumptions or None, body.history or None)
+    result = pipeline.answer(body.path, body.question, body.assumptions or None, body.history or None)
+    if pipeline.GUEST.get() and result.answer is None:
+        result.error = "This question needs a model call. Sign in for full access, or pick one of the prepared questions."
+    return result
 
 
 @app.get("/api/plan")
@@ -336,6 +383,7 @@ async def upload(request: Request, filename: str) -> dict:
 @app.get("/api/scene")
 def scene(path: str) -> Scene:
     _drawing(path)
+    _guest_may_open(path)
     try:
         if _vision_only(path):
             from .brain.vision import read_scene
@@ -404,6 +452,7 @@ def image(path: str) -> FileResponse:
 def model(path: str) -> FileResponse:
     """An IFC model's own 3D geometry as a GLB, for the 3D view. Built on first request and cached."""
     file = _drawing(path)
+    _guest_may_open(path)
     if not (path.lower().endswith(".ifc") or pipeline.source_of(path) in ("ifc_models", "ifc_bench")):
         raise HTTPException(404, "only IFC models have 3D geometry")
     from .parsers import ifc
@@ -476,6 +525,5 @@ app.include_router(voice_router)
 
 # The viewer on the same origin, so the demo is one container. Mounted last: /api/* routes win.
 from .frontend import PublicFrontend  # noqa: E402
-from pathlib import Path  # noqa: E402
 
 app.mount("/", PublicFrontend(directory=Path(__file__).parent.parent / "frontend-d", html=True), name="viewer")

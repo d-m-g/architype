@@ -53,7 +53,7 @@ def _ask(kind: str, field: str, asked: str, values: list[str]) -> tuple[str | No
     cached = pipeline.CACHE / "resolved" / f"{key}.json"
     if pipeline.READ_CACHE and cached.exists():
         return json.loads(cached.read_text(encoding="utf-8"))["match"], [llm_step("aliases", GEMINI_MODEL, 0, 0, 0, cached=True)]
-    api_key = os.environ.get("GEMINI_API_KEY")
+    api_key = pipeline.model_key()
     if not api_key or len(values) > MAX_VALUES:
         return None, []
     import openai

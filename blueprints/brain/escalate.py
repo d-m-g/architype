@@ -15,6 +15,7 @@ import math
 import os
 import time
 
+from .. import pipeline
 from ..costs import llm_step
 from ..executor import execute
 from ..room_queries import ROOM_FILTERS
@@ -193,7 +194,7 @@ def _look(scene: Scene, question: str, box: list | None) -> tuple[str, TraceStep
         clip = pymupdf.Rect(r.x0 + x0 * r.width, r.y0 + y0 * r.height, r.x0 + x1 * r.width, r.y0 + y1 * r.height)
     scale = 2048 / max((clip or page.rect).width, (clip or page.rect).height)
     png = page.get_pixmap(matrix=pymupdf.Matrix(scale, scale), clip=clip).tobytes("png")
-    client = openai.OpenAI(api_key=os.environ["GEMINI_API_KEY"], base_url=GEMINI_URL, max_retries=3, timeout=120)
+    client = openai.OpenAI(api_key=pipeline.model_key(), base_url=GEMINI_URL, max_retries=3, timeout=120)
     t0 = time.perf_counter()
     reply = client.chat.completions.create(model=LOOK_MODEL, messages=[{"role": "user", "content": [
         {"type": "image_url", "image_url": {"url": "data:image/png;base64," + base64.b64encode(png).decode()}},
@@ -352,11 +353,11 @@ def nemotron(think: bool = False) -> tuple:
     extra = {"extra_body": {"chat_template_kwargs": {"enable_thinking": think}}}
     if think:  # reasoning tokens come out of the same budget; 4096 can run out before the tool call
         extra["max_tokens"] = 16384
-    return NEMOTRON_URL, os.environ.get(NEMOTRON_KEY_VAR), NEMOTRON_MODEL, extra
+    return NEMOTRON_URL, pipeline.model_key(NEMOTRON_KEY_VAR), NEMOTRON_MODEL, extra
 
 
 def gemini(model: str = AGENT_FALLBACK_MODEL) -> tuple:
-    return GEMINI_URL, os.environ.get("GEMINI_API_KEY"), model, {}
+    return GEMINI_URL, pipeline.model_key(), model, {}
 
 
 def agent(question: str, scene: Scene, draft: Answer, inline_evidence: bool, providers: list | None = None,

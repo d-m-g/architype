@@ -5,6 +5,7 @@ openai) must not break the others. Keep heavy imports inside functions in your o
 """
 import hashlib
 import os
+from contextvars import ContextVar
 from functools import lru_cache
 from pathlib import Path
 
@@ -16,6 +17,19 @@ CACHE = Path(os.environ.get("BLUEPRINTS_CACHE", ".cache")).resolve()
 READ_CACHE = True  # eval.py --fresh turns this off while you iterate on a builder
 ESCALATE_BELOW = 0.5  # ponytail: one fixed threshold; tune it on the eval's cost-against-accuracy curve
 _BUILT_NOW: set[str] = set()  # scenes built in this process; the next answer on that drawing pays their cost
+# Set per request by api.py. GUEST: a visitor without the password, answered from caches and the data, no model call.
+# FRESH: a signed-in user turned cached answers off, so plans and decisions are asked of the model again.
+GUEST = ContextVar("guest", default=False)
+FRESH = ContextVar("fresh", default=False)
+
+
+def model_key(name: str = "GEMINI_API_KEY") -> str | None:
+    """The model's API key, or None for a guest: every model call already falls back to caches without a key."""
+    return None if GUEST.get() else os.environ.get(name)
+
+
+def scene_file(path: str) -> Path:
+    return CACHE / "scenes" / source_of(path) / (hashlib.md5(path.encode()).hexdigest() + ".json")
 
 
 def dataset_file(path: str) -> Path:
@@ -88,7 +102,7 @@ def get_scene(path: str) -> Scene:
     """The scene for a drawing, from .cache/scenes/<source>/ when it was built before."""
     if not path.startswith("uploads/"):  # uploads are checked by build_scene; their names are content hashes
         dataset_file(path)
-    cached = CACHE / "scenes" / source_of(path) / (hashlib.md5(path.encode()).hexdigest() + ".json")
+    cached = scene_file(path)
     from .brain.room_types import add_room_types  # room labels in any language -> room types (Küche -> kitchen)
     fresh = not (READ_CACHE and cached.exists())
     try:

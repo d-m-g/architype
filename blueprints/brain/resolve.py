@@ -420,7 +420,7 @@ def tokens(text: str) -> int:
 
 def _ask_model(msgs: list[dict]) -> tuple[str, int, int]:
     """The one seam to the model: messages in, (reply text, input tokens, output tokens) out. Tests replace it."""
-    key = os.environ.get("GEMINI_API_KEY")
+    key = pipeline.model_key()
     if not key:
         raise NotImplementedError("lane C: this question has no cached plan or decision, and GEMINI_API_KEY is not set")
     import openai
@@ -698,7 +698,7 @@ def resolve(question: str, scene: Scene, supplied: dict | None = None, history: 
     history = clean_history(history, scene)
     file = cache_file(question, scene_inventory, history)
     conn = table(scene)
-    if file.exists():
+    if file.exists() and not pipeline.FRESH.get():
         decision = Decision.model_validate_json(file.read_text(encoding="utf-8"))
         try:
             result = execute(decision, scene, supplied, conn)

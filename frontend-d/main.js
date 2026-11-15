@@ -436,9 +436,10 @@ function renderDrawingSide(){
   onclick:()=>{state.layers.has(kind)?state.layers.delete(kind):state.layers.add(kind);renderDrawingSide();drawMarks();}},
   el('i',{class:'type-key',style:`--type:${typeColour({type:kind})}`,'aria-hidden':'true'}),el('span',{},KINDS[kind]?.[1]??kind),el('b',{},String(n)))));
 }
+export const prepared=new Map();  // guest mode: drawing path -> questions the server answers from its caches (start.js)
 function suggest(){
- const raw=state.raw,list=[];
- if(raw&&!notAPlan(raw)){
+ const raw=state.raw,list=[...(prepared.get(state.path)??[])];
+ if(raw&&!notAPlan(raw)&&!prepared.size){
   const has=key=>raw.covers.some(c=>c===key||c.startsWith(key+':')),rooms=raw.entities.filter(e=>e.type==='room');
   const measured=rooms.some(e=>e.qty?.m2>0);
   if(has('door'))list.push('How many doors are there?');
@@ -448,7 +449,7 @@ function suggest(){
   if(measured)list.push('Which room is the largest?');
   else if(has('window'))list.push('How many windows are there?');
  }
- $('suggestions').hidden=!list.length||Boolean(state.result)||asking;
+ $('suggestions').hidden=!list.length||(Boolean(state.result)&&!prepared.size)||asking;
  $('suggestion-list').replaceChildren(...list.map(text=>el('button',{type:'button',class:'suggestion',onclick:()=>ask(text)},text)));
 }
 

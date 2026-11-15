@@ -109,7 +109,7 @@ Reply with the JSON only."""
 
 
 def _ask_gemini(template: str) -> tuple[QueryPlan, list[TraceStep]]:
-    key = os.environ.get("GEMINI_API_KEY")
+    key = pipeline.model_key()
     if not key:
         raise NotImplementedError("lane C: this question's plan is not cached, and GEMINI_API_KEY is not set")
     import openai
@@ -183,6 +183,8 @@ def plan_with_trace(question: str, scene: Scene | None) -> tuple[QueryPlan, list
 def _cached(template: str, scene: Scene | None):
     """(the cached plan for a question shape or None, the local file a new one is written to)."""
     local = pipeline.CACHE / "plans" / (hashlib.md5(template.encode()).hexdigest() + ".json")
+    if pipeline.FRESH.get():  # the signed-in user turned cached answers off: plan it again
+        return None, local
     plan = SEEDED.get(template) or (json.loads(local.read_text(encoding="utf-8")) if local.exists() else None)
     if plan and scene and any(e.attrs.get("room_link_version") for e in scene.entities):
         # Old PNG plans tried filtering door.label/number by a room, or only one endpoint.

@@ -203,7 +203,7 @@ def read_scene(path: str) -> tuple[Scene, bool]:
         if _image_connections(scene, path):
             cached.write_text(scene.model_dump_json(), encoding="utf-8")
         return scene, False  # CPU enrichment must not bill the original vision read again
-    key = os.environ.get("GEMINI_API_KEY")
+    key = pipeline.model_key()
     if not key:
         raise NotImplementedError("lane C: no scene for this drawing, and GEMINI_API_KEY is not set for the vision reader")
     import openai

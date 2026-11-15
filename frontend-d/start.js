@@ -1,5 +1,5 @@
 /** Start screen: drop or choose a drawing, or open one from the dataset. An upload opens as soon as it lands. */
-import {$,el,openDrawing,track,savedResults,clearSavedResults,formatValue,answerTitle} from './main.js';
+import {$,el,openDrawing,track,savedResults,clearSavedResults,formatValue,answerTitle,prepared} from './main.js';
 import {isDrawingPath,recoveryMessage} from './api-client.js';
 import {prepareLocalDrawing,renderPDFPreview} from './local-file.js';
 import {imageURL} from './contracts.js';
@@ -35,7 +35,7 @@ function showProgress(label,fraction){
   fraction===null?'':el('span',{class:'upload-progress'},bar),$('drawing-file'));
 }
 async function take(file){
- if(uploading||!file)return;
+ if(uploading||!file||prepared.size)return;  // a guest cannot upload
  uploading=true;status('');
  const input=$('drawing-file');
  try{
@@ -93,6 +93,21 @@ function renderRecent(){
 $('recent-clear').onclick=()=>{clearSavedResults();renderRecent();};
 window.addEventListener('stoa:drawing-reset',renderRecent);
 renderRecent();
+/** Without the password: prepared drawings and their questions only, answered from the server's caches.
+ *  Signed in: a switch to turn cached answers off, so plans and decisions come from the model again. */
+fetch('/api/access').then(r=>r.ok?r.json():null).then(access=>{
+ if(!access)return;
+ if(access.guest){
+  for(const c of access.cases)prepared.set(c.path,c.questions);
+  $('sign-in').hidden=false;$('dropzone').hidden=true;document.querySelector('.by-path').hidden=true;
+  status(access.cases.length?'Demo mode: pick a prepared drawing and question; answers replay without a model call.':'Demo mode: no prepared drawings on this server yet.');
+  const pick=el('select',{'aria-label':'Prepared drawing'},...access.cases.map(c=>el('option',{value:c.path},`${c.path.replace(/^data\//,'')} (${c.questions.length})`)));
+  $('samples').replaceChildren(pick,el('button',{type:'button',class:'btn',onclick:()=>pick.value&&openDrawing(pick.value)},'Open'));
+ }else if(access.login){
+  $('cache-toggle').hidden=false;$('use-cache').checked=!access.fresh;
+  $('use-cache').onchange=()=>{document.cookie=`blueprints_fresh=${$('use-cache').checked?0:1}; path=/; max-age=31536000; samesite=lax`;};
+ }
+}).catch(()=>{});
 $('path-form').onsubmit=event=>{
  event.preventDefault();
  const path=$('live-path').value.trim();
