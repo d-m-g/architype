@@ -158,6 +158,10 @@ def warm() -> None:
     for case in json.loads(OUT.read_text(encoding="utf-8")):
         path = case["path"]
         read_again_if_old(path)
+        if pipeline.source_of(path) == "cubicasa5k":
+            from blueprints.brain.vision import read_scene
+            read_scene(path)  # the vision reader's printed areas give the rooms theirs (pipeline: rooms.scale_rooms)
+            pipeline.get_scene.cache_clear()
         if pipeline.source_of(path) == "ifc_models":
             from blueprints.parsers import ifc
             ifc.model_glb(path, pipeline.dataset_file(path))  # the 3D view's model, built on first request otherwise

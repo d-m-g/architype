@@ -261,6 +261,55 @@ def outline_rooms(scene: Scene, file: Path, seg: dict | None = None) -> bool:
     return True
 
 
+def scale_rooms(scene: Scene, seen: Scene) -> bool:
+    """cubicasa: areas for the outlined rooms of add_rooms, from the vision reader's scene of the same plan (seen).
+    The detector's rooms, types and counts stay; a reader's room whose box centre lies in an outline lends it its label
+    and printed area. The scale is fitted as in outline_rooms: printed room areas, else an apartment's printed total.
+    Returns whether any room got an area."""
+    from shapely.geometry import Point, Polygon
+
+    from ..schemas import TraceStep
+
+    if any("m2" in e.qty for e in scene.entities if e.type == "room"):
+        return False  # scaled before
+    W, H = scene.pages[0].width, scene.pages[0].height
+    px = lambda pts: Polygon([(x * W, y * H) for x, y in pts]).buffer(0)
+    # A sauna is found by its stove, whose box is no room's floor.
+    rooms = [e for e in scene.entities if e.type == "room" and len(e.geom) >= 3 and e.label != "sauna (stove)"]
+    outlines = {i: o for i, o in ((i, px(r.geom)) for i, r in enumerate(rooms)) if o.geom_type == "Polygon" and o.area > 0}
+    read = {}  # room index -> the reader's room whose box centre is inside its outline
+    for v in (e for e in seen.entities if e.type == "room" and len(e.geom) >= 3):
+        x0, y0, x1, y1 = _box(v.geom)
+        centre = Point((x0 + x1) / 2 * W, (y0 + y1) / 2 * H)
+        i = next((i for i, o in outlines.items() if i not in read and o.contains(centre)), None)
+        if i is not None:
+            read[i] = v
+    fits = sorted((read[i].qty["m2"] / outlines[i].area) ** 0.5 for i in read if read[i].qty.get("m2"))
+    source = f"{len(fits)} printed room area(s)"
+    if not fits:
+        floors = _apartment_floors(seen, rooms, outlines, px)
+        fits = sorted((a.qty["m2"] / floor.area) ** 0.5 for a, floor in floors if a.qty.get("m2"))
+        source = f"the printed total area of {len(fits)} apartment(s)"
+    if not fits:
+        return False
+    m_per_px = fits[len(fits) // 2]
+    openings = [(px(e.geom), DOOR_H_M if e.type == "door" else WINDOW_H_M)
+                for e in scene.entities if e.type in ("door", "window") and len(e.geom) >= 3]
+    for i, o in outlines.items():
+        room, area, v = rooms[i], round(o.area * m_per_px ** 2, 2), read.get(i)
+        if v is not None and v.label and not room.label:
+            room.label = v.label
+        if v is not None and v.qty.get("m2"):
+            room.qty["m2"], room.attrs["outline_m2"] = v.qty["m2"], area  # beside the printed area, so a disagreement shows
+        else:
+            room.qty["m2"] = area
+            room.attrs |= {"area_estimated": True, "area_from": f"estimated: outline area at the scale fitted on {source}"}
+        measure(room, o, m_per_px, openings)
+    scene.trace.append(TraceStep(step="scene", detail=f"Areas for {len(outlines)} outlined rooms at "
+                                 f"{m_per_px * 1000:.1f} mm per pixel, fitted on {source} the vision reader read"))
+    return True
+
+
 if __name__ == "__main__":
     from ..schemas import Page
 
@@ -285,6 +334,19 @@ if __name__ == "__main__":
     Scene.model_validate(s.model_dump())
     add_rooms(s, Path("x.png"), out(found("living", box(0, 0, 0.05, 0.05))))  # already outlined: not segmented again
     assert count("living") == 1 and len(s.trace) == 1
+    # cubicasa areas: the reader prints 9 m2 inside the L (90000 px2) -> 0.01 m per px; the living room's 400 x 400 px
+    # is 16 m2 and the kitchen box 9 m2, estimated; the sauna stove's box gets none. Types and counts stay.
+    s.entities[2].label = "sauna (stove)"
+    seen_s = Scene(path="data/x.png", builder="vision:x@6", tier="detect", covers=["room"], pages=[page], entities=[
+        Entity(id="v0", type="room", subtype="bedroom", label="MH", geom=box(0.12, 0.12, 0.38, 0.28), qty={"m2": 9.0})])
+    assert scale_rooms(s, seen_s) and not scale_rooms(s, seen_s)  # the second time adds nothing
+    bed, kitchen, sauna, living = s.entities[:4]
+    assert (bed.label, bed.qty["m2"], bed.attrs["outline_m2"], kitchen.qty["m2"], living.qty["m2"]) == ("MH", 9.0, 9.0, 9.0, 16.0)
+    assert kitchen.attrs["area_estimated"] and not sauna.qty and (count("bedroom"), count("kitchen")) == (1, 1)
+    flat_s = seen_s.model_copy(update={"entities": [Entity(id="a", type="apartment", geom=box(0, 0, 1, 1), qty={"m2": 25.0})]})
+    s2 = Scene(path="data/x.png", builder="b", tier="detect", covers=[], pages=[page], entities=[det(1, "kitchen", 0.6, 0.6, 0.9, 0.9),
+               Entity(id="l", type="room", subtype="living", geom=box(0.1, 0.1, 0.5, 0.5))])
+    assert scale_rooms(s2, flat_s) and [e.qty["m2"] for e in s2.entities] == [9.0, 16.0]  # no room printed: 25 m2 total
 
     # upload: A prints 20 m2 over a 400 x 500 px outline -> 0.01 m per px; B gets 3 x 3 m = 9 m2, a 12 m perimeter and
     # 12 x 2.5 m of wall less a 0.9 x 2.0 m door; C has no outline and stays a box

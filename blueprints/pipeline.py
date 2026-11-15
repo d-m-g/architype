@@ -151,6 +151,18 @@ def _scene(path: str, rebuild: bool) -> Scene:
             fresh = rooms.outline_rooms(scene, drawing_file(path)) or fresh
         except NotImplementedError:
             pass
+    if source_of(path) == "cubicasa5k":
+        # Areas from the vision reader's printed room areas or apartment total, when its read of this plan is cached
+        # (tools/guest_cases.py --warm reads the guest plans); a guest or a plain open never pays for a read.
+        from .brain.vision import read_scene
+        from .detector import rooms
+        token = GUEST.set(True)  # no key: the cached read or nothing
+        try:
+            fresh = rooms.scale_rooms(scene, read_scene(path)[0]) or fresh
+        except NotImplementedError:
+            pass
+        finally:
+            GUEST.reset(token)
     scene = add_room_types(scene)
     metadata_changed = False
     if path.lower().endswith(IMAGES):
