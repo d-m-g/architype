@@ -109,7 +109,7 @@ TOOLS = [
         "parameters": {"type": "object", "required": ["plan"], "properties": {"plan": {"type": "string", "description":
             'QueryPlan JSON, e.g. {"queries": {"a": {"op": "sum", "type": "room", "subtype": "bathroom", "qty": "m2"}, '
             '"n": {"op": "count", "type": "room", "subtype": "bathroom"}}, "formula": "a / n", "unit": "m2"}. '
-            "Query fields: op (count|sum), type, subtype, label, number, level, apartment, outdoor, where, qty (m2|m|m3|ft2|wall_m2, for sum)."}}}}},
+            "Query fields: op (count|sum), type, subtype, label, number, level, apartment, outdoor, where, min_m2 / max_m2 (area range, e.g. rooms over 12 m2), qty (m2|m|m3|ft2|wall_m2, for sum)."}}}}},
     {"type": "function", "function": {
         "name": "look", "description": "Ask a vision model a question about the page image, or about one region of it.",
         "parameters": {"type": "object", "required": ["question"], "properties": {
@@ -240,7 +240,7 @@ def _tool(name: str, args: dict, scene: Scene) -> tuple[str, list[TraceStep]]:
         unknown = sorted({k for q in plan.queries.values() for k in q.where} - known)
         if unknown:  # an invented filter would silently match nothing and read as a confident zero
             return (f"invalid plan: no entity has the attribute(s) {unknown} for `where`. To filter by area use "
-                    f"list_entities with min_area_m2 / max_area_m2."), []
+                    f"the query fields min_m2 / max_m2."), []
         result = execute_with_links(plan, scene)
         return json.dumps({"answer": result.answer, "unit": result.unit, "formula": result.formula,
                            "evidence": result.evidence[:100], "error": result.error}), [s for s in result.trace if s.step == "resolve_room_connections"]
@@ -309,15 +309,39 @@ _down_until: dict[str, float] = {}  # model -> monotonic time until which it is 
 SKIP_AFTER_FAILURE_S = 300  # ponytail: per-process memory; a shared health check if we ever run several workers
 
 
-def agent(question: str, scene: Scene, draft: Answer, inline_evidence: bool) -> Answer:
-    """Nemotron with scene tools, falling back to Gemini with the same tools if Nemotron does not respond.
+def nemotron(think: bool = False) -> tuple:
+    extra = {"extra_body": {"chat_template_kwargs": {"enable_thinking": think}}}
+    if think:  # reasoning tokens come out of the same budget; 4096 can run out before the tool call
+        extra["max_tokens"] = 16384
+    return NEMOTRON_URL, os.environ.get(NEMOTRON_KEY_VAR), NEMOTRON_MODEL, extra
+
+
+def gemini(model: str = AGENT_FALLBACK_MODEL) -> tuple:
+    return GEMINI_URL, os.environ.get("GEMINI_API_KEY"), model, {}
+
+
+def agent(question: str, scene: Scene, draft: Answer, inline_evidence: bool, providers: list | None = None,
+          check: tuple | None = None) -> Answer:
+    """Nemotron with scene tools; Gemini runs the same loop if Nemotron does not respond or does not give an answer.
+    check: a model that reviews the answer with the same tools and gives the final one (confirmed or corrected).
     inline_evidence: return evidence as full entities (the viewer has no scene to look up)."""
-    providers = [(NEMOTRON_URL, os.environ.get(NEMOTRON_KEY_VAR), NEMOTRON_MODEL,
-                  {"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}}),
-                 (GEMINI_URL, os.environ.get("GEMINI_API_KEY"), AGENT_FALLBACK_MODEL, {})]
+    result = _first_answer(question, scene, draft, inline_evidence, providers)
+    if check is None or result.answer is None or not check[1]:
+        return result
+    url, key, model, extra = check
+    try:
+        return _agent_loop(question, scene, result, inline_evidence, url, key, model, extra,
+                           time.monotonic() + AGENT_BUDGET_S, [], checking=True)
+    except _Unavailable:
+        return result  # the checker is a bonus; the first answer stands if it does not respond
+
+
+def _first_answer(question, scene, draft, inline_evidence, providers) -> Answer:
+    providers = providers or [nemotron(think=True), gemini()]  # reasoning on: 59% -> 86% in bench_agent.py
     deadline = time.monotonic() + AGENT_BUDGET_S
     failures = []
-    for url, key, model, extra in providers:
+    result = None
+    for i, (url, key, model, extra) in enumerate(providers):
         if not key:
             failures.append(f"{model}: no key")
             continue
@@ -325,10 +349,18 @@ def agent(question: str, scene: Scene, draft: Answer, inline_evidence: bool) -> 
             failures.append(f"{model}: failed recently, skipped")
             continue
         try:
-            return _agent_loop(question, scene, draft, inline_evidence, url, key, model, extra, deadline, failures)
+            result = _agent_loop(question, scene, draft, inline_evidence, url, key, model, extra, deadline, failures)
         except _Unavailable as e:
             _down_until[model] = time.monotonic() + SKIP_AFTER_FAILURE_S
             failures.append(f"{model}: {e}")
+            continue
+        if result.answer is not None or i == len(providers) - 1:
+            return result
+        # Abstained: the next model starts from the same draft, and the trace keeps what this one spent.
+        draft = draft.model_copy(update={"trace": result.trace + [TraceStep(step=f"escalate:abstained {model}")]})
+        failures = []  # already on the trace
+    if result is not None:
+        return result
     raise NotImplementedError("lane C: no agent model answered (" + "; ".join(failures) + ")")
 
 
@@ -342,11 +374,18 @@ def _same_value(a, b) -> bool:
         return str(a).strip().casefold() == str(b).strip().casefold()
 
 
-def _agent_loop(question, scene, draft, inline_evidence, url, key, model, extra, deadline, failures) -> Answer:
+def _agent_loop(question, scene, draft, inline_evidence, url, key, model, extra, deadline, failures,
+                checking=False) -> Answer:
     import openai
     kinds = Counter(f"{e.type}:{e.subtype}" if e.subtype else e.type for e in scene.entities)
     context = (f"Question: {question}\n\nScene from {scene.builder}: {dict(kinds)}.\n"
                f"The cheap path said: {draft.answer!r} (confidence {draft.confidence:.2f}){f'; error: {draft.error}' if draft.error else ''}.")
+    if checking:
+        context = (f"Question: {question}\n\nScene from {scene.builder}: {dict(kinds)}.\n"
+                   f"Another model answered {draft.answer!r} {draft.unit or ''}, computed as: {draft.formula or 'no formula'}; "
+                   f"evidence ids: {draft.evidence[:40]}.\nCheck that answer with the tools: does it read the question "
+                   f"correctly and use the right entities? Then call answer: with the same plan if it is right, or with "
+                   f"the corrected plan if it is not.")
     system, tools = instructions(scene)
     messages = [{"role": "system", "content": system}, {"role": "user", "content": context}]
     # A provider that failed first is still on the card: the failed attempt shows as a zero-cost step.
@@ -362,7 +401,7 @@ def _agent_loop(question, scene, draft, inline_evidence, url, key, model, extra,
         t0 = time.perf_counter()
         try:
             reply = client.chat.completions.create(model=model, messages=messages, tools=tools, tool_choice=choice,
-                                                   max_tokens=4096, **extra)
+                                                   **{"max_tokens": 4096, **extra})
         except openai.OpenAIError as e:
             raise _Unavailable(type(e).__name__) from None
         steps.append(llm_step("escalate", model, reply.usage.prompt_tokens, reply.usage.completion_tokens,

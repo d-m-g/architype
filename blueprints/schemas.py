@@ -117,6 +117,8 @@ class Query(Strict):
     apartment: str | None = None
     outdoor: bool | None = None
     where: dict[str, Scalar] = {}  # equality on Entity.attrs; an entity without the attr does not match
+    min_m2: float | None = None  # keep entities with an area of at least this; an entity without an area does not match
+    max_m2: float | None = None  # ... of at most this
     qty: QtyUnit | None = None  # which quantity to sum
 
     @model_validator(mode="after")

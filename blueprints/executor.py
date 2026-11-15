@@ -53,6 +53,8 @@ def select(q: Query, scene: Scene, *, apply_policy=True) -> list[Entity]:
         and (q.level is None or _same(e.level, q.level))
         and (q.apartment is None or _same(e.apartment, q.apartment))
         and (q.outdoor is None or e.outdoor == q.outdoor)
+        and (q.min_m2 is None or e.qty.get("m2", -math.inf) >= q.min_m2)
+        and (q.max_m2 is None or e.qty.get("m2", math.inf) <= q.max_m2)
         and ("entity_id" not in q.where or e.id == q.where["entity_id"])
         and all(k in e.attrs and (_same(e.attrs[k], v) if isinstance(v, str) and isinstance(e.attrs[k], str)
                                   else e.attrs[k] == v) for k, v in q.where.items() if k not in room_queries.ROOM_FILTERS and k != "entity_id")

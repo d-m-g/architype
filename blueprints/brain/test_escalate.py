@@ -119,6 +119,26 @@ class VerifiedAgentAnswers(unittest.TestCase):
         self.assertEqual(result.answer, "Bain")
         self.assertEqual(result.evidence, ["bath"])
 
+    def test_area_range_filter(self):
+        from blueprints.executor import execute
+        from blueprints.schemas import QueryPlan
+        plan = lambda **f: QueryPlan(queries={"n": {"op": "count", "type": "room", "subtype": "bathroom", **f}}, unit="count")
+        self.assertEqual(execute(plan(min_m2=3), scene()).answer, 1)
+        self.assertEqual(execute(plan(max_m2=3), scene()).answer, 1)
+        self.assertEqual(execute(plan(min_m2=2, max_m2=4), scene()).answer, 2)
+
+    def test_abstention_hands_over_to_the_next_model_and_keeps_its_cost(self):
+        client = Mock()
+        client.chat.completions.create.side_effect = [reply({"answer": "cannot answer", "explanation": "unsure"}),
+                                                      reply({"answer": 11, "plan": json.dumps(tile_plan())})]
+        with patch("openai.OpenAI", return_value=client), \
+             patch.object(escalate, "llm_step", return_value=TraceStep(step="escalate", usd=.001)):
+            result = escalate.agent("tiles?", scene(), Answer(), False,
+                                    providers=[("u", "k", "first", {}), ("u", "k", "second", {})])
+        self.assertEqual(result.answer, 11)
+        self.assertIn("escalate:abstained first", [s.step for s in result.trace])
+        self.assertEqual(sum(s.step == "escalate" for s in result.trace), 2)
+
 
 def measured_scene(tier="parse"):
     """A parsed plan as the parsers record it: a room's perimeter and a door's width in qty.m, the rest in attrs."""
