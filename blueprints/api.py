@@ -266,6 +266,12 @@ def recompute(body: Recompute) -> Answer:
     from .brain.plan import cached_plan
     from .brain.vision import checked
     found = cached_plan(body.question, body.scene) if body.plan is None and body.question else None
+    if not found and body.plan is None and body.question and "\n\nSelected drawing object: " in body.question:
+        from .brain.plan import plan_with_trace
+        try:
+            found = plan_with_trace(body.question, body.scene)
+        except NotImplementedError:
+            pass  # descriptive questions retain the scene-aware resolver fallback
     plan = body.plan or (found[0] if found else None)
     if plan is None:
         if not body.question:
@@ -275,7 +281,10 @@ def recompute(body: Recompute) -> Answer:
             return resolve(body.question, body.scene, body.assumptions or None, body.history or None)
         except NotImplementedError as e:
             return Answer(error=str(e))
-    return checked(execute(plan, body.scene), plan, body.scene)  # as pipeline.answer: no confident zero from the vision reader's rooms
+    result = checked(execute(plan, body.scene), plan, body.scene)
+    if found:
+        result.trace = found[1] + result.trace
+    return result
 
 
 @app.post("/api/room-ranking")

@@ -151,6 +151,14 @@ def answer(path: str, question: str, assumptions: dict | None = None, history: l
             return ranking
         from .brain.plan import cached_plan
         found = cached_plan(question, scene)
+        if not found and "\n\nSelected drawing object: " in question:
+            # Explicit object questions use the endpoint-aware executor and its evidence cutoff.
+            # The general SQL resolver remains the default for unscoped, free-form questions.
+            from .brain.plan import plan_with_trace
+            try:
+                found = plan_with_trace(question, scene)
+            except NotImplementedError as error:
+                steps += getattr(error, "steps", [])
         if found:  # the free path: a question shape planned before, answered exactly as before
             plan, plan_steps = found
             steps += plan_steps

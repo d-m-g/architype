@@ -155,5 +155,17 @@ class RoomRanking(unittest.TestCase):
             self.assertEqual(client.get('/object-question.js').status_code,200)
             self.assertEqual(client.get('/object-question.test.js').status_code,404)
 
+    def test_selected_room_counts_use_endpoint_executor_in_new_demo_resolver_flow(self):
+        from blueprints import pipeline, api
+        from fastapi.testclient import TestClient
+        question='How many doors?\n\nSelected drawing object: type=room; id="a"; name="Korridor 0.05"; page=1'
+        plan=QueryPlan(queries={'n':Query(op='count',type='door',where={'connected_room_id':'a'})},unit='count')
+        s=source(6,4,0)
+        with patch('blueprints.brain.plan.cached_plan',return_value=None),patch('blueprints.brain.plan.plan_with_trace',return_value=(plan,[])),patch.object(pipeline,'get_scene',return_value=s),patch('blueprints.brain.resolve.resolve',side_effect=AssertionError('Must retain scoped evidence checks')):
+            self.assertEqual(pipeline.answer(s.path,question).answer,6)
+            with patch.object(api,'PASSWORD_HASH',None),TestClient(api.app) as client:
+                reply=client.post('/api/recompute',json={'scene':s.model_dump(),'question':question})
+                self.assertEqual(reply.json()['answer'],6)
+
 
 if __name__=='__main__':unittest.main()
