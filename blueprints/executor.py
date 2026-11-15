@@ -178,12 +178,16 @@ def execute(plan: QueryPlan, scene: Scene) -> Answer:
                    "Below-cutoff, excluded and out-of-scope detections are listed separately.")
         if confidence+1e-12 < policy.THRESHOLD:
             error = f"Calculation support {confidence:.0%} is below the provisional {policy.THRESHOLD:.0%} cutoff."
+            bounds = {}
             if weak:
                 # Name the candidates that pulled the score down, so the reader knows what to review.
                 scores = ", ".join(f"{e.conf:.0%}" for e in sorted(weak, key=lambda e: -e.conf)[:5])
-                span = f" The answer is between {value:g} and {value + len(weak):g}." if plan.formula is None and plan.unit == "count" else ""
+                span = ""
+                if plan.formula is None and plan.unit == "count":
+                    bounds = {"lower": value, "upper": value + len(weak)}
+                    span = f" The answer is between {value:g} and {value + len(weak):g}."
                 error += (f" {len(weak)} more candidate{'s' if len(weak) > 1 else ''} scored under the cutoff ({scores}) and "
                           f"{'were' if len(weak) > 1 else 'was'} not counted.{span} Confirm or reject {'them' if len(weak) > 1 else 'it'} in Correct.")
-            return done(error=error,
+            return done(error=error, **bounds,
                         confidence=confidence, evidence=evidence, formula=shown)
     return done(answer=value, unit=plan.unit, confidence=confidence, evidence=evidence, formula=shown)

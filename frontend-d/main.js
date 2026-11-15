@@ -63,6 +63,11 @@ export function formatValue(value,unit){
  const text=unit==='count'||Number.isInteger(value)?String(value):value.toLocaleString('en',{maximumFractionDigits:2});
  return [text,UNIT[unit]??''];
 }
+// A refused count with known bounds shows them; the card stays styled as failed, since they are unconfirmed.
+export function answerTitle(raw){
+ if(raw.answer!==null)return formatValue(raw.answer,raw.unit);
+ return [raw.lower!=null&&raw.upper!=null?`Likely ${raw.lower}–${raw.upper}`:'No answer',''];
+}
 
 // ───────── viewer ─────────
 const svg=$('drawing'),image=$('page-image');
@@ -481,7 +486,7 @@ function renderAnswer(){
  $('asked').textContent=questionLabel(state.question);
  const failed=raw.answer===null;
  $('answer-card').classList.toggle('failed',failed);
- const [value,unit]=failed?['No answer','']:formatValue(raw.answer,raw.unit);
+ const [value,unit]=answerTitle(raw);
  $('answer').replaceChildren(value,unit?el('span',{class:'unit'},unit):'');
  $('answer').classList.toggle('text-answer',!failed&&typeof raw.answer==='string');
  // Errors from the executor name entities by id; show the names a person can find on the drawing.
@@ -543,7 +548,7 @@ function renderHistory(){
  const entries=state.path?historyStore.list('drawing:'+state.path).filter(entry=>entry.id!==shownHistory):[];
  $('history').hidden=!entries.length;
  $('history-list').replaceChildren(...entries.map(entry=>{
-  const answer=entry.payload.rawAnswer,[value,unit]=answer.answer===null?['No answer','']:formatValue(answer.answer,answer.unit);
+  const answer=entry.payload.rawAnswer,[value,unit]=answerTitle(answer);
   return el('li',{},el('button',{type:'button',onclick:()=>{shownHistory=entry.id;state.corrected=null;showAnswer(answer,entry.question,entry.payload.ms);}},
    el('span',{},questionLabel(entry.question)),el('b',{},`${value} ${unit}`.trim())));
  }));

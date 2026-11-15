@@ -69,6 +69,7 @@ class RoomRanking(unittest.TestCase):
         self.assertIsNone(result.answer)
         self.assertIn('2 more candidates scored under the cutoff (58%, 43%)',result.error)
         self.assertIn('between 1 and 3',result.error)
+        self.assertEqual((result.lower,result.upper),(1,3))
 
     def test_missing_relationships_preserve_existing_fallback(self):
         s=source()
