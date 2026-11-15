@@ -6,7 +6,7 @@ rename() gives the model the asked value and the values the drawing does have, r
 returns the plan with the drawing's value in its place. The pipeline runs that plan through the executor, so the
 number, the formula and the evidence are still the executor's; capped() marks the answer as resting on that reading.
 
-Check:  uv run --extra brain python -m blueprints.brain.resolve
+Check:  uv run --extra brain python -m blueprints.brain.aliases
 """
 import hashlib
 import json
@@ -52,7 +52,7 @@ def _ask(kind: str, field: str, asked: str, values: list[str]) -> tuple[str | No
     key = hashlib.md5(json.dumps([kind, field, asked.strip().casefold(), values], ensure_ascii=False).encode()).hexdigest()
     cached = pipeline.CACHE / "resolved" / f"{key}.json"
     if pipeline.READ_CACHE and cached.exists():
-        return json.loads(cached.read_text(encoding="utf-8"))["match"], [llm_step("resolve", GEMINI_MODEL, 0, 0, 0, cached=True)]
+        return json.loads(cached.read_text(encoding="utf-8"))["match"], [llm_step("aliases", GEMINI_MODEL, 0, 0, 0, cached=True)]
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key or len(values) > MAX_VALUES:
         return None, []
@@ -73,7 +73,7 @@ def _ask(kind: str, field: str, asked: str, values: list[str]) -> tuple[str | No
     except openai.OpenAIError:
         return None, []  # the question goes on as it would have without this step
     usage = reply.usage
-    step = llm_step("resolve", GEMINI_MODEL, usage.prompt_tokens if usage else 0, usage.completion_tokens if usage else 0,
+    step = llm_step("aliases", GEMINI_MODEL, usage.prompt_tokens if usage else 0, usage.completion_tokens if usage else 0,
                     (time.perf_counter() - t0) * 1000)
     try:
         said = json.loads(reply.choices[0].message.content or "").get("match")
@@ -137,7 +137,7 @@ if __name__ == "__main__":  # no model call: _ask is replaced
     def fake(kind, field, asked, values):
         calls.append(asked)
         answer = {"kitchen": "Küche", "first floor": "Level 1"}.get(asked)
-        return answer, [llm_step("resolve", GEMINI_MODEL, 100, 5, 1.0)]
+        return answer, [llm_step("aliases", GEMINI_MODEL, 100, 5, 1.0)]
     _ask = fake
     plan, steps = rename(area(label="kitchen"), scene)
     got = capped(execute(plan, scene))

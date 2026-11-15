@@ -147,13 +147,13 @@ def answer(path: str, question: str) -> Answer:
         result = execute_with_links(plan, scene)
         # A filter naming something the drawing calls otherwise ("kitchen" for "Küche") matched nothing: one small
         # model call picks the drawing's own name, and the executor runs the plan again. No call when every name is known.
-        from .brain import resolve
-        renamed, more = resolve.rename(plan, scene)
+        from .brain import aliases
+        renamed, more = aliases.rename(plan, scene)
         steps += more
         if renamed:
-            plan, result = renamed, resolve.capped(execute_with_links(renamed, scene))
+            plan, result = renamed, aliases.capped(execute_with_links(renamed, scene))
         elif more:  # asked, and nothing in the drawing stands for that name: not a confident zero, the agent decides
-            _, field, asked, values = next(u for u in resolve.unknown(plan, scene) if f"{u[1]} {u[2]!r}" in more[-1].detail)
+            _, field, asked, values = next(u for u in aliases.unknown(plan, scene) if f"{u[1]} {u[2]!r}" in more[-1].detail)
             result = Answer(tier=scene.tier, trace=result.trace, error=f"nothing in this drawing has the {field} {asked!r}; "
                             f"its {field}s are: {', '.join(values[:30])}")
         from .brain.vision import checked
