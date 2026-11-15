@@ -16,6 +16,7 @@ test('expired sessions retain the backend error and give sign-in recovery',async
  t.mock.method(globalThis,'fetch',async()=>new Response(JSON.stringify({error:'sign in first'}),{status:401}));
  await assert.rejects(requestJSON('/api/scene'),/401: sign in first/);
  assert.match(recoveryMessage('401: sign in first'),/Sign in.*Keep this tab open/);
+ assert.equal(recoveryMessage('422: Not a floor plan: this looks like a bridge elevation. Upload a floor plan (PDF, PNG, JPEG, DXF or IFC).'),'Not a floor plan: this looks like a bridge elevation. Upload a floor plan (PDF, PNG, JPEG, DXF or IFC).');
 });
 test('local preview checks file content, empty files and size before displaying',async()=>{
  assert.equal(await validateLocalDrawing(new Blob(['%PDF-1.7\n'])),'application/pdf');
