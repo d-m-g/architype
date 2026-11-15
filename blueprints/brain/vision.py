@@ -50,6 +50,7 @@ TO_M = {"mm": 0.001, "cm": 0.01, "m": 1.0}
 
 class _Named(_Item):
     label: str | None = None
+    printed_area_m2: float | None = None  # an apartment's total as printed; gives the scale when no room prints its area
 
 
 class _Fixture(_Item):
@@ -71,7 +72,7 @@ class _Reply(BaseModel):
 PROMPT = f"""Look at this drawing. If it is a floor plan, list everything below that is drawn, as JSON only:
 {{"is_floor_plan": true or false, "drawing_kind": "floor plan", or what it is instead (section, elevation, detail, site plan, photo, schedule, text),
  "floors": [{{"box_2d": [ymin, xmin, ymax, xmax]}}],
- "apartments": [{{"label": "the apartment's name as written, e.g. A", "box_2d": [...]}}],
+ "apartments": [{{"label": "the apartment's name as written, e.g. A, or null", "printed_area_m2": number or null, "box_2d": [...]}}],
  "rooms": [{{"label": "the room's name only", "number": "the room's number, e.g. 3.01, or null",
             "apartment": "the apartment it belongs to, e.g. A, or null", "printed_area_m2": number or null,
             "printed_sides": [{{"a": [numbers], "b": [numbers], "unit": "mm", "cm" or "m"}}] or null,
@@ -87,7 +88,10 @@ box_2d is [ymin, xmin, ymax, xmax] scaled 0-1000 to the image.
   When a side is covered by a chain of several dimensions, list every number of the chain, e.g. "b": [2000, 1040].
   An L-shaped or stepped room is split into rectangles that do not overlap, one entry each. Copy the numbers exactly,
   do not add, multiply or convert them; use null only when the plan prints no dimensions along the room.
-- apartments: one entry per apartment or dwelling unit shown, with its outline (empty for a single home without names).
+- apartments: one entry per apartment or dwelling unit shown, with its outline. printed_area_m2 is the apartment's
+  total area in m² when the plan prints one (e.g. "3h+k 74,5 m²", "Wohnfläche 82 m²", "Total 65 m2"): copy the number,
+  never add up room areas yourself; null if no total is printed. A single home without a name is listed only when its
+  total area is printed: label null, box_2d around the whole plan.
 - floors: one entry per separate floor plan drawn on the sheet (a sheet may show 2-4 floors side by side).
 - doors: doorways fitted with a door leaf (a swing arc or a leaf); an opening without a leaf is not a door.
 - windows: each window unit in a wall.
@@ -166,7 +170,9 @@ def to_scene(path: str, page: Page, found: dict) -> Scene:
     for item in found.get("floors", []):
         add("level", None, item, label=f"floor {sum(e.type == 'level' for e in entities) + 1}")
     for item in found.get("apartments", []):
-        add("apartment", None, item, label=item.get("label"))
+        total = item.get("printed_area_m2")
+        total = float(total) if isinstance(total, (int, float)) and 8 <= total <= 2000 else None  # a home, not a misread number
+        add("apartment", None, item, label=item.get("label"), qty={"m2": total} if total else {})
     for item in found.get("rooms", []):
         subtype = item.get("type") if item.get("type") in ROOM_TYPES else "other"
         area, sides, attrs = item.get("printed_area_m2"), item.get("printed_sides"), {}
@@ -187,7 +193,7 @@ def to_scene(path: str, page: Page, found: dict) -> Scene:
     return Scene(path=path, builder=BUILDER, tier="detect", covers=covers, pages=[page], entities=entities)
 
 
-BUILDER = f"vision:{VISION_MODEL}@5"  # bump the version when the prompt or the conversion changes; it keys the cache
+BUILDER = f"vision:{VISION_MODEL}@6"  # bump the version when the prompt or the conversion changes; it keys the cache
 NOT_A_PLAN = ":not-a-floor-plan:"  # builder suffix for drawings the reader refused, followed by what they are
 TILE, BAND = 1024, 72  # the orientation sheet: tile side and the label band above each tile, pixels
 TURNS = {"A": 0, "B": 90, "C": 180, "D": 270}  # tile label -> clockwise turn of the drawing shown in it
@@ -424,7 +430,7 @@ if __name__ == "__main__":  # self-check of the conversion, no model call
     page = Page(image="data/x.png", width=100, height=50)
     s = to_scene("data/x.png", page, {
         "floors": [{"box_2d": [0, 0, 1000, 500]}, {"box_2d": [0, 500, 1000, 1000]}],
-        "apartments": [{"label": "A", "box_2d": [0, 0, 500, 500]}],
+        "apartments": [{"label": "A", "box_2d": [0, 0, 500, 500], "printed_area_m2": 74.5}, {"label": "B", "box_2d": [0, 500, 500, 1000], "printed_area_m2": 3}],
         "rooms": [{"label": "MH", "type": "bedroom", "box_2d": [100, 100, 400, 400], "number": "3.01", "apartment": "A", "printed_area_m2": 12.5},
                   {"label": "?", "type": "attic", "box_2d": [1, 1, 2, 2]}, {"label": "Balkon", "type": "balcony", "box_2d": [1, 1, 2, 2]}],
         "doors": [{"box_2d": [10, 10, 20, 20]}, {"box_2d": "bad"}],
@@ -432,7 +438,8 @@ if __name__ == "__main__":  # self-check of the conversion, no model call
         "fixtures": [{"type": "sink", "box_2d": [5, 5, 6, 6]}, {"type": "bidet", "box_2d": [5, 5, 6, 6]}]})
     kinds = [(e.type, e.subtype) for e in s.entities]
     assert kinds.count(("level", None)) == 2 and ("room", "bedroom") in kinds and ("room", "other") in kinds
-    assert kinds.count(("door", None)) == 1 and ("fixture", "sink") in kinds and len(kinds) == 9
+    assert kinds.count(("door", None)) == 1 and ("fixture", "sink") in kinds and len(kinds) == 10
+    assert [e.qty for e in s.entities if e.type == "apartment"] == [{"m2": 74.5}, {}]  # 3 m2 is no apartment: a misread number
     bedroom = next(e for e in s.entities if e.subtype == "bedroom")
     assert (bedroom.number, bedroom.apartment, bedroom.qty) == ("3.01", "A", {"m2": 12.5})
     assert next(e for e in s.entities if e.subtype == "balcony").outdoor
@@ -473,7 +480,7 @@ if __name__ == "__main__":  # self-check of the conversion, no model call
     door = Entity(id="det-0", type="door", conf=0.9)
     det = Scene(path="uploads/x.png", builder="fixtures-6:tiled@2", tier="detect", covers=["door", "fixture:sink"], pages=[page], entities=[door])
     assert add_rooms(det, "uploads/x.png", s) and not add_rooms(det, "uploads/x.png", s)  # the second time adds nothing
-    assert Counter(e.type for e in det.entities) == {"door": 1, "room": 3, "apartment": 1, "level": 2}
+    assert Counter(e.type for e in det.entities) == {"door": 1, "room": 3, "apartment": 2, "level": 2}
     assert {"room", "room:bedroom", "level", "apartment", "door"} <= set(det.covers) and "window" not in det.covers
     assert det.entities[0].conf == 0.9 and all(e.conf < 1 for e in det.entities[1:]) and "+vision:" in det.builder
     assert not_a_floor_plan(det) is None

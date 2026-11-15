@@ -59,10 +59,11 @@ def _done(scene: Scene, seg: dict, detail: str) -> None:
 
 
 MARK = "+outlines:"  # in Scene.builder once a scene has its outlines, so a cached scene is not segmented again
-VERSION = 5  # @2: uploads keep the masks no reader's room matches, and get the spaces that rooms stand around;
+VERSION = 6  # @2: uploads keep the masks no reader's room matches, and get the spaces that rooms stand around;
 #              @3: an outlined room names both readers in its ref and takes the mask's score when they agree on its type
 #              @4: a reader's box without an outline, inside another room's outline, is dropped as a repeat of it
 #              @5: an unnamed space that widens out (a school corridor round a block of rooms) is found whole
+#              @6: with no printed room area, an apartment's printed total gives the scale; apartments get a total
 
 
 def _outlined(scene: Scene) -> bool:
@@ -118,6 +119,37 @@ def add_rooms(scene: Scene, file: Path, seg: dict | None = None) -> None:
                        for j, f in extra]
     scene.covers += [k for k in (f"room:{t}" for t in EXTRA) if k not in scene.covers]
     _done(scene, seg, f"Outlined {len(pairs)} of {len(rooms)} detected rooms; found {len(extra)} more (living, corridor, storage, other)")
+
+
+def _apartment_floors(scene: Scene, rooms: list[Entity], outlines: dict, px) -> list[tuple[Entity, object]]:
+    """Each apartment with the floor its indoor rooms cover, in pixels: (apartment, shape). Its rooms are those that name
+    it, else those inside its box, else every room when the drawing shows one apartment. An apartment's printed total
+    counts the partitions between its rooms, so the room outlines are joined across the walls between them.
+    Left out when under four fifths of its rooms have an outline: boxes would make the floor, and so the scale, a guess."""
+    from shapely.ops import unary_union
+
+    apartments = [e for e in scene.entities if e.type == "apartment"]
+    name = lambda v: str(v).strip().casefold() if v is not None else ""
+    shape = lambda i: outlines.get(i) or px(rooms[i].geom)
+    out = []
+    for apartment in apartments:
+        box = px(apartment.geom) if len(apartment.geom) >= 3 else None
+        mine = [i for i, r in enumerate(rooms) if name(apartment.label) and name(r.apartment) == name(apartment.label)]
+        if not mine and box is not None and box.area > 0 and len(apartments) > 1:
+            mine = [i for i in range(len(rooms)) if box.contains(shape(i).representative_point())]
+        if not mine and len(apartments) == 1:
+            mine = list(range(len(rooms)))
+        mine = [i for i in mine if not rooms[i].outdoor]  # balconies and terraces are not in a living area
+        if not mine or sum(i in outlines for i in mine) < 0.8 * len(mine):
+            continue
+        floor = unary_union([shape(i) for i in mine])
+        # ponytail: walls taken as up to 6% of the floor's side (0.5 m in a 70 m2 flat) and closed over; this also fills
+        # notches that narrow. Measure the wall width from the segmenter's wall mask if areas come out high.
+        gap = 0.03 * floor.area ** 0.5
+        floor = floor.buffer(gap, join_style=2).buffer(-gap, join_style=2)
+        if floor.area > 0:
+            out.append((apartment, floor))
+    return out
 
 
 def outline_rooms(scene: Scene, file: Path, seg: dict | None = None) -> bool:
@@ -188,7 +220,19 @@ def outline_rooms(scene: Scene, file: Path, seg: dict | None = None) -> bool:
         return False
 
     fits = sorted((rooms[i].qty["m2"] / o.area) ** 0.5 for i, o in outlines.items() if rooms[i].qty.get("m2"))
+    source = f"{len(fits)} printed room area(s)"
+    floors_of = _apartment_floors(scene, rooms, outlines, px)
+    if not fits:  # no room prints its area: an apartment's printed total over the floor its rooms cover gives the scale
+        fits = sorted((a.qty["m2"] / floor.area) ** 0.5 for a, floor in floors_of if a.qty.get("m2"))
+        source = f"the printed total area of {len(fits)} apartment(s)"
     m_per_px = fits[len(fits) // 2] if fits else None
+    for apartment, floor in floors_of if m_per_px else []:
+        area = round(floor.area * m_per_px ** 2, 2)
+        if apartment.qty.get("m2"):
+            apartment.attrs["outline_m2"] = area  # beside the printed total, so a disagreement shows
+        else:
+            apartment.qty["m2"] = area
+            apartment.attrs |= {"area_estimated": True, "area_from": f"estimated: its rooms' floor at the scale fitted on {source}"}
     openings = [(px(e.geom), DOOR_H_M if e.type == "door" else WINDOW_H_M)
                 for e in scene.entities if e.type in ("door", "window") and len(e.geom) >= 3]
     for i, o in outlines.items():
@@ -209,9 +253,9 @@ def outline_rooms(scene: Scene, file: Path, seg: dict | None = None) -> bool:
         else:
             room.qty["m2"] = area
             room.attrs |= {"area_estimated": True,
-                           "area_from": f"estimated: outline area at the scale fitted on {len(fits)} printed room area(s)"}
+                           "area_from": f"estimated: outline area at the scale fitted on {source}"}
         measure(room, o, m_per_px, openings)
-    scale = f"; scale {m_per_px * 1000:.1f} mm per pixel from {len(fits)} printed room area(s)" if m_per_px else "; no printed room area, so no scale"
+    scale = f"; scale {m_per_px * 1000:.1f} mm per pixel from {source}" if m_per_px else "; no printed room or apartment area, so no scale"
     more = f"; added {masks} room(s) the reader did not list and {len(rooms) - known - masks} unnamed space(s) between rooms" if len(rooms) > known else ""
     _done(scene, seg, f"Outlined {len(pairs)} of {known} rooms{more}{scale}")
     return True
@@ -267,6 +311,35 @@ if __name__ == "__main__":
     assert outline_rooms(u, Path("x.png"), seen) and not any(e.qty for e in u.entities) and u.entities[1].geom == box(0.5, 0.1, 0.8, 0.4)
     u = upload()
     assert not outline_rooms(u, Path("x.png"), out()) and u.builder.endswith("@5")  # the segmenter saw nothing
+    # No room prints its area, but the apartment prints 29 m2 over rooms that cover 400 x 500 + 300 x 300 px: 0.01 m per
+    # px again, so A is 20 m2 and B 9 m2, both estimated, with perimeters; the unoutlined box C is outside the apartment.
+    flat = lambda **more: Entity(id="vis-apartment-0", type="apartment", label="A", geom=box(0.05, 0.05, 0.85, 0.65), conf=0.7, **more)
+    u = upload(printed=False)
+    u.entities.append(flat(qty={"m2": 29.0}))
+    for e in u.entities[:2]:
+        e.apartment = "A"
+    assert outline_rooms(u, Path("x.png"), seen)
+    a, b, c = u.entities[:3]
+    assert (a.qty["m2"], a.qty["m"], b.qty["m2"], b.qty["m"]) == (20.0, 18.0, 9.0, 12.0) and a.attrs["area_estimated"] and not c.qty
+    assert "printed total area of 1 apartment(s)" in a.attrs["area_from"] and "10.0 mm per pixel from the printed total area of 1 apartment(s)" in u.trace[-1].detail
+    assert u.entities[-1].qty == {"m2": 29.0} and u.entities[-1].attrs["outline_m2"] == 29.0
+    # One apartment, unnamed, rooms that do not say which apartment they are in: every indoor room is its floor.
+    u = upload(printed=False)
+    u.entities = u.entities[:2] + [u.entities[3], flat(qty={"m2": 29.0}).model_copy(update={"label": None})]
+    assert outline_rooms(u, Path("x.png"), seen) and [e.qty["m2"] for e in u.entities[:2]] == [20.0, 9.0]
+    # Printed room areas still set the scale when there are any; the apartment then gets its total, estimated or checked.
+    u = upload()
+    u.entities.append(flat())
+    for e in u.entities[:2]:
+        e.apartment = "A"
+    assert outline_rooms(u, Path("x.png"), seen) and u.entities[-1].qty == {"m2": 29.0} and u.entities[-1].attrs["area_estimated"]
+    assert "from 1 printed room area(s)" in u.trace[-1].detail
+    # Under four fifths of the apartment's rooms outlined: its total gives no scale (the floor would be a guess).
+    u = upload(printed=False)
+    u.entities.append(flat(qty={"m2": 29.0}))
+    for e in u.entities[:3]:
+        e.apartment = "A"
+    assert outline_rooms(u, Path("x.png"), seen) and not any(e.qty.get("m2") for e in u.entities[:3]) and "no scale" in u.trace[-1].detail
     # A mask where the reader listed no room is a room it skipped: added, with an estimated area. One lying over a
     # room that is already there, or a doubtful one, is not.
     u = upload()

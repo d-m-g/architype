@@ -54,6 +54,7 @@ HISTORY_CHARS = 3000  # of all turns as sent to the model, about 750 tokens; the
 
 # What a size column means for a type: the Sizes convention of parsers/README.md.
 MEANING = {
+    ("apartment", "m2"): "total area as printed, or estimated from its rooms (interior partitions included; not the sum of its rooms)",
     ("room", "m2"): "net floor area", ("room", "m"): "perimeter (skirting)", ("room", "width_m"): "shorter side of the box along its longest wall",
     ("room", "length_m"): "longer side of that box", ("room", "height_m"): "ceiling height",
     ("room", "wall_m2"): "its wall area net of doors and windows (paint, wallpaper, wall tiles for a room; unit m2)",
