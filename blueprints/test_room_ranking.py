@@ -63,6 +63,13 @@ class RoomRanking(unittest.TestCase):
         self.assertIn('6 doors',result.interpretation)
         self.assertNotIn('6–',result.interpretation)
 
+    def test_count_refusal_names_the_uncounted_candidates_and_range(self):
+        s=source(1,0,0);s.entities+= [Entity(id=f'w{i}',type='door',conf=c) for i,c in enumerate([.58,.43])]
+        result=execute(QueryPlan(queries={'n':Query(op='count',type='door')},unit='count'),s)
+        self.assertIsNone(result.answer)
+        self.assertIn('2 more candidates scored under the cutoff (58%, 43%)',result.error)
+        self.assertIn('between 1 and 3',result.error)
+
     def test_missing_relationships_preserve_existing_fallback(self):
         s=source()
         for e in s.entities:e.attrs={}

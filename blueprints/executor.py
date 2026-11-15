@@ -79,7 +79,7 @@ def execute(plan: QueryPlan, scene: Scene) -> Answer:
 
     values: dict[str, float] = {}
     evidence: list[str] = []
-    confidence, shown, why = 1.0, "", []
+    confidence, shown, why, weak = 1.0, "", [], []
     for name, q in plan.queries.items():
         key = f"{q.type}:{q.subtype}" if q.subtype else q.type
         if key not in scene.covers:
@@ -90,6 +90,7 @@ def execute(plan: QueryPlan, scene: Scene) -> Answer:
         if policy.raster(scene) and q.op == "count" and q.type in policy.OBJECT_TYPES:
             included = {e.id for e in hits}
             below = [e for e in select(q, scene, apply_policy=False) if not e.attrs.get("calculation_excluded") and e.conf < policy.THRESHOLD]
+            weak += below
             coverage = len(hits)/(len(hits)+len(below)) if hits or below else 1.0
             support = policy.score(hits, cited_rooms)*coverage
             confidence = min(confidence, support)
@@ -176,6 +177,13 @@ def execute(plan: QueryPlan, scene: Scene) -> Answer:
         why.append(f"Provisional calculation support score, not a calibrated probability. Evidence cutoff {policy.THRESHOLD:.0%}; arithmetic is verified. "
                    "Below-cutoff, excluded and out-of-scope detections are listed separately.")
         if confidence+1e-12 < policy.THRESHOLD:
-            return done(error=f"Calculation support {confidence:.0%} is below the provisional {policy.THRESHOLD:.0%} cutoff.",
+            error = f"Calculation support {confidence:.0%} is below the provisional {policy.THRESHOLD:.0%} cutoff."
+            if weak:
+                # Name the candidates that pulled the score down, so the reader knows what to review.
+                scores = ", ".join(f"{e.conf:.0%}" for e in sorted(weak, key=lambda e: -e.conf)[:5])
+                span = f" The answer is between {value:g} and {value + len(weak):g}." if plan.formula is None and plan.unit == "count" else ""
+                error += (f" {len(weak)} more candidate{'s' if len(weak) > 1 else ''} scored under the cutoff ({scores}) and "
+                          f"{'were' if len(weak) > 1 else 'was'} not counted.{span} Confirm or reject {'them' if len(weak) > 1 else 'it'} in Correct.")
+            return done(error=error,
                         confidence=confidence, evidence=evidence, formula=shown)
     return done(answer=value, unit=plan.unit, confidence=confidence, evidence=evidence, formula=shown)
