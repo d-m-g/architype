@@ -4,7 +4,7 @@ junction-dataset*/
 
 # built scenes, rendered pages, eval run logs
 .cache/
-runs/
+/runs/
 
 .DS_Store
 __pycache__/

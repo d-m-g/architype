@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 
 FILE = Path(__file__).with_name("reliability.json")
+CALIBRATION = Path(__file__).with_name("calibration.json")
 MIN_ROWS = 10  # fewer scored answers in a band than this and we say nothing about it
 
 
@@ -44,9 +45,18 @@ if __name__ == "__main__":
     latest: dict[tuple, dict] = {}
     for run in sorted(Path("runs").glob("*.jsonl")):  # names start with a timestamp, so later runs win
         kind = "vision" if "vision" in run.name else "pipeline" if "pipeline" in run.name else None
+        if run.name.startswith("calib-"):  # train-split runs fit calibration.py; the card reports test only
+            kind = None
+        if kind == "pipeline" and run.stat().st_mtime < CALIBRATION.stat().st_mtime:
+            kind = None  # logged raw scores; the card shows calibrated ones
         if kind:  # a vision run measures another route on the same questions: keep both
             for line in run.read_text().splitlines():
                 row = json.loads(line)
+                if kind == "vision" and row["pred"] is not None and row["pred_unit"]:
+                    # runs from before calibration logged the raw 0.7; vision calibration ignores the raw score
+                    from .calibration import calibrate
+                    from .schemas import Answer
+                    row["confidence"] = calibrate(Answer(answer=row["pred"], unit=row["pred_unit"], confidence=row["confidence"]), "vision").confidence
                 latest[(kind, row["path"], row["question"])] = row
     table = build(list(latest.values()))
     FILE.write_text(json.dumps(dict(sorted(table.items())), indent=0) + "\n")

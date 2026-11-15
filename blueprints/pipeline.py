@@ -161,8 +161,10 @@ def answer(path: str, question: str) -> Answer:
             _, field, asked, values = next(u for u in aliases.unknown(plan, scene) if f"{u[1]} {u[2]!r}" in more[-1].detail)
             result = Answer(tier=scene.tier, trace=result.trace, error=f"nothing in this drawing has the {field} {asked!r}; "
                             f"its {field}s are: {', '.join(values[:30])}")
-        from .brain.vision import checked
+        from .brain.vision import checked, from_reader
+        from .calibration import calibrate
         result = checked(result, plan, scene)  # rooms the vision reader added to an upload: no surer than the reader
+        result = calibrate(result, "vision" if from_reader(plan, scene) else scene.tier)  # raw score -> measured rate
     except Exception as e:  # a crashed builder (e.g. an undeployed Modal app) escalates instead of failing the answer
         steps += getattr(e, "steps", [])  # the planner's cost when it judged the question unsupported
         result = Answer(error=str(e) if isinstance(e, NotImplementedError) else f"{type(e).__name__}: {e}")

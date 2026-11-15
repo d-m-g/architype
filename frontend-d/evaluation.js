@@ -80,6 +80,10 @@ function render(){
 $('run-file').onchange=()=>load([...$('run-file').files]);
 $('run-choose').onclick=()=>$('run-file').click();
 for(const id of ['log-source','log-type','log-failures'])$(id).onchange=render;
+// Same 300 held-out questions: our pipeline vs plain Gemini. The first one listed is shown first.
+const PRELOAD=['20261115-033300-pipeline.jsonl','20261114-215508-plain-gemini-4-carbon.jsonl'];
+Promise.all(PRELOAD.map(name=>fetch('runs/'+name).then(r=>r.ok?r.text():Promise.reject()).then(text=>({name,text:()=>text}))))
+ .then(files=>{if(!runs.length)load(files);}).catch(()=>{});
 const panel=$('panel-evaluation');
 panel.addEventListener('dragover',event=>{event.preventDefault();$('eval-empty').classList.add('over');});
 panel.addEventListener('dragleave',()=>$('eval-empty').classList.remove('over'));
