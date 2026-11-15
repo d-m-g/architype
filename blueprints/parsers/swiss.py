@@ -14,12 +14,14 @@ import struct
 from collections import Counter
 from pathlib import Path
 
+from ..outlines import DOOR_H_M, WINDOW_H_M, measure
 from ..schemas import Entity, Page, Scene
 from .swiss_fixtures import fixtures
 from .swiss_openings import openings, size
 
 # Bump when the entities change: pipeline.get_scene rebuilds a cached scene whose builder is not the current one.
-BUILDER, UPLOAD_BUILDER = "swiss_dxf@7", "swiss_dxf_upload@2"  # @7 / @2: perimeters, room and opening sizes
+# @7 / @2: perimeters, room and opening sizes; @8 / @3: rooms' net wall area
+BUILDER, UPLOAD_BUILDER = "swiss_dxf@8", "swiss_dxf_upload@3"
 # Metres: how close a door or window side must run to a wall end, or to a room outline, to lie on it. Jambs meet the
 # wall ends exactly. Outlines run up to 13 mm off a door's side and 5 cm off a window's; over 30 plans 2 cm placed
 # 99% of doors and 94% of windows and none wrongly, while a wider reach starts to catch the jambs of thin walls.
@@ -236,10 +238,10 @@ def build_scene(path: str, file: Path) -> Scene:
     for i, letter in unit_label.items():
         u, handle = units[i]
         entities.append(Entity(id=f"apt-{letter}", type="apartment", label=letter, geom=shape(u), ref=f"dxf:{handle}"))
-    def net_area(poly):
+    def net(poly):
         # The DXF drops polygon holes: a hole is drawn as a separate outline lying inside the room.
         holes = [p for p, _ in outlines if p is not poly and p.within(poly)]
-        return (poly.difference(unary_union(holes)) if holes else poly).area
+        return poly.difference(unary_union(holes)) if holes else poly
 
     def filled(geom, grey):
         if len(geom) < 3:
@@ -262,7 +264,7 @@ def build_scene(path: str, file: Path) -> Scene:
             id=rid, type="room", label=label, number=num,
             apartment=None if filled(geom, SHARED_GREY) else unit_label.get(i),
             outdoor=(label or "").casefold() in OUTDOOR or filled(geom, OUTDOOR_GREY),
-            geom=geom, qty={"m2": round(net_area(poly), 2)} if poly else {},
+            geom=geom, qty={"m2": round(net(poly).area, 2)} if poly else {},
             ref=f"dxf:{handle}" if handle else None))
         if poly:
             placed.append((poly, room))
@@ -274,8 +276,12 @@ def build_scene(path: str, file: Path) -> Scene:
     if outlines:
         zones.append((unary_union([p.boundary for p, _ in outlines]).buffer(ROOM_EDGE), False))
 
-    found = Counter()
-    for kind, pts, ref, copies in openings(msp):
+    found, opens = Counter(), openings(msp)
+    # Each room's perimeter (qty m) and wall area net of the doors and windows on its outline (qty wall_m2).
+    cuts = [(Polygon(pts), DOOR_H_M if kind == "door" else WINDOW_H_M) for kind, pts, *_ in opens]
+    for poly, room in placed:
+        measure(room, net(poly), openings=cuts)
+    for kind, pts, ref, copies in opens:
         found[kind] += 1
         where, dims = located(kind, pts, copies, placed), sized(pts, zones)
         where["attrs"] |= dims.get("more", {})
@@ -295,6 +301,9 @@ if __name__ == "__main__":
     s = pipeline.build_scene("data/swiss_dwellings/site3387_bldg5238_floor23498.pdf")
     rooms = {e.number: e for e in s.entities if e.type == "room"}
     assert (rooms["7.01"].qty["m2"], rooms["7.16"].qty["m2"], rooms["7.08"].qty["m2"]) == (15.47, 5.63, 15.66)
+    # Perimeter and net wall area: Bad 7.05 is 11.57 m round with one 0.88 m door: 11.57 * 2.5 - 0.88 * 2.0 = 27.17.
+    assert rooms["7.05"].qty == {"m2": 6.01, "m": 11.57, "wall_m2": 27.17} and list(rooms["7.05"].qty)[0] == "m2"
+    assert [rooms[n].attrs["wall_openings"] for n in ("7.05", "7.06", "7.08")] == [1, 5, 4]  # as the door and window checks below
     area = lambda **f: round(sum(e.qty["m2"] for e in rooms.values()
                                  if not e.outdoor and all(getattr(e, k) == v for k, v in f.items())), 2)
     assert (area(), area(apartment="A"), area(apartment="B")) == (212.4, 107.4, 80.2)  # gold 212.41: sum before rounding
@@ -345,4 +354,9 @@ if __name__ == "__main__":
     # the entrance doors onto shared corridor 7.24 belong to their apartments; the lift door to no apartment
     assert [count(n=dict(type="door", apartment=a)) for a in ("A", "B")] == [9, 8]
     assert [e.id for e in s.entities if e.type == "door" and e.apartment is None] == ["door-18"]
+    # "How much paint for the bathrooms of apartment A?": (27.17 + 17.86) m2 of wall, 2 coats at 10 m2 a litre
+    paint = execute(QueryPlan(queries={"walls": Query(op="sum", type="room", label="Bad", apartment="A", qty="wall_m2")},
+                              formula="ceil(walls * coats / m2_per_litre)", unit="count",
+                              assumptions={"coats": 2, "m2_per_litre": 10}), s)
+    assert (paint.answer, paint.evidence) == (10, ["room-7.05", "room-7.07"]), paint
     print("ok")

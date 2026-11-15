@@ -19,6 +19,7 @@ import re
 from collections import Counter
 from pathlib import Path
 
+from ..outlines import DOOR_H_M, WINDOW_H_M, measure
 from ..schemas import Entity, Page, Scene
 from .swiss import (AREA, MARKER, NUMBER, OUTDOOR, OUTDOOR_GREY, ROOM_EDGE, SHARED_GREY, WALL_EDGE, label_units,
                     located, room_dims, sized, unit_index)
@@ -26,7 +27,8 @@ from .swiss import (AREA, MARKER, NUMBER, OUTDOOR, OUTDOOR_GREY, ROOM_EDGE, SHAR
 M_PER_PT = 0.0254 / 72  # one point on paper, in metres, at 1:1
 SCALE = re.compile(r"\b1\s*:\s*(\d{2,4})\b")  # "Massstab 1:100 (A3)", "Echelle 1:200"
 PRINTED = re.compile(r"(\d+(?:[.,]\d+)?)\s*m(?:²|2)")  # "15.61 m²", next to a room number
-BUILDER = "pdf_vector@2"  # @2: perimeters, room and opening sizes; pipeline.get_scene rebuilds older cached scenes
+# @2: perimeters, room and opening sizes; @3: net wall area. pipeline.get_scene rebuilds older cached scenes
+BUILDER = "pdf_vector@3"
 
 
 def _grey(rgb) -> float | None:
@@ -167,7 +169,8 @@ def build_scene(path: str, file: Path) -> Scene:
     scales = Counter(int(m[1]) for text, _ in spans for m in SCALE.finditer(text) if 20 <= int(m[1]) <= 1000)
     rooms_at = [min((p for p, _ in outlines if p.contains(Point(at))), key=lambda p: p.area, default=None)
                 for _, _, at in rooms]
-    net = lambda poly: poly.difference(unary_union([p for p, _ in outlines if p is not poly and p.within(poly)])).area
+    hollow = lambda poly: poly.difference(unary_union([p for p, _ in outlines if p is not poly and p.within(poly)]))
+    net = lambda poly: hollow(poly).area
     if scales:
         scale = scales.most_common(1)[0][0]
     else:
@@ -228,6 +231,10 @@ def build_scene(path: str, file: Path) -> Scene:
     # In a thin partition that reach also catches the jambs, so a box it cannot place is tried once more at 5 mm.
     room_edges = unary_union([p.boundary for p, _ in outlines])
     zones = [(room_edges.buffer(t / m_per_pt), False) for t in (ROOM_EDGE, WALL_EDGE)] if m_per_pt else []
+    if m_per_pt:  # each room's wall area net of the doors and windows on its outline (qty wall_m2)
+        cuts = [(Polygon(pts), DOOR_H_M if kind == "door" else WINDOW_H_M) for kind, pts, _ in found.values() if kind in ("door", "window")]
+        for poly, room in placed:
+            measure(room, hollow(poly), m_per_pt, cuts)
 
     n = Counter()
     for kind, pts, copies in found.values():
@@ -255,6 +262,7 @@ if __name__ == "__main__":
     rooms = {e.number: e for e in s.entities if e.type == "room"}
     count = lambda t, sub=None: sum(e.type == t and e.subtype == sub for e in s.entities)
     assert len(rooms) == 24 and (rooms["7.01"].qty["m2"], rooms["7.16"].qty["m2"]) == (15.47, 5.63), rooms["7.01"]
+    assert rooms["7.05"].qty == {"m2": 6.01, "m": 11.57, "wall_m2": 27.17}  # perimeter and net wall area, as the DXF reader
     assert sorted(e.label for e in s.entities if e.type == "apartment") == ["A", "B"]
     assert (rooms["7.03"].apartment, rooms["7.24"].apartment, rooms["7.01"].outdoor) == ("A", None, True)
     assert (count("door"), count("window")) == (18, 11)  # the DXF's 20 door boxes hold 2 exact copies

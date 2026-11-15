@@ -37,7 +37,7 @@ from ..room_queries import endpoints
 from ..schemas import SUBTYPES, Answer, EntityType, Scalar, Scene, Strict, TraceStep, Unit
 from .plan import GEMINI_MODEL, GEMINI_URL
 
-UNITS = ("m2", "m", "m3", "ft2")
+UNITS = ("m2", "m", "m3", "ft2", "wall_m2")
 BASE = ("id", "type", "subtype", "label", "number", "level", "apartment", "outdoor", "page", "conf")
 LINKED = ("door", "window", "fixture")  # the types that carry room links
 SIZES = ("width_m", "length_m", "height_m", "thickness_m")  # always columns, so asking for one not recorded reads NULL
@@ -54,9 +54,10 @@ HISTORY_CHARS = 3000  # of all turns as sent to the model, about 750 tokens; the
 MEANING = {
     ("room", "m2"): "net floor area", ("room", "m"): "perimeter (skirting)", ("room", "width_m"): "shorter side of the box along its longest wall",
     ("room", "length_m"): "longer side of that box", ("room", "height_m"): "ceiling height",
+    ("room", "wall_m2"): "its wall area net of doors and windows (paint, wallpaper, wall tiles for a room; unit m2)",
     ("door", "m"): "width of the opening", ("door", "height_m"): "height", ("door", "thickness_m"): "wall thickness there",
     ("window", "m"): "width of the opening", ("window", "height_m"): "height", ("window", "thickness_m"): "wall thickness there",
-    ("wall", "m"): "length", ("wall", "m2"): "net area of one face, less openings (paint)", ("wall", "m3"): "net volume",
+    ("wall", "m"): "length", ("wall", "m2"): "net area of one face, less openings (paint for a whole wall)", ("wall", "m3"): "net volume",
     ("wall", "height_m"): "height", ("wall", "thickness_m"): "thickness",
     ("slab", "m2"): "top area (floor area only for subtype floor)", ("slab", "m3"): "net volume", ("slab", "thickness_m"): "thickness",
     ("level", "elevation_m"): "floor elevation", ("level", "height_m"): "floor to floor",

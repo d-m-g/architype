@@ -54,12 +54,16 @@ def build_scene(path: str) -> Scene:
         if path.lower().endswith(".ifc"):
             from .parsers import ifc
             return ifc.build_scene(path, drawing_file(path))
-        if path.lower().endswith(".dxf"):
-            from .parsers import swiss
-            return swiss.build_scene(path, drawing_file(path))
-        if path.lower().endswith(".pdf"):  # raises NotImplementedError when the PDF is not a plan it can read
-            from .parsers import pdf
-            return pdf.build_scene(path, drawing_file(path))
+        if path.lower().endswith((".dxf", ".pdf")):
+            # The Swiss renderer's layers and styles first (exact), then the generic reader (rooms from a room layer
+            # or fill, else from the walls). Each raises NotImplementedError on a file it cannot read; when both do,
+            # the upload is left to the vision reader.
+            from .parsers import dxf, pdf, swiss, vector_pdf
+            known, generic = (swiss, dxf) if path.lower().endswith(".dxf") else (pdf, vector_pdf)
+            try:
+                return known.build_scene(path, drawing_file(path))
+            except NotImplementedError:
+                return generic.build_scene(path, drawing_file(path))
         raise NotImplementedError("no parser for this upload type")
     file, source = dataset_file(path), source_of(path)
     if source == "swiss_dwellings":
@@ -103,6 +107,15 @@ def get_scene(path: str) -> Scene:
         # cached before this (or while the reader was down) get their rooms the next time they are opened.
         from .brain.vision import add_rooms
         fresh = add_rooms(scene, path) or fresh
+    if read_as_image(path) and "room" in scene.covers:
+        # The reader's rooms are boxes. The segmenter turns them into outlines, and one printed room area gives the
+        # scale for every other room's area, perimeter and wall area. Skipped when it is down; tried again next time.
+        from .brain.vision import drawing_file
+        from .detector import rooms
+        try:
+            fresh = rooms.outline_rooms(scene, drawing_file(path)) or fresh
+        except NotImplementedError:
+            pass
     scene = add_room_types(scene)
     metadata_changed = False
     if path.lower().endswith(IMAGES):

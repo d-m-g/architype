@@ -53,6 +53,8 @@ a scene: a list of entities (rooms, doors, windows, fixtures, apartments, levels
   area without rooms is slab subtype "floor", never roof slabs), m is the type's one length (a room's perimeter, a
   door's or window's width, a wall's length), m3 is volume; width_m, length_m, height_m and thickness_m are further
   dimensions in metres. NULL means not recorded.
+- A room's wall_m2 is its wall area net of doors and windows (unit m2). Wall area, paint, wallpaper and wall-tile
+  questions about rooms sum wall_m2 over rooms, not m2 over wall entities.
 - Use look only when the scene lacks something you need; it asks a vision model about the page or a region of it.
 - Finish by calling answer with the value, its unit, the ids of the entities the answer rests on, and a one-sentence
   explanation. When the question asks how many, how big or how much, the answer is that number and the names go in
@@ -88,7 +90,7 @@ TOOLS = [
             "type": {"type": "string", "enum": ["door", "window", "fixture"]}}}}},
     {"type": "function", "function": {
         "name": "list_entities", "description": "List scene entities, optionally filtered. Returns id, type, subtype, label, number, apartment, level, area_m2, "
-                                          "qty (the other recorded quantities by unit: m, m3, ft2), sizes (width_m, length_m, height_m, thickness_m "
+                                          "qty (the other recorded quantities by unit: m, m3, ft2, wall_m2), sizes (width_m, length_m, height_m, thickness_m "
                                           "and how they were obtained), conf. A long list is cut short: narrow it with the filters.",
         "parameters": {"type": "object", "properties": {
             "type": {"type": "string", "description": "room, apartment, level, door, window, fixture, wall, slab, column, row or other"},

@@ -17,7 +17,9 @@ SUBTYPES: dict[str, set[str]] = {
     "slab": {"floor", "roof", "base", "landing", "other"},  # a roof slab is not floor area
 }
 Unit = Literal["count", "m2", "m", "m3", "ft2"]  # same strings as "unit" in questions.jsonl
-QtyUnit = Literal["m2", "m", "m3", "ft2"]
+# A room's "m2" is its floor area, "m" its perimeter and "wall_m2" its wall area net of doors and windows
+# (blueprints/outlines.py), so paint and wall-tile questions are sums like any other.
+QtyUnit = Literal["m2", "m", "m3", "ft2", "wall_m2"]
 Tier = Literal["parse", "detect", "llm", "none"]
 Scalar = bool | int | float | str
 Point = tuple[float, float]  # (x, y), each 0..1 of the page image, origin top-left
