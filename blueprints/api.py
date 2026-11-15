@@ -316,6 +316,18 @@ async def upload(request: Request, filename: str) -> dict:
     from .parsers.pdf import BUILDER as PDF_BUILDER
     from .parsers.swiss import UPLOAD_BUILDER as DXF_BUILDER
     path = f"uploads/{name}"
+    if suffix in (".png", ".jpg", ".jpeg") or _vision_only(path):
+        # An image or a PDF the vector parser does not recognise: check it is a floor plan before anything counts on
+        # it. The vision read is the one the drawing gets anyway (rooms, or the whole scene), so this moves it earlier
+        # and caches it; it adds no model call. Without the reader (no key) the file is let through, as before.
+        from .brain.vision import not_a_floor_plan, read_scene
+        try:
+            kind = not_a_floor_plan(read_scene(path)[0])
+        except NotImplementedError:
+            kind = None
+        if kind:
+            (UPLOADS / name).unlink(missing_ok=True)
+            raise HTTPException(422, f"Not a floor plan: this looks like a {kind}. Upload a floor plan (PDF, PNG, JPEG, DXF or IFC).")
     reader = (BUILDER if _vision_only(path) else DXF_BUILDER if suffix == ".dxf" else IFC_BUILDER if suffix == ".ifc"
               else "fixtures-6:tiled" if suffix in (".png", ".jpg", ".jpeg") else PDF_BUILDER)
     return {"path": path, "reader": reader}
