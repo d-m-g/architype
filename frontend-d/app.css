@@ -312,6 +312,7 @@ main>section{height:100%}
 .answer-value{margin-top:14px;font-size:56px;line-height:1;font-weight:600;letter-spacing:-.03em;overflow-wrap:anywhere}
 .answer-value .unit{margin-left:8px;font-size:22px;font-weight:500;letter-spacing:0;color:var(--ink-2)}
 .failed .answer-value{font-size:28px;letter-spacing:-.01em;color:var(--ink-2)}
+.answer-value.text-answer{font-size:clamp(18px,2vw,24px);line-height:1.4;letter-spacing:-.015em;overflow-wrap:anywhere}
 .explanation{margin-top:10px;max-width:60ch}
 .formula{margin-top:10px;padding:9px 11px;border-radius:7px;background:var(--surface);border:1px solid var(--line);font:12.5px/1.55 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere}
 .edit-note{margin-top:10px;padding:8px 11px;border-radius:7px;background:var(--accent-soft);font-size:13px}

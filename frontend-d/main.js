@@ -483,6 +483,7 @@ function renderAnswer(){
  $('answer-card').classList.toggle('failed',failed);
  const [value,unit]=failed?['No answer','']:formatValue(raw.answer,raw.unit);
  $('answer').replaceChildren(value,unit?el('span',{class:'unit'},unit):'');
+ $('answer').classList.toggle('text-answer',!failed&&typeof raw.answer==='string');
  // Errors from the executor name entities by id; show the names a person can find on the drawing.
  $('explanation').textContent=failed?clean(raw.error).replace(/[\w:.-]+/g,word=>entityById(word)?.label??word)||'The drawing does not hold enough evidence for this question.':raw.interpretation??'';
  $('explanation').hidden=!$('explanation').textContent;
