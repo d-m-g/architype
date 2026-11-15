@@ -454,4 +454,8 @@ td .q{display:block;max-width:60ch} td small{color:var(--ink-3);font:11.5px var(
 @media(max-width:480px){.voice-state{font-size:11px}.composer-row{gap:4px}.general-view{padding-inline:8px}.zoom{gap:2px}}
 
 .evidence-navigation{margin:4px 0 10px;line-height:1.5;overflow-wrap:anywhere}
+.question-scope{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;padding:4px 8px;border:1px solid var(--accent);border-radius:8px;background:var(--accent-soft);font-size:13px}
+.question-scope[hidden]{display:none}
+.question-scope span{overflow-wrap:anywhere}
+.question-scope .btn{min-height:44px;flex-shrink:0}
 .evidence-row:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;background:var(--accent-soft)}

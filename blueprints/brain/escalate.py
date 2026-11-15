@@ -39,12 +39,16 @@ SYSTEM = """You answer a question about one construction drawing, using tools. T
 a scene: a list of entities (rooms, doors, windows, fixtures, apartments, levels) with ids, labels and quantities.
 - Use list_entities to see what is there, and run_plan for every count, sum or arithmetic: never compute numbers yourself.
 - For doors/windows/fixtures in a room, use where.connected_room_id (or connected_room_number/label/type).
+  For a selected drawing object itself, select its exact id with where.entity_id, not its potentially shared label.
   This checks both endpoints and counts each object once. Room ids distinguish rooms sharing a label.
   list_entities exposes room connection status; unresolved connections can prevent a verified count.
   Never replace an unresolved per-room count with a count of all doors on the page.
   run_plan automatically attempts bounded vision refinement when room connections prevent a count.
-  For room rankings, call resolve_room_connections first if door/window links are unresolved, then list entities
-  again. If connections remain uncertain, explain the limitation; do not invent a definitive winner.
+  For a whole-drawing room ranking by door/window count, call rank_rooms before spending on refinement.
+  It proves winners using lower/upper count bounds: unresolved links need not prevent a winner.
+  If bounds overlap, call resolve_room_connections once, then rank_rooms again. Never rank by counting in your head.
+  For a scoped ranking (e.g. one apartment), do not use this whole-drawing tool.
+  To finalize a proved ranking, include ranking with the same type and order; the server recomputes its result.
   If refinement reports a budget/cooldown limit or leaves a connection unresolved, do not repeat the same
   refinement or identical run_plan. Only use look again if a specific different crop can resolve the issue.
 - A room carries its floor area (qty m2), its perimeter (qty m) and its wall area net of doors and windows (qty
@@ -81,6 +85,11 @@ def instructions(scene: Scene) -> tuple[str, list[dict]]:
 
 TOOLS = [
     {"type": "function", "function": {
+        "name": "rank_rooms", "description": "Rank ALL rooms on this drawing by qualifying door/window count, using proven lower/upper bounds. Not for apartment-scoped rankings. Free CPU calculation.",
+        "parameters": {"type": "object", "required": ["type", "order"], "properties": {
+            "type": {"type": "string", "enum": ["door", "window"]},
+            "order": {"type": "string", "enum": ["most", "fewest"]}}}}},
+    {"type": "function", "function": {
         "name": "resolve_room_connections", "description": "Ask vision to resolve uncertain PNG/JPEG room connections; cached and cost bounded. Re-list entities afterwards.",
         "parameters": {"type": "object", "required": ["type"], "properties": {
             "type": {"type": "string", "enum": ["door", "window", "fixture"]}}}}},
@@ -111,6 +120,8 @@ TOOLS = [
         "parameters": {"type": "object", "required": ["answer", "explanation"], "properties": {
             "answer": {"type": ["number", "string"]}, "unit": {"type": "string", "enum": ["count", "m2", "m", "m3", "ft2"]},
             "evidence": {"type": "array", "items": {"type": "string"}}, "explanation": {"type": "string"},
+            "ranking": {"type": "object", "required": ["type", "order"], "properties": {
+                "type": {"type": "string", "enum": ["door", "window"]}, "order": {"type": "string", "enum": ["most", "fewest"]}}},
             "plan": {"type": "string", "description": "Required for numeric answers: complete QueryPlan JSON computing the final requested value, including all arithmetic and rounding. The server uses this calculation as the answer."}}}}},
 ]
 
@@ -183,6 +194,13 @@ def _look(scene: Scene, question: str, box: list | None) -> tuple[str, TraceStep
 
 def _tool(name: str, args: dict, scene: Scene) -> tuple[str, list[TraceStep]]:
     """Run one tool call. Returns the text the agent sees and any costed steps."""
+    if name == "rank_rooms":
+        from ..room_ranking import rank
+        try:
+            result = rank(scene, args.get("type"), args.get("order"))
+        except ValueError as error:
+            return str(error), []
+        return result.model_dump_json(exclude={"trace", "extra_entities", "evidence"}) if result else "No usable room relationships; use other tools or explain missing data.", []
     if name == "resolve_room_connections":
         steps = resolve(scene, args.get("type", "door"))
         return json.dumps({"detail": [s.detail for s in steps], "remaining": sum(
@@ -218,7 +236,7 @@ def _tool(name: str, args: dict, scene: Scene) -> tuple[str, list[TraceStep]]:
             plan = QueryPlan.model_validate_json(args.get("plan", ""))
         except ValueError as e:
             return f"invalid plan: {e}", []
-        known = {k for e in scene.entities for k in e.attrs} | ROOM_FILTERS.keys()
+        known = {k for e in scene.entities for k in e.attrs} | ROOM_FILTERS.keys() | {"entity_id"}
         unknown = sorted({k for q in plan.queries.values() for k in q.where} - known)
         if unknown:  # an invented filter would silently match nothing and read as a confident zero
             return (f"invalid plan: no entity has the attribute(s) {unknown} for `where`. To filter by area use "
@@ -248,7 +266,7 @@ def _verified_plan(text: str, scene: Scene) -> Answer:
         names = {node.id for node in ast.walk(ast.parse(plan.formula, mode="eval")) if isinstance(node, ast.Name)}
         if not names.intersection(plan.queries):
             raise ValueError("the final formula must use a scene query")
-    known = {k for e in scene.entities for k in e.attrs} | ROOM_FILTERS.keys()
+    known = {k for e in scene.entities for k in e.attrs} | ROOM_FILTERS.keys() | {"entity_id"}
     unknown = sorted({k for q in plan.queries.values() for k in q.where} - known)
     if unknown:
         raise ValueError(f"no entity has the attribute(s) {unknown} for `where`")
@@ -363,6 +381,20 @@ def _agent_loop(question, scene, draft, inline_evidence, url, key, model, extra,
             except json.JSONDecodeError:
                 args = {}
             if call.function.name == "answer":
+                if args.get("ranking") is not None:
+                    from ..room_ranking import rank
+                    spec = args["ranking"]
+                    try:
+                        verified = rank(scene, spec.get("type"), spec.get("order")) if isinstance(spec, dict) else None
+                    except ValueError:
+                        verified = None
+                    if verified is None or verified.answer is None:
+                        messages.append({"role": "tool", "tool_call_id": call.id,
+                                         "content": "Ranking not verified. Use rank_rooms to inspect bounds, refine once if useful, or answer cannot answer without ranking."})
+                        continue
+                    return verified.model_copy(update={"tier": "llm", "trace": draft.trace + steps + verified.trace,
+                        "confidence_note": verified.confidence_note + " Question interpretation is not independently verified.",
+                        "extra_entities": [e for e in scene.entities if e.id in set(verified.evidence)] if inline_evidence else []})
                 ids = {e.id for e in scene.entities}
                 evidence = [i for i in args.get("evidence", []) if i in ids]
                 value = args.get("answer")

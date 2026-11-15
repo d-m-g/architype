@@ -140,6 +140,11 @@ def answer(path: str, question: str) -> Answer:
         if path in _BUILT_NOW:  # the first question on a drawing carries the scene's build cost
             _BUILT_NOW.discard(path)
             steps += scene.trace
+        from .room_ranking import answer_question
+        ranking = answer_question(question, scene)
+        if ranking is not None:
+            ranking.trace = steps + ranking.trace
+            return ranking
         from .brain.plan import plan_with_trace
         plan, plan_steps = plan_with_trace(question, scene)
         steps += plan_steps

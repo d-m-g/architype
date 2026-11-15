@@ -6,6 +6,7 @@ import {publishEditor,subscribeEditor,selectEditorEntity} from './editor-bridge.
 import {zoomAt} from './mock-scene.js';
 import {adaptScene,adaptAnswer,adaptAnswerEvidence,imageURL,calculationAudit} from './contracts.js';
 import {finishVoiceInput} from './voice-input.js';
+import {scopedQuestion,questionLabel} from './object-question.js';
 
 export const $=id=>document.getElementById(id);
 const SVG='http://www.w3.org/2000/svg';
@@ -22,7 +23,7 @@ export function el(tag,attrs={},...children){
 
 /** One drawing at a time. raw* are the API's objects; scene and result are their display forms. */
 export const state={path:null,name:'',raw:null,scene:null,page:0,rawAnswer:null,result:null,question:'',ms:null,
- preview:null,generalView:true,layers:new Set(),selected:null,readError:null,editing:false,edited:false,corrected:null};
+ preview:null,generalView:true,layers:new Set(),selected:null,askAbout:null,readError:null,editing:false,edited:false,corrected:null};
 
 // ───────── progress: every request shows the top bar; long ones also get a clock ─────────
 let busy=0;
@@ -306,6 +307,7 @@ export function select(id,{zoomTo=false,focusEvidence=false,scrollEvidence=true}
   el('p',{},[entity.type==='room'?`Room - ${ROOM_TYPE[entity.subtype]??'type not known'}`:KINDS[entity.type]?.[0]??entity.type,entity.quantityText,entity.context].filter(Boolean).join(', ')),
   el('p',{class:'muted small'},[n>=0?`${state.rawAnswer?.answer===null?'Supported match':'Counted in the answer'} as number ${n+1}`:'Not part of this answer',
    Number.isFinite(entity.conf)?`Model score ${Math.round(entity.conf*100)}/100 (uncalibrated)`:'Model score unavailable',entity.ref?`source ${entity.ref}`:null].filter(Boolean).join(' · ')));
+ if(!state.editing)box.append(el('button',{class:'btn',type:'button',onclick:()=>setQuestionScope(entity.id)},'Ask about this'));
  if(entity.calculationExclusion)box.append(el('p',{class:'muted small'},entity.calculationExclusion));
  for(const fn of inspectors)fn(entity,box);
  const row=[...$('evidence-list').children].find(node=>node.dataset.entity===entity.id);
@@ -448,7 +450,7 @@ function suggest(){
 // ───────── right side: the answer ─────────
 const TIER={parse:'Read from the CAD geometry',detect:'Counted from detections',llm:'Vision model and agent',none:'No route answered'};
 const STEP={scene:'Read the drawing',room_types:'Named the room types',plan:'Understood the question',execute:'Counted and measured',escalate:'Agent reasoning',
- calculation_evidence:'Checked calculation confidence',resolve_room_connections:'Reviewed room connections',
+ calculation_evidence:'Checked calculation confidence',rank_rooms:'Compared room count bounds',resolve_room_connections:'Reviewed room connections',
  look:'Vision model looked at the drawing',verify_answer:'Verified the final calculation','tool:list_entities':'Agent listed what is on the drawing','tool:run_plan':'Agent ran a calculation','tool:look':'Agent asked for a closer look'};
 function renderCalculationReview(raw){
  const box=$('calculation-review'),audit=calculationAudit(raw);box.replaceChildren();box.hidden=!audit;
@@ -476,7 +478,7 @@ function renderAnswer(){
  $('evidence').hidden=$('trace').hidden=$('answer-card').hidden;
  suggest();renderHistory();
  if($('answer-card').hidden)return;
- $('asked').textContent=state.question;
+ $('asked').textContent=questionLabel(state.question);
  const failed=raw.answer===null;
  $('answer-card').classList.toggle('failed',failed);
  const [value,unit]=failed?['No answer','']:formatValue(raw.answer,raw.unit);
@@ -542,7 +544,7 @@ function renderHistory(){
  $('history-list').replaceChildren(...entries.map(entry=>{
   const answer=entry.payload.rawAnswer,[value,unit]=answer.answer===null?['No answer','']:formatValue(answer.answer,answer.unit);
   return el('li',{},el('button',{type:'button',onclick:()=>{shownHistory=entry.id;state.corrected=null;showAnswer(answer,entry.question,entry.payload.ms);}},
-   el('span',{},entry.question),el('b',{},`${value} ${unit}`.trim())));
+   el('span',{},questionLabel(entry.question)),el('b',{},`${value} ${unit}`.trim())));
  }));
 }
 let shownHistory=null;
@@ -587,7 +589,7 @@ function persistWorkspace(){
  if(opening||!state.path)return;
  const snapshot={path:state.path,name:state.name,raw:state.raw,rawAnswer:state.rawAnswer,question:state.question,ms:state.ms,
   draft:$('question').value,page:state.page,view:{...view},layers:[...state.layers],generalView:state.generalView,
-  selected:state.selected,edited:state.edited,corrected:state.corrected,entries:historyStore.list('drawing:'+state.path).reverse()};
+  selected:state.selected,askAbout:state.askAbout,edited:state.edited,corrected:state.corrected,entries:historyStore.list('drawing:'+state.path).reverse()};
  workspaceStorage.save(snapshot).then(()=>storageWarning(null),storageWarning);
 }
 function scheduleSave(){clearTimeout(saveTimer);if(!opening&&state.path)saveTimer=setTimeout(persistWorkspace,180);}
@@ -597,7 +599,8 @@ historyStore.subscribe(scheduleSave);
 let generation=0,reading=null;
 function resetDrawing(){
  persistWorkspace();clearTimeout(saveTimer);abortAsk();generation++;previewLoader.cancel();
- Object.assign(state,{raw:null,scene:null,page:0,rawAnswer:null,result:null,question:'',ms:null,preview:null,selected:null,readError:null,generalView:true,editing:false,edited:false,corrected:null});
+ Object.assign(state,{raw:null,scene:null,page:0,rawAnswer:null,result:null,question:'',ms:null,preview:null,selected:null,askAbout:null,readError:null,generalView:true,editing:false,edited:false,corrected:null});
+ setQuestionScope(null,{focus:false});
  state.layers.clear();shownHistory=null;
  $('overlays').replaceChildren();$('inspector').hidden=true;$('page-rail').hidden=true;
  $('working').hidden=true;
@@ -663,6 +666,7 @@ export async function openDrawing(path,{name,question='',preview=null,restore=fa
   if(state.scene)setPage(Math.max(0,Math.min(snapshot.page??0,state.raw.pages.length-1)));
   renderDrawingSide();renderAnswer();drawMarks();
   select(snapshot.selected??null);
+  setQuestionScope(snapshot.askAbout??null,{focus:false});
   if(snapshot.view&&['x','y','w','h'].every(k=>Number.isFinite(snapshot.view[k]))&&snapshot.view.w>0&&snapshot.view.h>0){view={...snapshot.view};updateView();}
   $('question').value=snapshot.draft??'';autosize();
  }
@@ -691,7 +695,7 @@ function setAsking(on,question=''){
  $('ask-form').setAttribute('aria-busy',String(on));$('overlays').classList.toggle('stale',on);
  stopWorkClock?.();stopWorkClock=null;hintTimers.forEach(clearTimeout);hintTimers=[];
  if(on){
-  $('working-question').textContent=question;stopWorkClock=clock($('working-time'));
+  $('working-question').textContent=questionLabel(question);stopWorkClock=clock($('working-time'));
   const say=text=>{$('working-text').textContent=text;};
   say('Understanding the question');
   // One request covers every step, so these lines follow the pipeline's usual timing rather than live events.
@@ -712,7 +716,11 @@ function planFor(question,signal){
 }
 const runPlan=(plan,signal)=>requestJSON('/api/recompute',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scene:state.raw,plan}),signal});
 /** Answer on the scene as it is in this browser (after corrections): the question's plan, run by the server's executor. */
-export async function answerFromScene(question,signal){return runPlan(await planFor(question,signal),signal);}
+export async function answerFromScene(question,signal){
+ try{return await requestJSON('/api/room-ranking',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scene:state.raw,question}),signal});}
+ catch(error){if(!/^(404|422):/.test(error.message))throw error;}
+ return runPlan(await planFor(question,signal),signal);
+}
 
 // ───────── one word, two readings: "toilets" are bowls or rooms ─────────
 // The planner picks one silently. The card says which was counted and offers the other, run by the same executor
@@ -748,8 +756,10 @@ async function renderReading(){
  box.hidden=false;
 }
 export async function ask(text){
- const question=text.trim(),path=state.path;
- if(!question||!path)return;
+ const target=state.askAbout?state.raw?.entities.find(e=>e.id===state.askAbout):null;
+ if(state.askAbout&&!target){setQuestionScope(null,{focus:false});say('The selected object no longer exists. Select another object.');return;}
+ const question=scopedQuestion(text.trim(),target),path=state.path;
+ if(!text.trim()||!path)return;
  abortAsk();
  const controller=askAbort=new AbortController(),timer=setTimeout(()=>controller.abort(new Error('timeout')),LIVE_REQUEST_TIMEOUT_MS);
  state.lastAsked=question;$('question').value='';autosize();select(null);
@@ -782,6 +792,16 @@ export async function ask(text){
  showAnswer(answer,question,performance.now()-started);
  frameEvidence();
  $('thread').scrollTo({top:$('answer-card').offsetTop-12,behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
+}
+export function setQuestionScope(id,{focus=true}={}){
+ const entity=id?state.raw?.entities.find(e=>e.id===id):null;
+ state.askAbout=entity?.id??null;
+ const box=$('question-scope');box.hidden=!entity;box.replaceChildren();
+ if(entity)box.append(el('span',{},'Asking about '+[entity.label||entity.type,entity.number].filter(Boolean).join(' ')),
+  el('button',{class:'btn',type:'button','aria-label':'Ask about the whole drawing instead',onclick:()=>setQuestionScope(null)},'Clear'));
+ $('question').placeholder=entity?'Ask about this '+entity.type:'Ask about this drawing';
+ scheduleSave();
+ if(focus)$('question').focus({preventScroll:true});
 }
 function autosize(){const box=$('question');box.style.height='auto';box.style.overflowY=box.scrollHeight>158?'auto':'hidden';box.style.height=Math.min(box.scrollHeight+2,160)+'px';}
 autosize();

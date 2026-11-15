@@ -204,7 +204,7 @@ test('reopening a saved upload restores the displayed answer, corrections and ca
  const open=code.slice(code.indexOf('export async function openDrawing'),code.indexOf("$('reading-retry').onclick")).replace('export ','');
  const snapshot={name:'Uploaded plan',raw:{pages:[{},{}],entities:[{id:'user-door'}]},rawAnswer:{answer:2},question:'Count doors',ms:30,
   entries:[{question:'Older answer',payload:{rawAnswer:{answer:7}}}],edited:true,corrected:'Corrected',page:1,
-  generalView:false,layers:['door'],selected:'user-door',view:{x:5,y:10,w:200,h:300},draft:'Next question'};
+  generalView:false,layers:['door'],selected:'user-door',askAbout:'user-door',view:{x:5,y:10,w:200,h:300},draft:'Next question'};
  const nodes=new Map(),node=id=>{if(!nodes.has(id))nodes.set(id,{focus(){}});return nodes.get(id);};
  const state={},context={state,URL,location:{href:'https://example.test/?path=old&question=old'},history:{replaceState(){}},
   generation:0,opening:false,ACTIVE:'active',savedResults:()=>[],workspaceStorage:{load:async()=>snapshot},localStorage:{setItem(){}},
@@ -212,10 +212,11 @@ test('reopening a saved upload restores the displayed answer, corrections and ca
   showPanel(){},setView(){},autosize(){},showImage(){},fit(){},renderDrawingSide(){},renderAnswer(){},sourcePreviewKind:()=>false,
   steps(){},stageStatus(){},getDrawingScene:()=>assert.fail('reader must not run'),track:promise=>promise,
   setScene(raw){state.raw=raw;state.scene={entities:raw.entities};},showAnswer(raw,question){state.rawAnswer=raw;state.question=question;},
-  frameEvidence(){},setPage(page){state.page=page;},drawMarks(){},select(id){state.selected=id;},updateView(){},persistWorkspace(){},view:null};
+  frameEvidence(){},setPage(page){state.page=page;},drawMarks(){},select(id){state.selected=id;},setQuestionScope(id){state.askAbout=id;},updateView(){},persistWorkspace(){},view:null};
  await runInNewContext(open+';openDrawing("uploads/plan.pdf",{restore:true})',context);
  assert.equal(state.path,'uploads/plan.pdf');assert.equal(state.rawAnswer.answer,2);assert.equal(state.question,'Count doors');
  assert.equal(state.edited,true);assert.equal(state.page,1);assert.equal(state.selected,'user-door');assert.equal(state.generalView,false);
+ assert.equal(state.askAbout,'user-door');
  assert.equal(node('question').value,'Next question');assert.deepEqual({...context.view},snapshot.view);
  assert.equal(node('workspace').hidden,false);assert.equal(node('start').hidden,true);assert.equal(context.opening,false);
 });

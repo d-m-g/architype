@@ -166,6 +166,11 @@ class Recompute(BaseModel):
     plan: QueryPlan
 
 
+class RankScene(BaseModel):
+    scene: Scene
+    question: str
+
+
 Coord = Annotated[float, Field(ge=0, le=1)]
 Box = tuple[Coord, Coord, Coord, Coord]  # x0, y0, x1, y1 of the page, as in Entity.geom
 
@@ -251,6 +256,17 @@ def recompute(body: Recompute) -> Answer:
     """Run a plan on a scene the user edited: no model call, the same executor as every other answer."""
     from .brain.vision import checked
     return checked(execute(body.plan, body.scene), body.plan, body.scene)  # as pipeline.answer: no confident zero from the vision reader's rooms
+
+
+@app.post("/api/room-ranking")
+def room_ranking(body: RankScene) -> Answer:
+    """Free ranking on the browser's corrected scene; never substitute the original drawing."""
+    from .room_ranking import rank, requested
+    intent = requested(body.question)
+    result = rank(body.scene, *intent) if intent else None
+    if result is None:
+        raise HTTPException(422, "Not a supported whole-drawing ranking; use the planner.")
+    return result
 
 
 @app.post("/api/upload")
