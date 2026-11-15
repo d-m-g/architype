@@ -9,7 +9,10 @@ uv sync                                   # base environment (pydantic only)
 uv run python test_contract.py            # the contract check; run it before you push
 uv run python eval.py --baseline          # the free baseline on the held-out test split
 uv run python eval.py --source swiss_dwellings --limit 200
+uv run --env-file .env --extra brain python eval.py --limit 300   # the full pipeline, model steps included
 ```
+
+Without `--env-file .env` the pipeline has no `GEMINI_API_KEY`, skips every model step and scores lower; `eval.py` warns when that happens.
 
 Put the full dataset at `junction-dataset/` in the repo root (it is git-ignored), or point `BLUEPRINTS_DATA` at it. Each lane installs its own packages with `uv sync --extra parsers`, `--extra detector` or `--extra brain`.
 

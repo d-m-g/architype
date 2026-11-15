@@ -9,6 +9,7 @@ Shared file. Every lane measures itself with this, on the same split, so the num
 """
 import argparse
 import json
+import os
 import random
 import re
 import sys
@@ -99,6 +100,10 @@ def main() -> None:
     p.add_argument("--out", type=Path, help="run log path; default runs/<time>-<what>.jsonl")
     args = p.parse_args()
 
+    if not args.baseline and not os.environ.get("GEMINI_API_KEY"):
+        # Without the key every model step is skipped and the score reads as the pipeline's: say so up front.
+        print("warning: GEMINI_API_KEY is not set, so no model calls run. Use: uv run --env-file .env --extra brain python eval.py ...",
+              file=sys.stderr)
     pipeline.DATA_ROOT = args.data.resolve()
     pipeline.READ_CACHE = not args.fresh
     everything = [json.loads(line) for line in (pipeline.DATA_ROOT / "questions.jsonl").open(encoding="utf-8")]
