@@ -146,7 +146,8 @@ def apply_cached(scene):
         from ..image_room_links import attach_room_links
         changed += int(attach_room_links(scene, drawing_file(scene.path)))
     deduplicate_corrected(scene)
-    return changed
+    from .candidate_review import apply_cached as apply_reviews
+    return changed + apply_reviews(scene)
 
 
 def _request(scene, pending):
@@ -283,11 +284,19 @@ def execute_with_links(plan, scene):
             steps += resolve(scene, kind)
         if steps:
             result = execute(plan, scene)
+    if result.answer is None and (result.error or "").startswith("Calculation support"):
+        # Candidates under the cutoff hold the count back: one cached vision look settles what it can.
+        from .candidate_review import review
+        looked = review(plan, scene)
+        steps += looked
+        if looked:
+            result = execute(plan, scene)
     return result.model_copy(update={"trace": steps+result.trace})
 
 
 def refinement_exhausted(answer):
-    """Another agent cannot verify the same exact count after link refinement still failed."""
-    return (answer.answer is None and ((answer.error or "").startswith("Calculation support") or (
-            (answer.error or "").startswith("Cannot verify the per-room count")
-            and any(step.step == "resolve_room_connections" for step in answer.trace))))
+    """Another agent cannot verify the same exact count once vision refinement already ran and still failed.
+    A refusal no refinement looked at still goes to the agent: it may read the question differently."""
+    refined = any(step.step in ("resolve_room_connections", "review_candidates") for step in answer.trace)
+    return answer.answer is None and refined and (
+        (answer.error or "").startswith("Calculation support") or (answer.error or "").startswith("Cannot verify the per-room count"))
