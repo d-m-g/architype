@@ -291,7 +291,7 @@ test('General view restores all detection layers and fits the page without disca
  const text=readFileSync(new URL('./main.js',import.meta.url),'utf8'),start=text.indexOf('export function toggleGeneralView(){'),end=text.indexOf("$('general-view').onclick",start);
  const answer={answer:4,evidence:['window']},state={generalView:false,editing:false,scene:{entities:[{type:'room'},{type:'window'}]},rawAnswer:answer,result:answer,selected:'window',layers:new Set()};
  const calls={fit:0,frame:0,paint:0},status={};
- const context={state,kindOf:e=>e.type,select:id=>state.selected=id,renderDrawingSide(){},drawMarks:()=>calls.paint++,fit:()=>calls.fit++,frameEvidence:()=>calls.frame++,publish(){},$:()=>status};
+ const context={state,kindOf:e=>e.type,select:id=>state.selected=id,renderDrawingSide(){},drawMarks:()=>calls.paint++,fit:()=>calls.fit++,frameEvidence:()=>calls.frame++,publish(){},$:()=>status,ZOOM_HINT:'scroll to zoom'};
  runInNewContext(text.slice(start,end).replace('export ',''),context);
  context.toggleGeneralView();assert.equal(state.generalView,true);assert.deepEqual([...state.layers],['room','window']);assert.equal(state.rawAnswer,answer);assert.equal(state.result,answer);assert.equal(state.selected,null);assert.equal(calls.fit,1);
  context.toggleGeneralView();assert.equal(state.generalView,false);assert.equal(state.layers.size,0);assert.equal(calls.frame,1);assert.equal(state.rawAnswer,answer);

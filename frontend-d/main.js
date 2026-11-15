@@ -9,6 +9,8 @@ import {finishVoiceInput} from './voice-input.js';
 import {scopedQuestion,questionLabel,isScopedQuestion} from './object-question.js';
 
 export const $=id=>document.getElementById(id);
+// A finger, not a mouse: the hints name the gestures that exist, and the lists start folded on a small screen.
+const TOUCH=matchMedia('(pointer:coarse)').matches,ZOOM_HINT=TOUCH?'pinch to zoom':'scroll to zoom',NARROW=matchMedia('(max-width:900px)');
 const SVG='http://www.w3.org/2000/svg';
 /** Build an element: el('button',{class:'btn',onclick:fn},'Text', child). */
 export function el(tag,attrs={},...children){
@@ -252,7 +254,7 @@ export function toggleGeneralView(){
  state.layers=state.generalView?new Set(state.scene.entities.map(kindOf)):new Set();
  select(null);renderDrawingSide();drawMarks();
  if(state.generalView)fit();else frameEvidence();
- $('view-status').textContent=state.generalView?'General view: all detected areas. Drag to pan, scroll to zoom':'Answer view: cited areas. Drag to pan, scroll to zoom';
+ $('view-status').textContent=state.generalView?'General view: all detected areas. Drag to pan, '+ZOOM_HINT:'Answer view: cited areas. Drag to pan, '+ZOOM_HINT;
  publish();
 }
 $('general-view').onclick=toggleGeneralView;
@@ -422,7 +424,7 @@ function renderDrawingSide(){
  renderObjectBrowser();
  $('counted-legend').hidden=state.generalView;$('other-legend').textContent=state.generalView?'Detected area':'Found, not counted';
  if($('viewport-3d').hidden)$('view-status').textContent=state.editing?'Correct mode. Drag to pan, scroll to zoom, Esc to step back'
-  :state.generalView?'General view: all detected areas. Drag to pan, scroll to zoom':'Answer view: cited areas. Drag to pan, scroll to zoom';
+  :state.generalView?'General view: all detected areas. Drag to pan, '+ZOOM_HINT:'Answer view: cited areas. Drag to pan, '+ZOOM_HINT;
  const overview=$('general-view');overview.hidden=!state.result||!state.scene;overview.disabled=state.editing;overview.textContent=state.generalView?'Answer view':'General view';overview.title=state.generalView?'Return to the answer highlights':'Fit the full drawing and show all detected areas';
  $('drawing-title').textContent=state.name;
  const raw=state.raw,kind=notAPlan(raw);
@@ -811,7 +813,7 @@ export async function ask(text){
  if(reached)saveResult(question,answer,performance.now()-started);  // a failed connection is not a result worth keeping
  showAnswer(answer,question,performance.now()-started);
  frameEvidence();
- $('thread').scrollTo({top:$('answer-card').offsetTop-12,behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
+ $('answer-card').scrollIntoView({block:'start',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});  // whichever pane scrolls: the thread, or the whole side on a phone
 }
 export function setQuestionScope(id,{focus=true}={}){
  const entity=id?state.raw?.entities.find(e=>e.id===id):null;
@@ -850,7 +852,7 @@ function setView(next){
  $('view-2d').setAttribute('aria-pressed',String(mode==='2d'));$('view-3d').setAttribute('aria-pressed',String(mode==='3d'));
  document.querySelector('.zoom').hidden=mode!=='2d';
  document.querySelector('.legend').classList.toggle('in-3d',mode==='3d');  // the confidence keys describe the plan's outlines, not the model
- $('view-status').textContent=mode==='2d'?'Drag to pan, scroll to zoom':'Illustrative model. Drag to orbit, right-drag to pan, scroll to zoom';
+ $('view-status').textContent=mode==='2d'?'Drag to pan, '+ZOOM_HINT:(TOUCH?'Illustrative model. Drag to turn, two fingers to move and zoom':'Illustrative model. Drag to orbit, right-drag to pan, scroll to zoom');
  if(mode==='3d'&&!renderer&&!loading3D){
   loading3D=true;
   track(import('./room-renderer.js')).then(({RoomRenderer})=>{
@@ -881,3 +883,13 @@ const query=new URLSearchParams(location.search);
 showPanel(location.hash.slice(1));
 if(query.has('path'))openDrawing(query.get('path'),{question:query.get('question')??'',restore:!query.has('question')});
 else {try{const active=localStorage.getItem(ACTIVE);if(active)openDrawing(active,{restore:true});}catch(error){storageWarning(error);}}
+
+// ───────── small screens ─────────
+$('view-status').textContent||='Drag to pan, '+ZOOM_HINT;
+if(NARROW.matches)$('object-browser').open=false;  // the answer sits right under the plan; the lists open on a tap
+// The on-screen keyboard covers the bottom of the page without shrinking it. --vvh is the height left above it, and the
+// layout is that tall (app.css), so the question box stays in sight while typing.
+if(window.visualViewport){
+ const fit=()=>{document.documentElement.style.setProperty('--vvh',visualViewport.height+'px');if(NARROW.matches)scrollTo(0,0);};
+ visualViewport.addEventListener('resize',fit);fit();
+}

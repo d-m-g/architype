@@ -265,6 +265,7 @@ main>section{height:100%}
 /* ── side: conversation ── */
 .side{display:flex;flex-direction:column;min-height:0;background:var(--paper)}
 .overview{padding:16px 18px 14px;border-bottom:1px solid var(--line)}
+#answer-card{scroll-margin-top:12px}
 .thread{position:relative;flex:1;min-height:0;overflow:auto;padding:18px 18px 8px;display:grid;align-content:start;gap:18px}
 .thread>:not([hidden])~*{padding-top:18px;border-top:1px solid var(--line)}
 .thread h2{font-size:13px;font-weight:600;margin-bottom:8px;display:flex;align-items:baseline;gap:8px}
@@ -425,14 +426,59 @@ td .q{display:block;max-width:60ch} td small{color:var(--ink-3);font:11.5px var(
 .check{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--ink-2)}
 
 @media (max-width:900px){
- body{grid-template-rows:var(--bar) auto;height:auto}
- .workspace{grid-template-columns:1fr;height:auto}
- .stage{height:62dvh;border-right:0;border-bottom:1px solid var(--line)}
- .side{min-height:60dvh}
+ /* Phone and narrow tablet: the drawing stays put on top, the conversation scrolls under it, and the question box is
+    always at the bottom. The page itself never scrolls, so a finger on the plan pans the plan and nothing else.
+    --vvh is the visible height above the on-screen keyboard (main.js), so the question box stays above it. */
+ html,body{height:var(--vvh,100dvh);overflow:hidden}
+ .topbar{gap:8px;padding:0 10px}
+ .tabs a{padding:0 9px}
+ .top-actions{gap:4px;min-width:0}
+ #open-another{font-size:0;gap:0;width:44px;padding:0}  /* the plus alone: "New drawing" is its accessible name */
+ #sign-in{padding:0 12px;white-space:nowrap;font-size:0}#sign-in::after{content:'Sign in';font-size:14px}  /* the short form; the full label stays its accessible name */
+ .workspace{grid-template-columns:1fr;grid-template-rows:minmax(150px,44%) minmax(0,1fr)}
+ .stage{border-right:0;border-bottom:1px solid var(--line)}
+ .stage-bar{flex-wrap:nowrap;gap:8px;padding:6px 10px;overflow-x:auto;scrollbar-width:none}
+ .stage-bar::-webkit-scrollbar{display:none}
+ .stage-bar>*{flex:none}
+ #zoom-out,#zoom-in,#zoom-label{display:none}  /* pinch zooms; Fit and Rotate stay */
+ .confidence-control>span,.confidence-control{font-size:0;gap:0}.confidence-control select{font-size:16px}
+ .legend{flex-wrap:nowrap;gap:14px;padding:6px 10px;overflow-x:auto;white-space:nowrap;scrollbar-width:none;font-size:11.5px}
+ .legend::-webkit-scrollbar{display:none}
+ .legend>*{flex:none}
+ .legend-hint{margin-left:0}
+ .page-rail{width:56px;padding:6px}
+ .side{min-width:0;overflow:hidden auto;overscroll-behavior:contain}
+ .overview{padding:10px 14px}
+ .overview .muted{display:none}  /* how it was read is on the answer card */
+ .chips{flex-wrap:nowrap;overflow-x:auto;margin-top:8px;scrollbar-width:none}
+ .chips::-webkit-scrollbar{display:none}
+ .chip{flex:none;height:36px}
+ .thread{flex:none;overflow:visible;padding:14px 14px 8px;grid-template-columns:minmax(0,1fr)}
+ .composer{position:sticky;bottom:0;z-index:3;padding:8px 10px calc(8px + env(safe-area-inset-bottom))}
+ #ask-form>.voice-status{display:none}
+ .three-foot{padding:4px 10px;flex-wrap:nowrap}.three-select{min-width:0;flex:1}.three-select select{max-width:none;width:100%;min-width:0}
+ .three-status{display:none}  /* the counts are in the chips below */
+ .three-controls :is([data-action=left],[data-action=right],[data-action=in],[data-action=out]){display:none}  /* fingers turn and zoom the model */
+ .legend.in-3d{display:none}
+ .three-sandbox{max-height:calc(100% - 68px)}
  .metrics{grid-template-columns:1fr 1fr}
  .metric:nth-child(3){border-left:0} .metric:nth-child(n+3){border-top:1px solid var(--line)}
- .legend-hint,.brand span{display:none}
+ .brand span{display:none}
  .eval-head{flex-direction:column}
+ .evaluation{overflow:auto}
+}
+@media (pointer:coarse),(max-width:900px){
+ /* A finger, not a mouse: 44 px targets, and 16 px text in fields so iOS does not zoom the page on focus. */
+ .btn,.seg button,.confidence-control select,.three-select select{height:44px;min-height:44px}
+ .btn.icon{width:44px}
+ .three-controls button,.three-sandbox button{height:44px;min-width:44px}
+ .three-sandbox summary{line-height:44px}
+ .three-sandbox input[type=range]{height:32px}
+ .composer textarea{font-size:16px;height:46px;min-height:46px}
+ input,select,textarea{font-size:16px}
+ .composer .mic{width:44px;height:44px;min-height:44px;flex-basis:44px}
+ .object-browser>summary,.trace>summary{padding:12px 0}
+}
 }
 @media (prefers-reduced-motion:reduce){
  *,*::before,*::after{animation-duration:0s!important;transition:none!important}
