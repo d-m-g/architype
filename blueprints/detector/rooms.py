@@ -59,8 +59,9 @@ def _done(scene: Scene, seg: dict, detail: str) -> None:
 
 
 MARK = "+outlines:"  # in Scene.builder once a scene has its outlines, so a cached scene is not segmented again
-VERSION = 3  # @2: uploads keep the masks no reader's room matches, and get the spaces that rooms stand around;
+VERSION = 4  # @2: uploads keep the masks no reader's room matches, and get the spaces that rooms stand around;
 #              @3: an outlined room names both readers in its ref and takes the mask's score when they agree on its type
+#              @4: a reader's box without an outline, inside another room's outline, is dropped as a repeat of it
 
 
 def _outlined(scene: Scene) -> bool:
@@ -126,8 +127,24 @@ def outline_rooms(scene: Scene, file: Path, seg: dict | None = None) -> bool:
         poly = Polygon([(x * W, y * H) for x, y in pts]).buffer(0)
         return max(poly.geoms, key=lambda g: g.area) if poly.geom_type == "MultiPolygon" else poly
 
-    outlines = {i: px(seg["rooms"][j]["polygon"]) for i, j in pairs.items()}
-    outlines = {i: o for i, o in outlines.items() if o.geom_type == "Polygon" and o.area > 0}
+    def outlined(pairs):
+        found = {i: px(seg["rooms"][j]["polygon"]) for i, j in pairs.items()}
+        return {i: o for i, o in found.items() if o.geom_type == "Polygon" and o.area > 0}
+
+    outlines = outlined(pairs)
+    # A reader's box left without an outline that lies mostly inside another room's outline is that room listed again
+    # in parts (a church hall as its nave and side zones): dropped, not drawn over it. Only when it has no label or the
+    # same type, so a kitchen box inside a mask that merged kitchen and living room stays a room.
+    def again(r):
+        box = px(r.geom)
+        return box.area > 0 and any(box.intersection(o).area >= 0.6 * box.area and (not r.label or r.subtype == rooms[k].subtype)
+                                    for k, o in outlines.items())
+    dup = {id(r) for i, r in enumerate(rooms) if i not in outlines and again(r)}
+    if dup:  # dropping rooms that got no outline leaves every other pair as it was
+        scene.entities = [e for e in scene.entities if id(e) not in dup]
+        rooms = [r for r in rooms if id(r) not in dup]
+        pairs = _pair(rooms, seg["rooms"], 0.3)
+        outlines = outlined(pairs)
     known = len(rooms)
 
     def add(outline, **fields) -> None:
@@ -244,6 +261,14 @@ if __name__ == "__main__":
     added = [e for e in u.entities if e.id.startswith("seg-") and not e.attrs.get("unnamed")]
     assert [(e.subtype, e.qty["m2"], e.attrs["area_estimated"]) for e in added] == [("living", 16.0, True)], added
     assert "added 1 room(s) the reader did not list" in u.trace[-1].detail
+    # A hall the reader also listed in parts: the unlabelled box inside the hall's outline goes, and so does one of the
+    # same type that pokes out a little; a labelled kitchen of another type inside the same mask stays a room.
+    vis = lambda i, b, **more: Entity(id=f"vis-room-{i}", type="room", geom=box(*b), conf=0.7, **more)
+    u = Scene(path="uploads/h.png", builder="fixtures-6:tiled@2+vision:x@5", tier="detect", covers=["room"], pages=[page],
+              entities=[vis(0, (0.1, 0.1, 0.7, 0.5), subtype="other"), vis(1, (0.1, 0.1, 0.25, 0.5)),
+                        vis(2, (0.5, 0.12, 0.7, 0.55), subtype="other", label="Apse"), vis(3, (0.3, 0.2, 0.4, 0.3), subtype="kitchen", label="K")])
+    assert outline_rooms(u, Path("h.png"), out(found("other", box(0.1, 0.1, 0.7, 0.5))))
+    assert [e.id for e in u.entities] == ["vis-room-0", "vis-room-3"], [e.id for e in u.entities]
     # A stair that rooms stand around on three sides and no reader named: put up for review, not left out.
     ring = [box(0.1, 0.1, 0.7, 0.3), box(0.1, 0.3, 0.3, 0.5), box(0.1, 0.5, 0.7, 0.7), box(0.72, 0.1, 0.9, 0.7)]
     u = Scene(path="uploads/y.png", builder="fixtures-6:tiled@2+vision:x@5", tier="detect", covers=["room"], pages=[page],
