@@ -350,26 +350,50 @@ async def upload(request: Request, filename: str) -> dict:
     from .brain.vision import BUILDER, UPLOADS
     name = hashlib.sha256(data).hexdigest()[:20] + suffix  # content-addressed: the user's filename never touches the disk
     UPLOADS.mkdir(parents=True, exist_ok=True)
-    (UPLOADS / name).write_bytes(data)
+    stored = UPLOADS / name
+    known = stored.exists()  # checked and turned upright when it first came in; rewriting it would undo the turn
+    if not known:
+        stored.write_bytes(data)
     from .parsers.ifc import BUILDER as IFC_BUILDER
     from .parsers.pdf import BUILDER as PDF_BUILDER
     from .parsers.swiss import UPLOAD_BUILDER as DXF_BUILDER
     path = f"uploads/{name}"
-    if suffix in (".png", ".jpg", ".jpeg") or _vision_only(path):
+    turned = 0
+    if suffix in (".png", ".jpg", ".jpeg") and not known:
+        from .brain.vision import upright
+        try:
+            upright(stored)  # a phone photo's orientation flag, applied, so server and browser see the same pixels
+        except OSError:
+            pass  # not an image Pillow reads: the readers say so when they open it
+    if not known and (suffix in (".png", ".jpg", ".jpeg") or _vision_only(path)):
         # An image or a PDF the vector parser does not recognise: check it is a floor plan before anything counts on
         # it. The vision read is the one the drawing gets anyway (rooms, or the whole scene), so this moves it earlier
         # and caches it; it adds no model call. Without the reader (no key) the file is let through, as before.
         from .brain.vision import not_a_floor_plan, read_scene
         try:
-            kind = not_a_floor_plan(read_scene(path)[0])
+            seen = read_scene(path)[0]
         except NotImplementedError:
-            kind = None
+            seen = None
+        kind = seen and not_a_floor_plan(seen)
+        if seen and not kind and suffix in (".png", ".jpg", ".jpeg"):
+            # A plan drawn sideways or upside down: turn it upright and read it again, so the models read its room names
+            # and printed areas the right way up (an upside-down 16.9 m² reads as 6.91). One more call, only for these.
+            from .brain.vision import forget, turn_needed, upright
+            try:
+                turned = turn_needed(seen)
+                if turned and upright(stored, turned):
+                    forget(path)
+                    kind = not_a_floor_plan(read_scene(path)[0])
+            except NotImplementedError:
+                pass
         if kind:
-            (UPLOADS / name).unlink(missing_ok=True)
+            stored.unlink(missing_ok=True)
             raise HTTPException(422, f"Not a floor plan: this looks like a {kind}. Upload a floor plan (PDF, PNG, JPEG, DXF or IFC).")
     reader = (BUILDER if _vision_only(path) else DXF_BUILDER if suffix == ".dxf" else IFC_BUILDER if suffix == ".ifc"
               else "fixtures-6:tiled" if suffix in (".png", ".jpg", ".jpeg") else PDF_BUILDER)
-    return {"path": path, "reader": reader}
+    if known and suffix in (".png", ".jpg", ".jpeg") and stored.read_bytes() != data:
+        turned = turned or True  # turned upright when it first came in: the browser's copy is not what the server shows
+    return {"path": path, "reader": reader, **({"rotated": turned} if turned else {})}
 
 
 @app.get("/api/scene")

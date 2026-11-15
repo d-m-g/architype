@@ -9,6 +9,7 @@ import hashlib
 
 import os
 import time
+from pathlib import Path
 
 from collections import Counter
 from typing import Literal
@@ -59,6 +60,7 @@ class _Reply(BaseModel):
     """The structured output the model must return; JSON mode alone let Flash emit broken JSON on ~18% of drawings."""
     is_floor_plan: bool
     drawing_kind: str  # "floor plan", or what it is instead: "section", "elevation", "site plan", "photo", ...
+    rotation: Literal[0, 90, 180, 270] = 0  # clockwise turn that makes the drawing's text read upright
     floors: list[_Item]
     apartments: list[_Named]
     rooms: list[_Room]
@@ -69,6 +71,7 @@ class _Reply(BaseModel):
 
 PROMPT = f"""Look at this drawing. If it is a floor plan, list everything below that is drawn, as JSON only:
 {{"is_floor_plan": true or false, "drawing_kind": "floor plan", or what it is instead (section, elevation, detail, site plan, photo, schedule, text),
+ "rotation": 0, 90, 180 or 270: how many degrees clockwise the image must be turned for most of its text (room names, areas) to read upright,
  "floors": [{{"box_2d": [ymin, xmin, ymax, xmax]}}],
  "apartments": [{{"label": "the apartment's name as written, e.g. A", "box_2d": [...]}}],
  "rooms": [{{"label": "the room's name only", "number": "the room's number, e.g. 3.01, or null",
@@ -153,6 +156,7 @@ def to_scene(path: str, page: Page, found: dict) -> Scene:
         kind = str(found.get("drawing_kind") or "not a floor plan")[:40].replace(":", " ")
         return Scene(path=path, builder=f"{BUILDER}{NOT_A_PLAN}{kind}", tier="detect", covers=[], pages=[page])
     entities: list[Entity] = []
+    turn = found.get("rotation") if found.get("rotation") in (90, 180, 270) else 0
 
     def add(kind: str, subtype: str | None, item: dict, label: str | None = None, **more):
         try:
@@ -183,11 +187,38 @@ def to_scene(path: str, page: Page, found: dict) -> Scene:
         if item.get("type") in FIXTURE_TYPES:
             add("fixture", item["type"], item)
     covers = ["level", "apartment", "room", "door", "window"] + [f"room:{t}" for t in ROOM_TYPES] + [f"fixture:{t}" for t in FIXTURE_TYPES]
-    return Scene(path=path, builder=BUILDER, tier="detect", covers=covers, pages=[page], entities=entities)
+    return Scene(path=path, builder=BUILDER + (f"{TURN}{turn}" if turn else ""), tier="detect", covers=covers, pages=[page], entities=entities)
 
 
 BUILDER = f"vision:{VISION_MODEL}@5"  # bump the version when the prompt or the conversion changes; it keys the cache
 NOT_A_PLAN = ":not-a-floor-plan:"  # builder suffix for drawings the reader refused, followed by what they are
+TURN = ":turn-"  # builder suffix for an image the reader saw rotated, followed by the clockwise degrees that make it upright
+
+
+def turn_needed(scene: Scene) -> int:
+    """Clockwise degrees that would make the drawing upright, as the vision reader saw it; 0 when it is upright."""
+    return int(scene.builder.split(TURN, 1)[1].split(":")[0]) if TURN in scene.builder else 0
+
+
+def upright(file: Path, turn: int = 0) -> bool:
+    """Rewrite an uploaded image upright: the camera's orientation flag applied (a phone photo stores its turn there, not
+    in the pixels, and the browser shows it turned while the server would not), then `turn` degrees clockwise.
+    Returns whether the file changed."""
+    from PIL import Image, ImageOps
+    with Image.open(file) as image:
+        image.load()
+        flagged = image.getexif().get(0x0112, 1) not in (1, None)
+        if not flagged and not turn:
+            return False
+        fmt = image.format
+        image = ImageOps.exif_transpose(image).rotate(-turn, expand=True) if turn else ImageOps.exif_transpose(image)
+    image.save(file, format=fmt, **({"quality": 95} if fmt == "JPEG" else {}))
+    return True
+
+
+def forget(path: str) -> None:
+    """Drop the cached vision read of a drawing, after its file changed (turned upright)."""
+    (pipeline.CACHE / "scenes" / "vision" / (hashlib.md5(f"{BUILDER}:{path}".encode()).hexdigest() + ".json")).unlink(missing_ok=True)
 
 
 def not_a_floor_plan(scene: Scene) -> str | None:
@@ -335,6 +366,24 @@ if __name__ == "__main__":  # self-check of the conversion, no model call
     section = to_scene("data/x.png", page, {"is_floor_plan": False, "drawing_kind": "section", "doors": [{"box_2d": [1, 1, 2, 2]}]})
     assert not section.entities and not section.covers and not_a_floor_plan(section) == "section"
     assert not_a_floor_plan(s) is None
+    turned = to_scene("data/x.png", page, {"rotation": 90, "rooms": [{"label": "K", "type": "kitchen", "box_2d": [1, 1, 2, 2]}]})
+    assert turn_needed(turned) == 90 and turn_needed(s) == 0 and turn_needed(to_scene("data/x.png", page, {"rotation": 45})) == 0
+    import tempfile
+    from PIL import Image
+    with tempfile.TemporaryDirectory() as folder:  # a 40 x 20 image, turned 90 degrees clockwise: 20 x 40, its top-left pixel now top-right
+        file = Path(folder) / "plan.png"
+        image = Image.new("RGB", (40, 20), "white")
+        image.putpixel((0, 0), (255, 0, 0))
+        image.save(file)
+        assert not upright(file) and upright(file, 90)
+        with Image.open(file) as done:
+            assert done.size == (20, 40) and done.getpixel((19, 0)) == (255, 0, 0)
+        flag = Image.Exif()
+        flag[0x0112] = 6  # a phone photo: pixels sideways, the flag says turn 90 clockwise
+        image.save(file, exif=flag)
+        assert upright(file)
+        with Image.open(file) as done:
+            assert done.size == (20, 40) and done.getexif().get(0x0112, 1) == 1 and not upright(file)
     assert all(0 <= v <= 1 for e in s.entities for p in e.geom for v in p)
     # a detector scene of an upload takes the rooms, apartment and floors, and keeps its own doors and fixtures
     door = Entity(id="det-0", type="door", conf=0.9)

@@ -94,7 +94,7 @@ $('upload-drawing').onclick=async()=>{
  if(!uploadFile)return;
  const id=selection,file=uploadFile,displayName=originalName;
  uploadAbort?.abort();const controller=new AbortController();uploadAbort=controller;
- let timedOut=false;const timer=setTimeout(()=>{timedOut=true;controller.abort();},60000);
+ let timedOut=false;const timer=setTimeout(()=>{timedOut=true;controller.abort();},180000);  // an image is checked and, if sideways, turned and read again before the upload returns
  uploadControls(true);$('upload-status').textContent='Uploading your drawing... Your question stays editable.';
  try{
   const uploaded=await uploadDrawing(file,uploadName,controller.signal);

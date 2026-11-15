@@ -19,7 +19,7 @@ function upload(blob,filename,onProgress){
   const xhr=new XMLHttpRequest();
   xhr.open('POST','/api/upload?'+new URLSearchParams({filename}));
   xhr.setRequestHeader('Content-Type',blob.type||'application/octet-stream');
-  xhr.responseType='json';xhr.timeout=120000;
+  xhr.responseType='json';xhr.timeout=180000;  // the server checks the drawing, and may turn and re-read it, before answering
   xhr.upload.onprogress=event=>{if(event.lengthComputable)onProgress(event.loaded/event.total);};
   xhr.onload=()=>xhr.status===200&&String(xhr.response?.path).startsWith('uploads/')?resolve(xhr.response)
    :reject(new Error(`${xhr.status}: ${typeof xhr.response?.detail==='string'?xhr.response.detail:xhr.response?.error??xhr.statusText}`));
@@ -48,7 +48,7 @@ async function take(file){
   else if(prepared.width)preview={displayURL:objectURL=URL.createObjectURL(prepared.blob),width:prepared.width,height:prepared.height};
   showProgress(`Uploading ${file.name}`,0);
   const uploaded=await track(upload(prepared.blob,prepared.name,fraction=>fraction<1?showProgress(`Uploading ${file.name}`,fraction):showProgress('Checking that it is a floor plan',null)));
-  openDrawing(uploaded.path,{name:file.name,preview});
+  openDrawing(uploaded.path,{name:file.name,preview:uploaded.rotated?null:preview});  // turned upright on the server: show its copy, not the local one
  }catch(error){
   // local-file.js already words its own validation errors; transport errors get the recovery copy.
   status(/^\d{3}:|fetch|timed out/i.test(error.message)?recoveryMessage(error):error.message);
